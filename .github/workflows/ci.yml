@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Lint with flake8
+        run: flake8 app/ tests/
+
+      - name: Security scan with bandit
+        run: bandit -r app/ -ll -ii
+
+      - name: Run pytest with coverage
+        env:
+          FIREBASE_CREDENTIALS_JSON: '{"type":"service_account","project_id":"ci-test"}'
+          FIREBASE_PROJECT_ID: ci-test-project
+          GROQ_API_KEY: ci-test-key
+          ALLOWED_ORIGINS: http://localhost:3000
+          MODEL_DIR: /tmp/models
+        run: pytest tests/ -v --cov=app --cov-report=term-missing --cov-fail-under=70

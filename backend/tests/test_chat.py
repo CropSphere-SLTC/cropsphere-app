@@ -23,7 +23,7 @@ def _mock_chat_response():
 
 def test_valid_input_returns_200(client, mock_valid_token, valid_auth_header):
     with patch(
-        "app.services.chatbot_service.chat",
+        "app.routers.chat_router.chat",
         return_value=_mock_chat_response(),
     ):
         resp = client.post(URL, json=VALID, headers=valid_auth_header)

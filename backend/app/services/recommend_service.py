@@ -7,7 +7,10 @@ from app.models.loader import model_loader
 from app.models.schemas import (
     CropEnum,
     CropRecommendation,
+<<<<<<< HEAD
     IrrigationEnum,  # noqa: F401 — used in type hints via RecommendRequest
+=======
+>>>>>>> origin/main
     PricePredictRequest,
     RecommendRequest,
     RecommendResponse,

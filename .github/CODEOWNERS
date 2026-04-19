@@ -1,0 +1,13 @@
+# Backend files — Shifan reviews
+/backend/app/services/*     @shifan55
+/backend/app/routers/*      @shifan55
+/backend/app/models/*       @shifan55
+
+# Security files — Keshan must review
+/backend/app/middleware/*   @keshannilhara
+/backend/app/models/schemas.py  @keshannilhara
+/backend/tests/test_auth.py     @keshannilhara
+/.github/workflows/*            @shifan55
+
+# Flutter frontend — Supun reviews
+/frontend/*                 @supunseshan

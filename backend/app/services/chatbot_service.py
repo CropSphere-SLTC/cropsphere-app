@@ -74,18 +74,19 @@ def _rag_context(message: str) -> dict:
     if rag is None:
         return {"text": "", "sources": []}
     try:
-        from sentence_transformers import util  # type: ignore
-        encoder = rag.get("encoder")
-        chunks = rag.get("chunks", [])
-        sources = rag.get("sources", [])
-        embeddings = rag.get("embeddings")
+        from sentence_transformers import SentenceTransformer, util  # type: ignore
+        chunks = rag.get("knowledge_chunks", [])
+        metadata = rag.get("chunk_metadata", [])
+        embeddings = rag.get("chunk_embeddings")
 
-        if not encoder or not chunks or embeddings is None:
+        if not chunks or embeddings is None:
             return {"text": "", "sources": []}
 
+        encoder = SentenceTransformer("all-MiniLM-L6-v2")
         q_emb = encoder.encode(message, convert_to_tensor=True)
         idx = int(util.cos_sim(q_emb, embeddings)[0].argmax())
-        return {"text": chunks[idx], "sources": [sources[idx]] if sources else []}
+        source = metadata[idx].get("source", "") if metadata and idx < len(metadata) else ""
+        return {"text": chunks[idx], "sources": [source] if source else []}
     except Exception as exc:
         logger.warning("RAG retrieval failed: %s", exc)
         return {"text": "", "sources": []}

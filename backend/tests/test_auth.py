@@ -1,8 +1,14 @@
 """Tests for JWT authentication middleware behaviour."""
 <<<<<<< HEAD
+<<<<<<< HEAD
 from unittest.mock import patch
 =======
 >>>>>>> origin/main
+=======
+=======
+from unittest.mock import patch
+>>>>>>> 0c9c358 (chore: initial repository setup)
+>>>>>>> feature/backend-setup
 
 YIELD_URL = "/api/yield/predict"
 HEALTH_URL = "/api/health"
@@ -46,9 +52,15 @@ def test_missing_token_returns_401(client, mock_expired_token):
     resp = client.post(YIELD_URL, json=MINIMAL_YIELD_PAYLOAD)
     assert resp.status_code == 401
 <<<<<<< HEAD
+<<<<<<< HEAD
     assert "Authorization" in resp.json()["detail"] or "missing" in resp.json()["detail"].lower()
 =======
 >>>>>>> origin/main
+=======
+=======
+    assert "Authorization" in resp.json()["detail"] or "missing" in resp.json()["detail"].lower()
+>>>>>>> 0c9c358 (chore: initial repository setup)
+>>>>>>> feature/backend-setup
 
 
 def test_invalid_token_returns_401(client, mock_expired_token):
@@ -71,6 +83,7 @@ def test_expired_token_returns_401(client, mock_expired_token):
 
 def test_valid_token_passes_auth(client, mock_valid_token, valid_auth_header):
 <<<<<<< HEAD
+<<<<<<< HEAD
     """A valid token should reach the route (422 from missing body is fine here)."""
     resp = client.post(YIELD_URL, json={}, headers=valid_auth_header)
     # 422 means auth passed — Pydantic rejected the empty body
@@ -78,6 +91,15 @@ def test_valid_token_passes_auth(client, mock_valid_token, valid_auth_header):
     """A valid token should reach the route handler (422 means auth passed)."""
     resp = client.post(YIELD_URL, json={}, headers=valid_auth_header)
 >>>>>>> origin/main
+=======
+    """A valid token should reach the route handler (422 means auth passed)."""
+    resp = client.post(YIELD_URL, json={}, headers=valid_auth_header)
+=======
+    """A valid token should reach the route (422 from missing body is fine here)."""
+    resp = client.post(YIELD_URL, json={}, headers=valid_auth_header)
+    # 422 means auth passed — Pydantic rejected the empty body
+>>>>>>> 0c9c358 (chore: initial repository setup)
+>>>>>>> feature/backend-setup
     assert resp.status_code == 422
 
 

@@ -9,6 +9,7 @@ os.environ.setdefault("ALLOWED_ORIGINS", "http://localhost:3000")
 os.environ.setdefault("MODEL_DIR", "/tmp/models")
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 import pytest
 from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
@@ -17,6 +18,16 @@ import pytest  # noqa: E402
 from unittest.mock import MagicMock, patch  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 >>>>>>> origin/main
+=======
+import pytest  # noqa: E402
+from unittest.mock import MagicMock, patch  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+=======
+import pytest
+from unittest.mock import MagicMock, patch
+from fastapi.testclient import TestClient
+>>>>>>> 0c9c358 (chore: initial repository setup)
+>>>>>>> feature/backend-setup
 
 
 @pytest.fixture(scope="session")

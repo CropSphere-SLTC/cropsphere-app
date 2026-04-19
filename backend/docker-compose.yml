@@ -7,6 +7,15 @@ services:
       - "8000:8000"
     volumes:
 <<<<<<< HEAD
+<<<<<<< HEAD
+      - ./app:/app/app                  # hot reload
+      - ./models/files:/app/models/files  # ML model files
+=======
+      - ./app:/app/app                    # hot reload
+      - ./models/files:/app/models/files  # ML model files
+      - ./tests:/app/tests                # test files
+>>>>>>> origin/main
+=======
       - ./app:/app/app                    # hot reload
       - ./models/files:/app/models/files  # ML model files
       - ./tests:/app/tests                # test files
@@ -14,6 +23,7 @@ services:
       - ./app:/app/app                  # hot reload
       - ./models/files:/app/models/files  # ML model files
 >>>>>>> 0c9c358 (chore: initial repository setup)
+>>>>>>> feature/backend-setup
     env_file:
       - .env
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload

@@ -8,9 +8,15 @@ from app.models.schemas import (
     CropEnum,
     CropRecommendation,
 <<<<<<< HEAD
+<<<<<<< HEAD
+    IrrigationEnum,  # noqa: F401 — used in type hints via RecommendRequest
+=======
+>>>>>>> origin/main
+=======
 =======
     IrrigationEnum,  # noqa: F401 — used in type hints via RecommendRequest
 >>>>>>> 0c9c358 (chore: initial repository setup)
+>>>>>>> feature/backend-setup
     PricePredictRequest,
     RecommendRequest,
     RecommendResponse,

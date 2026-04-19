@@ -1,0 +1,85 @@
+# ── Version control ──────────────────────────────────────────
+.git
+.gitignore
+.gitattributes
+
+# ── Python artefacts ─────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.whl
+
+# ── Virtual environments ──────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+.env
+
+# ── Test & coverage ───────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+nosetests.xml
+coverage.xml
+*.cover
+
+# ── Linting / formatting ──────────────────────────────────────
+.mypy_cache/
+.ruff_cache/
+.flake8
+
+# ── IDE / editor ──────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── OS artefacts ──────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Documentation ─────────────────────────────────────────────
+docs/
+*.md
+!README.md
+
+# ── CI / CD ───────────────────────────────────────────────────
+.github/
+.circleci/
+.travis.yml
+
+# ── Data & model weights (large files not needed at build) ────
+*.csv
+*.tsv
+*.parquet
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+*.joblib
+*.pt
+*.pth
+*.onnx
+*.pb
+*.tflite
+data/
+models/
+notebooks/
+*.ipynb
+
+# ── Logs ──────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Docker files themselves (no need to copy into image) ──────
+Dockerfile
+.dockerignore

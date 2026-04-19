@@ -9,7 +9,7 @@ tensorflow-cpu==2.16.1
 xgboost==2.0.3
 joblib==1.4.0
 sentence-transformers==2.7.0
-groq==0.8.0
+groq==1.2.0
 pandas==2.2.2
 numpy==1.26.4
 python-dotenv==1.0.1

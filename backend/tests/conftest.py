@@ -8,9 +8,15 @@ os.environ.setdefault("GROQ_API_KEY", "test-groq-key")
 os.environ.setdefault("ALLOWED_ORIGINS", "http://localhost:3000")
 os.environ.setdefault("MODEL_DIR", "/tmp/models")
 
+<<<<<<< HEAD
 import pytest  # noqa: E402
 from unittest.mock import MagicMock, patch  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+=======
+import pytest
+from unittest.mock import MagicMock, patch
+from fastapi.testclient import TestClient
+>>>>>>> 0c9c358 (chore: initial repository setup)
 
 
 @pytest.fixture(scope="session")

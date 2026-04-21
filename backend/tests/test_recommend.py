@@ -1,5 +1,16 @@
 """Tests for POST /api/recommend."""
+<<<<<<< HEAD
+<<<<<<< HEAD
 from unittest.mock import MagicMock, patch
+=======
+from unittest.mock import patch
+>>>>>>> origin/main
+=======
+from unittest.mock import patch
+=======
+from unittest.mock import MagicMock, patch
+>>>>>>> 0c9c358 (chore: initial repository setup)
+>>>>>>> feature/backend-setup
 
 URL = "/api/recommend"
 
@@ -21,9 +32,22 @@ VALID = {
 
 
 def _mock_recommend_response():
+<<<<<<< HEAD
+<<<<<<< HEAD
     from app.models.schemas import (
         CropEnum, CropRecommendation, RecommendResponse
     )
+=======
+    from app.models.schemas import CropEnum, CropRecommendation, RecommendResponse
+>>>>>>> origin/main
+=======
+    from app.models.schemas import CropEnum, CropRecommendation, RecommendResponse
+=======
+    from app.models.schemas import (
+        CropEnum, CropRecommendation, RecommendResponse
+    )
+>>>>>>> 0c9c358 (chore: initial repository setup)
+>>>>>>> feature/backend-setup
     return RecommendResponse(
         recommendations=[
             CropRecommendation(
@@ -79,6 +103,15 @@ def test_mock_response_when_model_not_loaded(client, mock_valid_token, valid_aut
 
     assert resp.status_code == 200
     body = resp.json()
+<<<<<<< HEAD
+<<<<<<< HEAD
     # All crops should return mock data when models absent
+=======
+>>>>>>> origin/main
+=======
+=======
+    # All crops should return mock data when models absent
+>>>>>>> 0c9c358 (chore: initial repository setup)
+>>>>>>> feature/backend-setup
     for rec in body["recommendations"]:
         assert rec["suitability_flags"]["any_mock"] is True

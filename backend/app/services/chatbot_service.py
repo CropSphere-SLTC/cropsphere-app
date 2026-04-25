@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 _MAX_LEN = 500
 _encoder = None  # SentenceTransformer singleton — loaded once on first chat request
-_HF_CACHE = "/tmp/hf_cache"  # writable by the non-root container user
+_HF_CACHE = "/tmp/hf_cache"  # nosec B108 — intentional, writable by non-root container user
 
 
 def chat(req: ChatRequest, settings) -> ChatResponse:

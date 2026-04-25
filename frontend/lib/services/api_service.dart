@@ -2,7 +2,7 @@
 // Real API calls — used when AppConfig.useMockServices = false
 
 import 'package:dio/dio.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../config/app_config.dart';
 import '../models/api_models.dart';
 
@@ -11,7 +11,6 @@ class ApiService {
   factory ApiService() => _instance;
 
   late final Dio _dio;
-  final FlutterSecureStorage _storage = const FlutterSecureStorage();
 
   ApiService._internal() {
     _dio = Dio(
@@ -23,33 +22,25 @@ class ApiService {
       ),
     );
 
-    // JWT interceptor — adds Bearer token to every request
+    // JWT interceptor — Firebase handles token refresh automatically
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
-          final token = await _storage.read(key: 'jwt_token');
-          if (token != null) {
+          final user = FirebaseAuth.instance.currentUser;
+          if (user != null) {
+            final token = await user.getIdToken();
             options.headers['Authorization'] = 'Bearer $token';
           }
           return handler.next(options);
         },
-        onError: (error, handler) {
-          // 401 = token expired, trigger re-login
+        onError: (error, handler) async {
           if (error.response?.statusCode == 401) {
-            // TODO: Navigate to login screen
+            await FirebaseAuth.instance.signOut();
           }
           return handler.next(error);
         },
       ),
     );
-  }
-
-  Future<void> saveToken(String token) async {
-    await _storage.write(key: 'jwt_token', value: token);
-  }
-
-  Future<void> clearToken() async {
-    await _storage.delete(key: 'jwt_token');
   }
 
   Future<YieldResponse> predictYield(YieldRequest request) async {

@@ -129,7 +129,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
         child: Column(
           children: [
             DropdownButtonFormField<String>(
-              value: _selectedDistrict,
+              initialValue: _selectedDistrict,
               decoration: InputDecoration(
                 labelText: 'District',
                 prefixIcon: Icon(Icons.location_on, color: AppTheme.primary),

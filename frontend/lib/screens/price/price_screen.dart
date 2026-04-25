@@ -269,14 +269,14 @@ class _PriceScreenState extends State<PriceScreen> {
               subtitle: const Text('Public holiday this week'),
               value: _holidayFlag == 1,
               onChanged: (v) => setState(() => _holidayFlag = v ? 1 : 0),
-              activeColor: AppTheme.primary,
+              activeThumbColor: AppTheme.primary,
             ),
             SwitchListTile(
               title: const Text('Festival Week'),
               subtitle: const Text('Major festival (Avurudu, Vesak, etc.)'),
               value: _festivalFlag == 1,
               onChanged: (v) => setState(() => _festivalFlag = v ? 1 : 0),
-              activeColor: Colors.orange,
+              activeThumbColor: Colors.orange,
             ),
           ],
         ),
@@ -442,7 +442,7 @@ class _PriceScreenState extends State<PriceScreen> {
     ValueChanged<String?> onChanged,
   ) {
     return DropdownButtonFormField<String>(
-      value: value,
+      initialValue: value,
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: Icon(icon, color: AppTheme.primary),

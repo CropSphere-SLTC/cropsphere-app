@@ -1,0 +1,46 @@
+# FastAPI Core
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+
+# Data Validation
+pydantic>=2.6
+
+# Database (choose based on your setup)
+sqlalchemy>=2.0
+psycopg2-binary>=2.9      # PostgreSQL
+# or
+# mysqlclient>=2.2        # MySQL
+
+# Authentication & Security
+python-jose>=3.3
+passlib[bcrypt]>=1.7
+
+# Environment Variables
+python-dotenv>=1.0
+
+# HTTP Requests
+httpx>=0.27
+
+# File Uploads / Images
+python-multipart>=0.0.9
+pillow>=10.0
+
+# Firebase Admin SDK
+firebase-admin>=6.2
+
+# CORS Support
+starlette>=0.37
+
+# Async Support
+anyio>=4.3
+
+# Logging & Utilities
+loguru>=0.7
+
+# Deployment
+gunicorn>=21.2
+
+# Development Tools (optional)
+pytest>=8.0
+black>=24.0
+isort>=5.13

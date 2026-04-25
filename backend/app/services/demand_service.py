@@ -2,6 +2,8 @@
 import logging
 from typing import Dict, List
 
+import numpy as np
+
 from app.models.loader import model_loader
 from app.models.schemas import (
     ConfidenceEnum,
@@ -20,7 +22,15 @@ _CROP_KEY: Dict[str, str] = {
     "Finger millet": "demand_Fingermillet",
     "Groundnut": "demand_Groundnut",
 }
-_SEASON_IDX = {"Maha": 0, "Yala": 1, "Inter": 2}
+
+# Derived from M4 LabelEncoder (same season ordering as M1)
+_SEASON_ENC = {"Inter": 0, "Maha": 1, "Yala": 2}
+
+# FEAT_COLS order (from M4_config.pkl):
+# demand_index, consumer_pref_index, search_trend_index, retail_price_lkr_kg,
+# farmgate_price_lkr_kg, inflation_index, supply_index, holiday_flag, festival_flag,
+# week_of_year, demand_lag1..12, demand_roll4_mean, demand_roll4_std, demand_roll8_mean,
+# price_change_pct, season_enc, district_enc
 
 
 def predict_demand(req: DemandPredictRequest, user_id: str) -> DemandPredictResponse:
@@ -61,18 +71,51 @@ def predict_demand(req: DemandPredictRequest, user_id: str) -> DemandPredictResp
 
 
 def _build_features(req: DemandPredictRequest) -> List[float]:
+    """Build 22-feature vector matching the training pipeline (M4_config FEAT_COLS).
+
+    Missing request fields are approximated with sensible defaults:
+    - farmgate_price_lkr_kg ≈ 0.75 × retail_price (typical markup inverse)
+    - supply_index: 100.0 (neutral)
+    - demand_lag3: interpolated from lag2 and lag4
+    - demand_lag8/12: approximated from lag4
+    - district_enc: 0 (not in request schema)
+    """
+    lag1, lag2, lag4 = req.demand_lag1, req.demand_lag2, req.demand_lag4
+    lag3 = (lag2 + lag4) / 2.0
+    lag8 = lag4
+    lag12 = lag4
+
+    lags_4 = [lag1, lag2, lag3, lag4]
+    roll4_mean = float(np.mean(lags_4))
+    roll4_std = float(np.std(lags_4))
+    roll8_mean = roll4_mean  # approximation
+
+    farmgate_approx = req.retail_price_lkr_kg * 0.75
+    season_enc = _SEASON_ENC.get(req.season.value, 0)
+
     return [
-        _SEASON_IDX[req.season.value],
-        req.week_of_year,
-        req.demand_lag1,
-        req.demand_lag2,
-        req.demand_lag4,
-        req.retail_price_lkr_kg,
-        req.inflation_index,
-        req.holiday_flag,
-        req.festival_flag,
-        req.consumer_pref_index,
-        req.search_trend_index,
+        lag1,                          # 0  demand_index (use most recent lag as proxy)
+        req.consumer_pref_index,       # 1  consumer_pref_index
+        req.search_trend_index,        # 2  search_trend_index
+        req.retail_price_lkr_kg,       # 3  retail_price_lkr_kg
+        farmgate_approx,               # 4  farmgate_price_lkr_kg (approx)
+        req.inflation_index,           # 5  inflation_index
+        100.0,                         # 6  supply_index (default neutral)
+        float(req.holiday_flag),       # 7  holiday_flag
+        float(req.festival_flag),      # 8  festival_flag
+        req.week_of_year,              # 9  week_of_year
+        lag1,                          # 10 demand_lag1
+        lag2,                          # 11 demand_lag2
+        lag3,                          # 12 demand_lag3 (interpolated)
+        lag4,                          # 13 demand_lag4
+        lag8,                          # 14 demand_lag8 (approx)
+        lag12,                         # 15 demand_lag12 (approx)
+        roll4_mean,                    # 16 demand_roll4_mean
+        roll4_std,                     # 17 demand_roll4_std
+        roll8_mean,                    # 18 demand_roll8_mean
+        0.0,                           # 19 price_change_pct (not available)
+        season_enc,                    # 20 season_enc
+        0,                             # 21 district_enc (not in request, default 0)
     ]
 
 

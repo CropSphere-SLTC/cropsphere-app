@@ -40,10 +40,11 @@ def create_app() -> FastAPI:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-    # ── CORS — origins from env only ──────────────────────────────────────────
+    # ── CORS — origins from env; any localhost port allowed in development ───
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.allowed_origins_list,
+        allow_origin_regex=r"http://localhost(:\d+)?" if settings.APP_ENV == "development" else None,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -65,10 +66,14 @@ def create_app() -> FastAPI:
     @app.on_event("startup")
     async def startup() -> None:
         logger.info("CropSphere starting — ENV=%s", settings.APP_ENV)
+
+        # JWT verification uses google.oauth2.id_token directly (no firebase_admin needed).
+        # Firestore audit logging requires a service-account key — optional for dev.
         try:
             init_firestore(settings.FIREBASE_CREDENTIALS_JSON, settings.FIREBASE_PROJECT_ID)
         except Exception as exc:
-            logger.error("Firestore init failed (continuing without audit logging): %s", exc)
+            logger.warning("Firestore audit logging disabled: %s", exc)
+
         model_loader.load_all(settings.MODEL_DIR)
         logger.info("Models: %s", model_loader.status_report())
 

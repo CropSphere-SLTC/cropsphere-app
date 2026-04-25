@@ -11,17 +11,33 @@ _db = None
 
 
 def init_firestore(credentials_json: str, project_id: str) -> None:
-    """Initialise Firestore once on app startup.
+    """Initialise Firestore audit logging using a service-account key.
 
     credentials_json may be:
     - A file-system path to a service-account JSON file (local dev)
     - A raw JSON string (Railway/CI environment variable)
+
+    Raises ValueError for placeholder/missing credentials so the caller can
+    disable Firestore gracefully without crashing JWT verification.
     """
     global _db
     import firebase_admin
     from firebase_admin import credentials, firestore
 
+    if not credentials_json or credentials_json.strip().startswith("/path/to"):
+        raise ValueError("FIREBASE_CREDENTIALS_JSON is not configured — Firestore audit logging disabled")
+
+    # App may already be initialised by main.py for JWT verification; only
+    # re-initialise with credentials if the existing app has no credential.
     if not firebase_admin._apps:
+        if credentials_json.strip().startswith("{"):
+            cred = credentials.Certificate(json.loads(credentials_json))
+        else:
+            cred = credentials.Certificate(credentials_json)
+        firebase_admin.initialize_app(cred, {"projectId": project_id})
+    elif firebase_admin.get_app().credential.__class__.__name__ == "ApplicationDefaultCredentials":
+        # App was initialised without a service account — re-init with credentials
+        firebase_admin.delete_app(firebase_admin.get_app())
         if credentials_json.strip().startswith("{"):
             cred = credentials.Certificate(json.loads(credentials_json))
         else:

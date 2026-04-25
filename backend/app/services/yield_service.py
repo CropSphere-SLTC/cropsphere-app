@@ -3,8 +3,6 @@ import logging
 from datetime import date
 from typing import Dict, List
 
-import numpy as np
-
 from app.models.loader import model_loader
 from app.models.schemas import (
     ConfidenceEnum,

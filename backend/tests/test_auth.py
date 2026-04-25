@@ -1,5 +1,4 @@
 """Tests for JWT authentication middleware behaviour."""
-from unittest.mock import patch
 
 YIELD_URL = "/api/yield/predict"
 HEALTH_URL = "/api/health"
@@ -64,9 +63,8 @@ def test_expired_token_returns_401(client, mock_expired_token):
 
 
 def test_valid_token_passes_auth(client, mock_valid_token, valid_auth_header):
-    """A valid token should reach the route (422 from missing body is fine here)."""
+    """A valid token should reach the route handler (422 means auth passed)."""
     resp = client.post(YIELD_URL, json={}, headers=valid_auth_header)
-    # 422 means auth passed — Pydantic rejected the empty body
     assert resp.status_code == 422
 
 

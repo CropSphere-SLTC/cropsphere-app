@@ -9,6 +9,8 @@ from app.utils.firestore import audit_log
 logger = logging.getLogger(__name__)
 
 _MAX_LEN = 500
+_encoder = None  # SentenceTransformer singleton — loaded once on first chat request
+_HF_CACHE = "/tmp/hf_cache"  # writable by the non-root container user
 
 
 def chat(req: ChatRequest, settings) -> ChatResponse:
@@ -36,7 +38,7 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
         messages = _build_messages(_system_prompt(req), context, req, clean)
 
         response = client.chat.completions.create(
-            model="llama3-8b-8192",
+            model="llama-3.1-8b-instant",
             messages=messages,
             max_tokens=512,
             temperature=0.7,
@@ -54,6 +56,17 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _get_encoder():
+    """Return the SentenceTransformer encoder, loading it once and caching it."""
+    global _encoder
+    if _encoder is None:
+        from sentence_transformers import SentenceTransformer  # type: ignore
+        import os
+        os.makedirs(_HF_CACHE, exist_ok=True)
+        _encoder = SentenceTransformer("all-MiniLM-L6-v2", cache_folder=_HF_CACHE)
+    return _encoder
+
 
 def _strip_html(text: str) -> str:
     """Remove HTML tags to mitigate prompt injection via markup."""
@@ -77,17 +90,18 @@ def _rag_context(message: str) -> dict:
         return {"text": "", "sources": []}
     try:
         from sentence_transformers import util  # type: ignore
-        encoder = rag.get("encoder")
-        chunks = rag.get("chunks", [])
-        sources = rag.get("sources", [])
-        embeddings = rag.get("embeddings")
+        chunks = rag.get("knowledge_chunks", [])
+        metadata = rag.get("chunk_metadata", [])
+        embeddings = rag.get("chunk_embeddings")
 
-        if not encoder or not chunks or embeddings is None:
+        if not chunks or embeddings is None:
             return {"text": "", "sources": []}
 
+        encoder = _get_encoder()
         q_emb = encoder.encode(message, convert_to_tensor=True)
         idx = int(util.cos_sim(q_emb, embeddings)[0].argmax())
-        return {"text": chunks[idx], "sources": [sources[idx]] if sources else []}
+        source = metadata[idx].get("source", "") if metadata and idx < len(metadata) else ""
+        return {"text": chunks[idx], "sources": [source] if source else []}
     except Exception as exc:
         logger.warning("RAG retrieval failed: %s", exc)
         return {"text": "", "sources": []}

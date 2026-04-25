@@ -25,7 +25,9 @@ def init_firestore(credentials_json: str, project_id: str) -> None:
     from firebase_admin import credentials, firestore
 
     if not credentials_json or credentials_json.strip().startswith("/path/to"):
-        raise ValueError("FIREBASE_CREDENTIALS_JSON is not configured — Firestore audit logging disabled")
+        raise ValueError(
+            "FIREBASE_CREDENTIALS_JSON is not configured — Firestore audit logging disabled"
+        )
 
     # App may already be initialised by main.py for JWT verification; only
     # re-initialise with credentials if the existing app has no credential.

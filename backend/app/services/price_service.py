@@ -22,8 +22,8 @@ _CROP_KEY: Dict[str, str] = {
     "Groundnut": "price_Groundnut",
 }
 
-_LSTM_TIMESTEPS = 8   # historical timesteps the price LSTM expects
-_RETAIL_MARKUP  = 1.45  # approximate retail/farmgate ratio used during training
+_LSTM_TIMESTEPS = 8  # historical timesteps the price LSTM expects
+_RETAIL_MARKUP = 1.45  # approximate retail/farmgate ratio used during training
 
 
 def predict_price(req: PricePredictRequest, user_id: str) -> PricePredictResponse:
@@ -57,17 +57,18 @@ def predict_price(req: PricePredictRequest, user_id: str) -> PricePredictRespons
 
         if crop_scaler is not None:
             # Inverse-transform: put predictions in positions 0 (farmgate) and 1 (retail)
-            # Scaler: [farmgate, retail, transport, fuel, supply, demand, inflation, holiday, festival]
+            # Scaler order: farmgate, retail, transport, fuel,
+            # supply, demand, inflation, holiday, festival
             dummy = np.zeros((1, crop_scaler.n_features_in_))
             dummy[0, 0] = float(pred[0])
             dummy[0, 1] = float(pred[1]) if len(pred) > 1 else float(pred[0])
             result = crop_scaler.inverse_transform(dummy)[0]
             farmgate = max(0.0, round(float(result[0]), 2))
-            retail   = max(0.0, round(float(result[1]), 2))
+            retail = max(0.0, round(float(result[1]), 2))
         else:
             logger.warning("price_scalers absent for %s — using raw model output", req.crop.value)
             farmgate = round(float(pred[0]), 2)
-            retail   = round(float(pred[1]) if len(pred) > 1 else farmgate * 1.25, 2)
+            retail = round(float(pred[1]) if len(pred) > 1 else farmgate * 1.25, 2)
 
         return PricePredictResponse(
             crop=req.crop,
@@ -89,7 +90,8 @@ def predict_price_internal(req: PricePredictRequest) -> PricePredictResponse:
 def _build_sequence(req: PricePredictRequest, crop_scaler) -> np.ndarray:
     """Build (1, 8, 9) input sequence for the price LSTM.
 
-    Scaler feature order: farmgate, retail, transport, fuel, supply, demand, inflation, holiday, festival
+    Scaler feature order: farmgate, retail, transport, fuel,
+    supply, demand, inflation, holiday, festival.
     Uses lag1/lag2/lag4 to approximate 8 weeks of farmgate history.
     """
     lag1, lag2, lag4 = req.farmgate_price_lag1, req.farmgate_price_lag2, req.farmgate_price_lag4

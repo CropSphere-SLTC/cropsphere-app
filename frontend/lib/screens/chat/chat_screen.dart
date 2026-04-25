@@ -72,9 +72,7 @@ class _ChatScreenState extends State<ChatScreen> {
       final response = await service.sendChat(
         ChatRequest(
           message: message,
-          conversationHistory: List.from(
-            _history.sublist(0, _history.length - 1),
-          ),
+          conversationHistory: _buildValidHistory(),
           userId: userId,
           district: _selectedDistrict,
           crop: _selectedCrop,
@@ -465,7 +463,7 @@ class _ChatScreenState extends State<ChatScreen> {
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16),
         itemCount: _suggestedFollowups.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (ctx, i) => GestureDetector(
           onTap: () => _sendMessage(_suggestedFollowups[i]),
           child: Container(
@@ -554,5 +552,34 @@ class _ChatScreenState extends State<ChatScreen> {
         ],
       ),
     );
+  }
+
+  List<ChatMessage> _buildValidHistory() {
+    final history = List<ChatMessage>.from(
+      _history.sublist(0, _history.length - 1),
+    );
+    // Keep only alternating user/assistant pairs
+    final valid = <ChatMessage>[];
+    for (final msg in history) {
+      if (valid.isEmpty && msg.role == 'user') {
+        valid.add(msg);
+      } else if (valid.isNotEmpty && msg.role != valid.last.role) {
+        valid.add(msg);
+      }
+    }
+    // Limit to last 10 turns and truncate long messages
+    final limited = valid.length > 10
+        ? valid.sublist(valid.length - 10)
+        : valid;
+    return limited
+        .map(
+          (m) => ChatMessage(
+            role: m.role,
+            content: m.content.length > 400
+                ? '${m.content.substring(0, 400)}...'
+                : m.content,
+          ),
+        )
+        .toList();
   }
 }

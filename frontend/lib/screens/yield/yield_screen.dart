@@ -36,7 +36,12 @@ class _YieldScreenState extends State<YieldScreen> {
   String? _errorMessage;
 
   final List<String> _crops = [
-    'Carrot', 'Maize', 'Green gram', 'Cowpea', 'Finger millet', 'Groundnut'
+    'Carrot',
+    'Maize',
+    'Green gram',
+    'Cowpea',
+    'Finger millet',
+    'Groundnut',
   ];
 
   final Map<String, List<String>> _cropDistricts = {
@@ -49,7 +54,12 @@ class _YieldScreenState extends State<YieldScreen> {
   };
 
   final List<String> _seasons = ['Maha', 'Yala', 'Inter'];
-  final List<String> _irrigationTypes = ['drip', 'sprinkler', 'flood', 'rainfed'];
+  final List<String> _irrigationTypes = [
+    'drip',
+    'sprinkler',
+    'flood',
+    'rainfed',
+  ];
 
   List<String> get _availableDistricts =>
       _cropDistricts[_selectedCrop] ?? ['Nuwara Eliya'];
@@ -77,7 +87,7 @@ class _YieldScreenState extends State<YieldScreen> {
         soilPh: _soilPh,
         soilMoisturePct: _soilMoisture,
         cultivatedAreaHa: 1.0,
-        seedVariety: 'HORDI ${_selectedCrop} 1',
+        seedVariety: 'HORDI $_selectedCrop 1',
         fertilizerIndex: _fertilizerIndex,
         pesticideIndex: 0.6,
         irrigationType: _selectedIrrigation,
@@ -92,12 +102,14 @@ class _YieldScreenState extends State<YieldScreen> {
       );
 
       final response = await service.predictYield(request);
-      setState(() => _result = {
-        'yield': response.predictedYieldKgPerHa,
-        'confidence': response.confidence,
-        'model': response.modelUsed,
-        'isMock': response.isMock,
-      });
+      setState(
+        () => _result = {
+          'yield': response.predictedYieldKgPerHa,
+          'confidence': response.confidence,
+          'model': response.modelUsed,
+          'isMock': response.isMock,
+        },
+      );
     } catch (e) {
       setState(() => _errorMessage = 'Prediction failed: ${e.toString()}');
     } finally {
@@ -107,9 +119,12 @@ class _YieldScreenState extends State<YieldScreen> {
 
   Color _confidenceColor(String confidence) {
     switch (confidence.toLowerCase()) {
-      case 'high': return Colors.green;
-      case 'medium': return Colors.orange;
-      default: return Colors.red;
+      case 'high':
+        return Colors.green;
+      case 'medium':
+        return Colors.orange;
+      default:
+        return Colors.red;
     }
   }
 
@@ -413,8 +428,13 @@ class _YieldScreenState extends State<YieldScreen> {
             children: [
               Icon(icon, size: 16, color: color),
               const SizedBox(width: 6),
-              Text(label,
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
               const Spacer(),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -460,7 +480,7 @@ class _YieldScreenState extends State<YieldScreen> {
     required ValueChanged<String?> onChanged,
   }) {
     return DropdownButtonFormField<String>(
-      value: value,
+      initialValue: value,
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: Icon(icon, color: AppTheme.primary),
@@ -497,7 +517,9 @@ class _YieldScreenState extends State<YieldScreen> {
         style: ElevatedButton.styleFrom(
           backgroundColor: AppTheme.primaryDark,
           foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
         ),
       ),
     );
@@ -525,7 +547,10 @@ class _YieldScreenState extends State<YieldScreen> {
                 ),
                 if (isMock)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.orange.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(8),
@@ -592,12 +617,19 @@ class _YieldScreenState extends State<YieldScreen> {
   Widget _buildResultStat(String label, String value) {
     return Column(
       children: [
-        Text(label,
-            style: const TextStyle(color: Colors.white54, fontSize: 11)),
+        Text(
+          label,
+          style: const TextStyle(color: Colors.white54, fontSize: 11),
+        ),
         const SizedBox(height: 4),
-        Text(value,
-            style: const TextStyle(
-                color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+        Text(
+          value,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       ],
     );
   }

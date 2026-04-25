@@ -167,7 +167,7 @@ class _DemandScreenState extends State<DemandScreen> {
         child: Column(
           children: [
             DropdownButtonFormField<String>(
-              value: _selectedCrop,
+              initialValue: _selectedCrop,
               decoration: InputDecoration(
                 labelText: 'Crop',
                 prefixIcon: Icon(Icons.eco, color: AppTheme.primary),
@@ -182,7 +182,7 @@ class _DemandScreenState extends State<DemandScreen> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
-              value: _selectedSeason,
+              initialValue: _selectedSeason,
               decoration: InputDecoration(
                 labelText: 'Season',
                 prefixIcon: const Icon(Icons.calendar_month),
@@ -284,14 +284,14 @@ class _DemandScreenState extends State<DemandScreen> {
               title: const Text('Holiday Week'),
               value: _holidayFlag == 1,
               onChanged: (v) => setState(() => _holidayFlag = v ? 1 : 0),
-              activeColor: AppTheme.primary,
+              activeThumbColor: AppTheme.primary,
             ),
             SwitchListTile(
               title: const Text('Festival Week'),
               subtitle: const Text('Avurudu, Vesak, Deepavali, Christmas'),
               value: _festivalFlag == 1,
               onChanged: (v) => setState(() => _festivalFlag = v ? 1 : 0),
-              activeColor: Colors.orange,
+              activeThumbColor: Colors.orange,
             ),
           ],
         ),

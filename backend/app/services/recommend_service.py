@@ -7,16 +7,6 @@ from app.models.loader import model_loader
 from app.models.schemas import (
     CropEnum,
     CropRecommendation,
-<<<<<<< HEAD
-<<<<<<< HEAD
-    IrrigationEnum,  # noqa: F401 — used in type hints via RecommendRequest
-=======
->>>>>>> origin/main
-=======
-=======
-    IrrigationEnum,  # noqa: F401 — used in type hints via RecommendRequest
->>>>>>> 0c9c358 (chore: initial repository setup)
->>>>>>> feature/backend-setup
     PricePredictRequest,
     RecommendRequest,
     RecommendResponse,
@@ -67,7 +57,8 @@ def get_recommendations(req: RecommendRequest, user_id: str) -> RecommendRespons
             except Exception as exc:
                 logger.warning("Skipping %s in recommendation chain: %s", crop.value, exc)
 
-        return RecommendResponse(recommendations=_rank(req, crop_results))
+        any_mock = any(y.is_mock or p.is_mock for _, y, p in crop_results)
+        return RecommendResponse(recommendations=_rank(req, crop_results), is_mock=any_mock)
     except Exception as exc:
         logger.error("Recommendation pipeline failed: %s", exc)
         raise RuntimeError("Recommendation unavailable") from exc

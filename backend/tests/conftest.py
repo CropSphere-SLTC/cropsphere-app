@@ -8,26 +8,9 @@ os.environ.setdefault("GROQ_API_KEY", "test-groq-key")
 os.environ.setdefault("ALLOWED_ORIGINS", "http://localhost:3000")
 os.environ.setdefault("MODEL_DIR", "/tmp/models")
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-import pytest
-from unittest.mock import MagicMock, patch
-from fastapi.testclient import TestClient
-=======
 import pytest  # noqa: E402
 from unittest.mock import MagicMock, patch  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
->>>>>>> origin/main
-=======
-import pytest  # noqa: E402
-from unittest.mock import MagicMock, patch  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
-=======
-import pytest
-from unittest.mock import MagicMock, patch
-from fastapi.testclient import TestClient
->>>>>>> 0c9c358 (chore: initial repository setup)
->>>>>>> feature/backend-setup
 
 
 @pytest.fixture(scope="session")
@@ -64,18 +47,18 @@ def expired_auth_header():
 @pytest.fixture
 def mock_valid_token(monkeypatch):
     """Patch Firebase token verification to accept 'valid-test-token'."""
-    def _verify(token, **kwargs):
+    def _verify(token, request, audience=None):
         if token == "valid-test-token":
-            return {"uid": "test-user-123"}
+            return {"uid": "test-user-123", "sub": "test-user-123"}
         raise Exception("Token invalid or expired")
 
-    monkeypatch.setattr("firebase_admin.auth.verify_id_token", _verify)
+    monkeypatch.setattr("google.oauth2.id_token.verify_firebase_token", _verify)
 
 
 @pytest.fixture
 def mock_expired_token(monkeypatch):
     """Patch Firebase token verification to always raise (simulates expiry)."""
-    def _verify(token, **kwargs):
+    def _verify(token, request, audience=None):
         raise Exception("Token has expired")
 
-    monkeypatch.setattr("firebase_admin.auth.verify_id_token", _verify)
+    monkeypatch.setattr("google.oauth2.id_token.verify_firebase_token", _verify)

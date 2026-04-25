@@ -23,7 +23,7 @@ _CROP_KEY: Dict[str, str] = {
 
 # Maha: ~Oct(wk40)–Mar(wk12); Yala: ~Apr(wk14)–Sep(wk39); Inter: rest
 _SEASON_START_WEEK = {"Maha": 40, "Yala": 14, "Inter": 1}
-_SEASON_DURATION   = {"Maha": 24, "Yala": 24, "Inter": 12}
+_SEASON_DURATION = {"Maha": 24, "Yala": 24, "Inter": 12}
 
 # Irrigation types the encoder was trained on; map unseen values to nearest
 _IRRIGATION_MAP = {"drip": "drip", "sprinkler": "drip", "flood": "canal", "rainfed": "rainfed"}
@@ -33,7 +33,9 @@ _KNOWN_SEED_VARIETIES = {
     "Bushitao", "Chantenay", "HORDI Maize 1", "Harsha", "Local", "Local Hybrid",
     "MI 5", "MI 6", "MICP 1", "Nantes", "Ravana", "Ravi", "Ruwan", "Tissa", "Walawa",
 }
-_KNOWN_PREV_CROPS = {"Carrot", "Cowpea", "Finger millet", "Green gram", "Groundnut", "Maize", "Unknown"}
+_KNOWN_PREV_CROPS = {
+    "Carrot", "Cowpea", "Finger millet", "Green gram", "Groundnut", "Maize", "Unknown",
+}
 
 
 def predict_yield(req: YieldPredictRequest, user_id: str) -> YieldPredictResponse:

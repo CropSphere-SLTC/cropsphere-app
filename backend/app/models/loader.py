@@ -89,7 +89,10 @@ class ModelLoader:
         for name, (ftype, filename) in _DIRECT_FILES.items():
             filepath = base / filename
             if not filepath.exists():
-                logger.warning("Model file not found: %s — %s will return mock responses", filepath, name)
+                logger.warning(
+                    "Model file not found: %s — %s will return mock responses",
+                    filepath, name,
+                )
                 self._models[name] = None
                 if name in _STATUS_KEYS:
                     self._status[name] = False

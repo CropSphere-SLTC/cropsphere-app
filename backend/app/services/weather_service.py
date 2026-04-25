@@ -23,14 +23,14 @@ _DISTRICT_IDX: Dict[str, int] = {
 # Climatological averages per district:
 # (rainfall_mm, temp_min_c, temp_max_c, humidity_pct, wind_speed_kmh, solar_radiation_mj)
 _DISTRICT_CLIMATE: Dict[str, Tuple[float, float, float, float, float, float]] = {
-    "Nuwara Eliya": (120.0, 10.0, 22.0, 80.0,  8.0, 14.0),
-    "Badulla":      (100.0, 12.0, 25.0, 75.0,  9.0, 16.0),
-    "Anuradhapura": ( 60.0, 22.0, 33.0, 65.0, 12.0, 20.0),
-    "Monaragala":   ( 80.0, 18.0, 30.0, 70.0, 11.0, 18.0),
-    "Ampara":       ( 90.0, 20.0, 31.0, 68.0, 12.0, 19.0),
-    "Hambantota":   ( 50.0, 21.0, 32.0, 60.0, 14.0, 21.0),
-    "Batticaloa":   ( 95.0, 21.0, 30.0, 72.0, 11.0, 19.0),
-    "Jaffna":       ( 55.0, 23.0, 34.0, 58.0, 13.0, 22.0),
+    "Nuwara Eliya": (120.0, 10.0, 22.0, 80.0, 8.0, 14.0),
+    "Badulla": (100.0, 12.0, 25.0, 75.0, 9.0, 16.0),
+    "Anuradhapura": (60.0, 22.0, 33.0, 65.0, 12.0, 20.0),
+    "Monaragala": (80.0, 18.0, 30.0, 70.0, 11.0, 18.0),
+    "Ampara": (90.0, 20.0, 31.0, 68.0, 12.0, 19.0),
+    "Hambantota": (50.0, 21.0, 32.0, 60.0, 14.0, 21.0),
+    "Batticaloa": (95.0, 21.0, 30.0, 72.0, 11.0, 19.0),
+    "Jaffna": (55.0, 23.0, 34.0, 58.0, 13.0, 22.0),
 }
 _LSTM_TIMESTEPS = 12  # number of historical timesteps the model expects
 

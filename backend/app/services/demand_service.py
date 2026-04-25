@@ -82,12 +82,12 @@ def _build_features(req: DemandPredictRequest) -> List[float]:
     """
     lag1, lag2, lag4 = req.demand_lag1, req.demand_lag2, req.demand_lag4
     lag3 = (lag2 + lag4) / 2.0
-    lag8  = lag4
+    lag8 = lag4
     lag12 = lag4
 
     lags_4 = [lag1, lag2, lag3, lag4]
     roll4_mean = float(np.mean(lags_4))
-    roll4_std  = float(np.std(lags_4))
+    roll4_std = float(np.std(lags_4))
     roll8_mean = roll4_mean  # approximation
 
     farmgate_approx = req.retail_price_lkr_kg * 0.75

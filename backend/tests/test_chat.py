@@ -1,16 +1,5 @@
 """Tests for POST /api/chat."""
-<<<<<<< HEAD
-<<<<<<< HEAD
-from unittest.mock import MagicMock, patch
-=======
 from unittest.mock import patch
->>>>>>> origin/main
-=======
-from unittest.mock import patch
-=======
-from unittest.mock import MagicMock, patch
->>>>>>> 0c9c358 (chore: initial repository setup)
->>>>>>> feature/backend-setup
 
 URL = "/api/chat"
 
@@ -34,18 +23,7 @@ def _mock_chat_response():
 
 def test_valid_input_returns_200(client, mock_valid_token, valid_auth_header):
     with patch(
-<<<<<<< HEAD
-<<<<<<< HEAD
-        "app.services.chatbot_service.chat",
-=======
         "app.routers.chat_router.chat",
->>>>>>> origin/main
-=======
-        "app.routers.chat_router.chat",
-=======
-        "app.services.chatbot_service.chat",
->>>>>>> 0c9c358 (chore: initial repository setup)
->>>>>>> feature/backend-setup
         return_value=_mock_chat_response(),
     ):
         resp = client.post(URL, json=VALID, headers=valid_auth_header)
@@ -78,20 +56,9 @@ def test_expired_jwt_returns_401(client, mock_expired_token, expired_auth_header
 
 
 def test_mock_response_when_model_not_loaded(client, mock_valid_token, valid_auth_header):
-<<<<<<< HEAD
-<<<<<<< HEAD
-    """Groq unavailable → service raises → 500 is expected, not is_mock flag."""
-=======
     """Groq/RAG unavailable → service raises RuntimeError → 500."""
->>>>>>> origin/main
-=======
-    """Groq/RAG unavailable → service raises RuntimeError → 500."""
-=======
-    """Groq unavailable → service raises → 500 is expected, not is_mock flag."""
->>>>>>> 0c9c358 (chore: initial repository setup)
->>>>>>> feature/backend-setup
     with patch(
-        "app.services.chatbot_service.chat",
+        "app.routers.chat_router.chat",
         side_effect=RuntimeError("Chatbot unavailable"),
     ):
         resp = client.post(URL, json=VALID, headers=valid_auth_header)

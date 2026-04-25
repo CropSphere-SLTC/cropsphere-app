@@ -15,8 +15,13 @@ def test_valid_input_returns_200(client, mock_valid_token, valid_auth_header):
     mock_model = MagicMock()
     mock_model.predict.return_value = np.array([[120.0, 10.0, 22.0, 75.0]])
 
+    def _get_model(name):
+        if name == "weather_lstm":
+            return mock_model
+        return None  # scaler absent — service uses raw output
+
     with patch("app.models.loader.model_loader.is_loaded", return_value=True), \
-         patch("app.models.loader.model_loader.get_model", return_value=mock_model), \
+         patch("app.models.loader.model_loader.get_model", side_effect=_get_model), \
          patch("app.utils.firestore.audit_log"):
         resp = client.post(URL, json=VALID, headers=valid_auth_header)
 

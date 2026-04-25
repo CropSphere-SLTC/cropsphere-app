@@ -1,7 +1,7 @@
 """Yield prediction service — per-crop Random Forest models."""
 import logging
 from datetime import date
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import numpy as np
 

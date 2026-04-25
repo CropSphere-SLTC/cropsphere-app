@@ -21,6 +21,9 @@ class FirebaseAuthMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next):
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
         path = request.url.path
 
         if _is_public(path):
@@ -58,11 +61,22 @@ def _extract_bearer(request: Request) -> Optional[str]:
 
 
 def _verify(token: str) -> Optional[str]:
-    """Call Firebase to verify the token; return uid or None on any failure."""
+    """Verify a Firebase ID token using Google's public keys.
+
+    Uses google.oauth2.id_token directly — no service-account credentials needed.
+    Google's public key endpoint is public; only the project_id is required to
+    validate the 'aud' claim.
+    """
     try:
-        from firebase_admin import auth
-        decoded = auth.verify_id_token(token)
-        return decoded["uid"]
+        from google.auth.transport import requests as google_requests
+        from google.oauth2 import id_token
+        from app.config import get_settings
+
+        request = google_requests.Request()
+        decoded = id_token.verify_firebase_token(
+            token, request, audience=get_settings().FIREBASE_PROJECT_ID
+        )
+        return decoded.get("uid") or decoded.get("sub")
     except Exception as exc:
         logger.warning("JWT verification failed: %s", type(exc).__name__)
         return None

@@ -1,6 +1,6 @@
 """Market and farmgate price prediction service — per-crop LSTM models."""
 import logging
-from typing import Dict, List
+from typing import Dict
 
 import numpy as np
 
@@ -21,11 +21,9 @@ _CROP_KEY: Dict[str, str] = {
     "Finger millet": "price_Fingermillet",
     "Groundnut": "price_Groundnut",
 }
-_DISTRICT_IDX = {
-    "Nuwara Eliya": 0, "Badulla": 1, "Anuradhapura": 2, "Monaragala": 3,
-    "Ampara": 4, "Hambantota": 5, "Batticaloa": 6, "Jaffna": 7,
-}
-_SEASON_IDX = {"Maha": 0, "Yala": 1, "Inter": 2}
+
+_LSTM_TIMESTEPS = 8   # historical timesteps the price LSTM expects
+_RETAIL_MARKUP  = 1.45  # approximate retail/farmgate ratio used during training
 
 
 def predict_price(req: PricePredictRequest, user_id: str) -> PricePredictResponse:
@@ -50,14 +48,26 @@ def predict_price(req: PricePredictRequest, user_id: str) -> PricePredictRespons
         )
 
     try:
-        features = _build_features(req)
         model = model_loader.get_model(key)
-        x = np.array([[features]], dtype=np.float32)
-        pred = model.predict(x, verbose=0)[0]
+        scalers = model_loader.get_model("price_scalers")
+        crop_scaler = scalers.get(req.crop.value) if isinstance(scalers, dict) else None
 
-        farmgate = round(float(pred[0]), 2)
-        # Retail markup of 25 % if the model only outputs one value
-        retail = round(float(pred[1]) if len(pred) > 1 else farmgate * 1.25, 2)
+        x = _build_sequence(req, crop_scaler)  # shape (1, 8, 9)
+        pred = model.predict(x, verbose=0)[0]  # shape (2,): normalized farmgate, retail
+
+        if crop_scaler is not None:
+            # Inverse-transform: put predictions in positions 0 (farmgate) and 1 (retail)
+            # Scaler: [farmgate, retail, transport, fuel, supply, demand, inflation, holiday, festival]
+            dummy = np.zeros((1, crop_scaler.n_features_in_))
+            dummy[0, 0] = float(pred[0])
+            dummy[0, 1] = float(pred[1]) if len(pred) > 1 else float(pred[0])
+            result = crop_scaler.inverse_transform(dummy)[0]
+            farmgate = max(0.0, round(float(result[0]), 2))
+            retail   = max(0.0, round(float(result[1]), 2))
+        else:
+            logger.warning("price_scalers absent for %s — using raw model output", req.crop.value)
+            farmgate = round(float(pred[0]), 2)
+            retail   = round(float(pred[1]) if len(pred) > 1 else farmgate * 1.25, 2)
 
         return PricePredictResponse(
             crop=req.crop,
@@ -76,19 +86,36 @@ def predict_price_internal(req: PricePredictRequest) -> PricePredictResponse:
     return predict_price(req, user_id="system")
 
 
-def _build_features(req: PricePredictRequest) -> List[float]:
-    return [
-        _DISTRICT_IDX[req.district.value],
-        _SEASON_IDX[req.season.value],
-        req.week_of_year,
-        req.inflation_index,
-        req.fuel_price_index,
-        req.transport_cost_index,
-        req.supply_index,
-        req.demand_index,
-        req.holiday_flag,
-        req.festival_flag,
-        req.farmgate_price_lag1,
-        req.farmgate_price_lag2,
-        req.farmgate_price_lag4,
+def _build_sequence(req: PricePredictRequest, crop_scaler) -> np.ndarray:
+    """Build (1, 8, 9) input sequence for the price LSTM.
+
+    Scaler feature order: farmgate, retail, transport, fuel, supply, demand, inflation, holiday, festival
+    Uses lag1/lag2/lag4 to approximate 8 weeks of farmgate history.
+    """
+    lag1, lag2, lag4 = req.farmgate_price_lag1, req.farmgate_price_lag2, req.farmgate_price_lag4
+
+    # 8 historical steps, oldest to newest
+    farmgate_hist = [lag4, lag4, lag4, lag4, lag2, lag2, lag1, lag1]
+
+    sequence = [
+        [
+            fg,
+            fg * _RETAIL_MARKUP,
+            req.transport_cost_index,
+            req.fuel_price_index,
+            req.supply_index,
+            req.demand_index,
+            req.inflation_index,
+            float(req.holiday_flag),
+            float(req.festival_flag),
+        ]
+        for fg in farmgate_hist
     ]
+
+    seq_arr = np.array([sequence], dtype=np.float64)  # (1, 8, 9)
+
+    if crop_scaler is not None:
+        scaled = crop_scaler.transform(seq_arr.reshape(-1, 9))  # (8, 9)
+        return scaled.reshape(1, _LSTM_TIMESTEPS, 9).astype(np.float32)
+
+    return seq_arr.astype(np.float32)

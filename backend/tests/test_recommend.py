@@ -1,5 +1,5 @@
 """Tests for POST /api/recommend."""
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 URL = "/api/recommend"
 
@@ -21,9 +21,7 @@ VALID = {
 
 
 def _mock_recommend_response():
-    from app.models.schemas import (
-        CropEnum, CropRecommendation, RecommendResponse
-    )
+    from app.models.schemas import CropEnum, CropRecommendation, RecommendResponse
     return RecommendResponse(
         recommendations=[
             CropRecommendation(

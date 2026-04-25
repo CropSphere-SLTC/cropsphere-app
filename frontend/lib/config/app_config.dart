@@ -9,7 +9,7 @@ class AppConfig {
   );
 
   // Set to false when Shifan deploys — switches all services to real API
-  static const bool useMockServices = true;
+  static const bool useMockServices = false;
 
   static const Duration apiTimeout = Duration(seconds: 30);
 

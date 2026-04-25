@@ -5,36 +5,6 @@ from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-# Maps internal model name → file name inside MODEL_DIR
-_MODEL_FILES: Dict[str, str] = {
-    "yield_Carrot": "yield_Carrot.pkl",
-    "yield_Maize": "yield_Maize.pkl",
-    "yield_Greengram": "yield_Greengram.pkl",
-    "yield_Cowpea": "yield_Cowpea.pkl",
-    "yield_Fingermillet": "yield_Fingermillet.pkl",
-    "yield_Groundnut": "yield_Groundnut.pkl",
-    "weather_lstm": "weather_lstm.keras",
-    "price_Carrot": "price_Carrot.keras",
-    "price_Maize": "price_Maize.keras",
-    "price_Greengram": "price_Greengram.keras",
-    "price_Cowpea": "price_Cowpea.keras",
-    "price_Fingermillet": "price_Fingermillet.keras",
-    "price_Groundnut": "price_Groundnut.keras",
-    "demand_Carrot": "demand_Carrot.pkl",
-    "demand_Maize": "demand_Maize.pkl",
-    "demand_Greengram": "demand_Greengram.pkl",
-    "demand_Cowpea": "demand_Cowpea.pkl",
-    "demand_Fingermillet": "demand_Fingermillet.pkl",
-    "demand_Groundnut": "demand_Groundnut.pkl",
-    "recommend_rf": "recommend_rf.pkl",
-    "rag_artifacts": "rag_artifacts.pkl",
-}
-
-=======
-=======
->>>>>>> feature/backend-setup
 # Direct file mappings: internal name → (type, filename)
 _DIRECT_FILES: Dict[str, tuple] = {
     # M1 auxiliary
@@ -92,55 +62,13 @@ _STATUS_KEYS = [
     "recommend_rf", "rag_artifacts",
 ]
 
-<<<<<<< HEAD
->>>>>>> origin/main
-=======
-=======
-# Maps internal model name → file name inside MODEL_DIR
-_MODEL_FILES: Dict[str, str] = {
-    "yield_Carrot": "yield_Carrot.pkl",
-    "yield_Maize": "yield_Maize.pkl",
-    "yield_Greengram": "yield_Greengram.pkl",
-    "yield_Cowpea": "yield_Cowpea.pkl",
-    "yield_Fingermillet": "yield_Fingermillet.pkl",
-    "yield_Groundnut": "yield_Groundnut.pkl",
-    "weather_lstm": "weather_lstm.keras",
-    "price_Carrot": "price_Carrot.keras",
-    "price_Maize": "price_Maize.keras",
-    "price_Greengram": "price_Greengram.keras",
-    "price_Cowpea": "price_Cowpea.keras",
-    "price_Fingermillet": "price_Fingermillet.keras",
-    "price_Groundnut": "price_Groundnut.keras",
-    "demand_Carrot": "demand_Carrot.pkl",
-    "demand_Maize": "demand_Maize.pkl",
-    "demand_Greengram": "demand_Greengram.pkl",
-    "demand_Cowpea": "demand_Cowpea.pkl",
-    "demand_Fingermillet": "demand_Fingermillet.pkl",
-    "demand_Groundnut": "demand_Groundnut.pkl",
-    "recommend_rf": "recommend_rf.pkl",
-    "rag_artifacts": "rag_artifacts.pkl",
-}
-
->>>>>>> 0c9c358 (chore: initial repository setup)
->>>>>>> feature/backend-setup
 
 class ModelLoader:
     """Thread-safe singleton holding all loaded ML models in memory."""
 
     _instance: Optional["ModelLoader"] = None
     _models: Dict[str, Any] = {}
-<<<<<<< HEAD
-<<<<<<< HEAD
-    _status: Dict[str, bool] = {}
-=======
     _status: Dict[str, bool] = {k: False for k in _STATUS_KEYS}
->>>>>>> origin/main
-=======
-    _status: Dict[str, bool] = {k: False for k in _STATUS_KEYS}
-=======
-    _status: Dict[str, bool] = {}
->>>>>>> 0c9c358 (chore: initial repository setup)
->>>>>>> feature/backend-setup
 
     def __new__(cls) -> "ModelLoader":
         if cls._instance is None:
@@ -157,31 +85,6 @@ class ModelLoader:
 
         base = Path(model_dir)
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-        for name, filename in _MODEL_FILES.items():
-            filepath = base / filename
-
-            if not filepath.exists():
-                logger.warning(
-                    "Model file not found: %s — %s will return mock responses",
-                    filepath,
-                    name,
-                )
-                self._models[name] = None
-                self._status[name] = False
-                continue
-
-            try:
-                if filename.endswith(".pkl"):
-                    self._models[name] = joblib.load(filepath)
-                elif filename.endswith(".keras"):
-                    from tensorflow import keras  # type: ignore
-                    self._models[name] = keras.models.load_model(filepath)
-                self._status[name] = True
-=======
-=======
->>>>>>> feature/backend-setup
         # Load direct files
         for name, (ftype, filename) in _DIRECT_FILES.items():
             filepath = base / filename
@@ -199,42 +102,10 @@ class ModelLoader:
                     self._models[name] = keras.models.load_model(filepath)
                 if name in _STATUS_KEYS:
                     self._status[name] = True
-<<<<<<< HEAD
->>>>>>> origin/main
-=======
-=======
-        for name, filename in _MODEL_FILES.items():
-            filepath = base / filename
-
-            if not filepath.exists():
-                logger.warning(
-                    "Model file not found: %s — %s will return mock responses",
-                    filepath,
-                    name,
-                )
-                self._models[name] = None
-                self._status[name] = False
-                continue
-
-            try:
-                if filename.endswith(".pkl"):
-                    self._models[name] = joblib.load(filepath)
-                elif filename.endswith(".keras"):
-                    from tensorflow import keras  # type: ignore
-                    self._models[name] = keras.models.load_model(filepath)
-                self._status[name] = True
->>>>>>> 0c9c358 (chore: initial repository setup)
->>>>>>> feature/backend-setup
                 logger.info("Loaded model: %s", name)
             except Exception as exc:
                 logger.error("Failed to load %s: %s", name, exc)
                 self._models[name] = None
-<<<<<<< HEAD
-<<<<<<< HEAD
-                self._status[name] = False
-=======
-=======
->>>>>>> feature/backend-setup
                 if name in _STATUS_KEYS:
                     self._status[name] = False
 
@@ -263,13 +134,6 @@ class ModelLoader:
                 for internal_name in key_map.values():
                     self._models[internal_name] = None
                     self._status[internal_name] = False
-<<<<<<< HEAD
->>>>>>> origin/main
-=======
-=======
-                self._status[name] = False
->>>>>>> 0c9c358 (chore: initial repository setup)
->>>>>>> feature/backend-setup
 
     def get_model(self, name: str) -> Optional[Any]:
         """Return the loaded model object, or None if not loaded."""
@@ -281,18 +145,7 @@ class ModelLoader:
 
     def status_report(self) -> Dict[str, bool]:
         """Return {model_name: is_loaded} dict for the health endpoint."""
-<<<<<<< HEAD
-<<<<<<< HEAD
-        return dict(self._status)
-=======
         return {k: self._status.get(k, False) for k in _STATUS_KEYS}
->>>>>>> origin/main
-=======
-        return {k: self._status.get(k, False) for k in _STATUS_KEYS}
-=======
-        return dict(self._status)
->>>>>>> 0c9c358 (chore: initial repository setup)
->>>>>>> feature/backend-setup
 
 
 # Module-level singleton — import this everywhere

@@ -6,12 +6,16 @@ RUN groupadd -r cropsphere && useradd -r -g cropsphere cropsphere
 WORKDIR /app
 
 # Install CPU-only torch first to prevent sentence-transformers pulling CUDA (~4 GB)
-RUN pip install --no-cache-dir torch==2.2.2 --index-url https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir --timeout 300 --retries 5 \
+    torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu
+
+# Pre-install tensorflow separately to isolate its large download
+RUN pip install --no-cache-dir --timeout 300 --retries 5 tensorflow==2.21.0
 
 # Install app dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir --timeout 300 -r requirements.txt
+    pip install --no-cache-dir --timeout 300 --retries 5 -r requirements.txt
 
 # Copy application code and ML model files
 COPY app/ ./app/

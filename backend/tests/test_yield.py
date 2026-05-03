@@ -626,4 +626,3 @@ class TestRateLimiting:
         assert 429 in status_codes, (
             f"Expected at least one 429 in 31 requests, got: {set(status_codes)}"
         )
-      

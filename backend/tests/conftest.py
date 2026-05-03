@@ -32,6 +32,19 @@ def client(app):
         yield c
 
 
+@pytest.fixture(autouse=True)
+def reset_rate_limit(app):
+    """Reset slowapi's in-memory counter before every test.
+
+    Prevents rate-limit state from bleeding across tests when using a
+    session-scoped client. The limiter stays active, so TestRateLimiting
+    still makes 31 real requests and hits 429 correctly.
+    """
+    from app.middleware.rate_limit import limiter
+    limiter._storage.reset()
+    yield
+
+
 @pytest.fixture
 def valid_auth_header():
     """Authorization header carrying a mock valid token."""

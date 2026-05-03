@@ -258,8 +258,8 @@ class TestEnumValidation:
         ("district",       "nuwara eliya"),      # case-sensitive
         ("season",         "Winter"),
         ("season",         "maha"),              # case-sensitive
-        ("irrigation_type","furrow"), 
-        ("irrigation_type","DRIP"),               # case-sensitive
+        ("irrigation_type", "furrow"), 
+        ("irrigation_type", "DRIP"),               # case-sensitive
     ])
     def test_invalid_enum_returns_422(
         self, client, mock_valid_token, valid_auth_header, field, bad_value

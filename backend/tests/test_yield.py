@@ -258,7 +258,7 @@ class TestEnumValidation:
         ("district",       "nuwara eliya"),      # case-sensitive
         ("season",         "Winter"),
         ("season",         "maha"),              # case-sensitive
-        ("irrigation_type", "furrow"), 
+        ("irrigation_type", "furrow"),
         ("irrigation_type", "DRIP"),               # case-sensitive
     ])
     def test_invalid_enum_returns_422(

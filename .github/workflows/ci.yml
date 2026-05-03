@@ -23,9 +23,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
+        run: pip install -r requirements.txt
 
       - name: Lint with flake8
         run: flake8 app/ tests/

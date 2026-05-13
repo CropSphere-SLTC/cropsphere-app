@@ -1,4 +1,5 @@
 """Firebase JWT authentication middleware (Keshan — shift-left security)."""
+
 import logging
 from typing import Optional
 
@@ -49,7 +50,9 @@ class FirebaseAuthMiddleware(BaseHTTPMiddleware):
 
 def _is_public(path: str) -> bool:
     """Return True if path is exempt from authentication."""
-    return path in _PUBLIC_PATHS or path.startswith("/docs") or path.startswith("/redoc")
+    return (
+        path in _PUBLIC_PATHS or path.startswith("/docs") or path.startswith("/redoc")
+    )
 
 
 def _extract_bearer(request: Request) -> Optional[str]:

@@ -42,13 +42,13 @@ CROPS = ["Carrot", "Maize", "Green gram", "Cowpea", "Finger millet", "Groundnut"
 # Crop-district validity matrix (from report Section 2.3)
 VALID_PAIRS = {
     "Nuwara Eliya": ["Carrot"],
-    "Badulla":      ["Carrot"],
+    "Badulla": ["Carrot"],
     "Anuradhapura": ["Maize", "Cowpea", "Finger millet"],
-    "Monaragala":   ["Maize", "Green gram", "Cowpea", "Finger millet", "Groundnut"],
-    "Ampara":       ["Maize", "Cowpea", "Finger millet", "Groundnut"],
-    "Hambantota":   ["Green gram"],
-    "Batticaloa":   ["Groundnut"],
-    "Jaffna":       ["Carrot", "Green gram", "Groundnut"],
+    "Monaragala": ["Maize", "Green gram", "Cowpea", "Finger millet", "Groundnut"],
+    "Ampara": ["Maize", "Cowpea", "Finger millet", "Groundnut"],
+    "Hambantota": ["Green gram"],
+    "Batticaloa": ["Groundnut"],
+    "Jaffna": ["Carrot", "Green gram", "Groundnut"],
 }
 
 # Per-crop R² thresholds from report Table 5.2.5
@@ -57,48 +57,48 @@ VALID_PAIRS = {
 # Green gram=0.738, Groundnut=0.780, Maize=0.781
 # Container achieves slightly lower due to internal tree computation changes.
 M1_R2_THRESHOLDS = {
-    "Carrot":        0.808,  # container: 0.824 × 0.98
-    "Cowpea":        0.461,  # container: 0.471 × 0.98
+    "Carrot": 0.808,  # container: 0.824 × 0.98
+    "Cowpea": 0.461,  # container: 0.471 × 0.98
     "Finger millet": 0.526,  # container: 0.537 × 0.98
-    "Green gram":    0.444,  # container: 0.453 × 0.98
-    "Groundnut":     0.422,  # container: 0.431 × 0.98
-    "Maize":         0.456,  # container: 0.465 × 0.98
+    "Green gram": 0.444,  # container: 0.453 × 0.98
+    "Groundnut": 0.422,  # container: 0.431 × 0.98
+    "Maize": 0.456,  # container: 0.465 × 0.98
 }
 
 # M3 thresholds from report Table 5.4.4 (real HARTI test)
 M3_R2_THRESHOLDS = {
-    "Carrot":        0.806,
-    "Maize":         0.693,
-    "Green gram":    0.888,
-    "Cowpea":        0.892,
+    "Carrot": 0.806,
+    "Maize": 0.693,
+    "Green gram": 0.888,
+    "Cowpea": 0.892,
     "Finger millet": 0.918,
-    "Groundnut":     0.854,
+    "Groundnut": 0.854,
 }
 M3_MAPE_THRESHOLDS = {
-    "Carrot":        6.3,
-    "Maize":         8.1,
-    "Green gram":    4.8,
-    "Cowpea":        5.3,
+    "Carrot": 6.3,
+    "Maize": 8.1,
+    "Green gram": 4.8,
+    "Cowpea": 5.3,
     "Finger millet": 4.4,
-    "Groundnut":     5.6,
+    "Groundnut": 5.6,
 }
 
 # M4 thresholds from report Table 5.5.3
 M4_R2_THRESHOLDS = {
-    "Carrot":        0.798,
-    "Maize":         0.741,
-    "Green gram":    0.713,
-    "Cowpea":        0.802,
+    "Carrot": 0.798,
+    "Maize": 0.741,
+    "Green gram": 0.713,
+    "Cowpea": 0.802,
     "Finger millet": 0.782,
-    "Groundnut":     0.688,  # container: 0.703 × 0.98
+    "Groundnut": 0.688,  # container: 0.703 × 0.98
 }
 M4_MAPE_THRESHOLDS = {
-    "Carrot":        4.0,
-    "Maize":         4.4,
-    "Green gram":    4.2,
-    "Cowpea":        3.5,
+    "Carrot": 4.0,
+    "Maize": 4.4,
+    "Green gram": 4.2,
+    "Cowpea": 3.5,
     "Finger millet": 3.7,
-    "Groundnut":     4.6,
+    "Groundnut": 4.6,
 }
 
 # Season lengths (weeks) for season_progress calculation
@@ -108,6 +108,7 @@ SEASON_LENGTHS = {"Maha": 26, "Yala": 20, "Inter": 6}
 # ─────────────────────────────────────────────
 # Metric helpers
 # ─────────────────────────────────────────────
+
 
 def r2_score(y_true, y_pred):
     y_true = np.array(y_true, dtype=float)
@@ -137,6 +138,7 @@ def rmse(y_true, y_pred):
 # ─────────────────────────────────────────────
 # CSV loaders
 # ─────────────────────────────────────────────
+
 
 def _read_csv_safe(path, **kwargs):
     """Try multiple encodings; CSV was saved from Colab with Latin-1."""
@@ -182,6 +184,7 @@ def load_real_test():
 # using the saved LabelEncoders from M1_encoders.pkl / M5_encoders.pkl
 # ─────────────────────────────────────────────
 
+
 def engineer_m1_features(df, encoders):
     """
     Reconstruct the 35 features M1 was trained on.
@@ -196,50 +199,74 @@ def engineer_m1_features(df, encoders):
 
     # Encoded categoricals — use saved LabelEncoders
     for col, enc_key in [
-        ("crop",           "crop"),
-        ("district",       "district"),
-        ("season",         "season"),
-        ("seed_variety",   "seed_variety"),
-        ("irrigation_type","irrigation_type"),
-        ("prev_crop",      "prev_crop"),
+        ("crop", "crop"),
+        ("district", "district"),
+        ("season", "season"),
+        ("seed_variety", "seed_variety"),
+        ("irrigation_type", "irrigation_type"),
+        ("prev_crop", "prev_crop"),
     ]:
         out_col = f"{enc_key}_enc" if enc_key != "crop" else "crop_enc"
         out_col = col + "_enc"
         if col in d.columns and enc_key in encoders:
             le = encoders[enc_key]
             known = set(le.classes_)
-            d[col] = d[col].astype(str).apply(
-                lambda x: x if x in known else le.classes_[0]
+            d[col] = (
+                d[col].astype(str).apply(lambda x: x if x in known else le.classes_[0])
             )
             d[out_col] = le.transform(d[col])
         else:
             d[out_col] = 0
 
     # Numeric derived features
-    d["temp_range"]      = d["temp_max_c"] - d["temp_min_c"]
-    d["heat_stress_flag"]= (d["temp_max_c"] > 33).astype(int)
-    d["cold_stress_flag"]= (d["temp_min_c"] < 10).astype(int)
-    d["rain_adequacy"]   = (d["rainfall_mm"] / (d["rainfall_mm"].mean() + 1e-6)).clip(0, 5)
-    d["nutrient_score"]  = (d["N_index"] * 0.4 + d["P_index"] * 0.3 + d["K_index"] * 0.3)
-    d["mgmt_score"]      = (d["fertilizer_index"] * 0.7 + d["pesticide_index"] * 0.3)
+    d["temp_range"] = d["temp_max_c"] - d["temp_min_c"]
+    d["heat_stress_flag"] = (d["temp_max_c"] > 33).astype(int)
+    d["cold_stress_flag"] = (d["temp_min_c"] < 10).astype(int)
+    d["rain_adequacy"] = (d["rainfall_mm"] / (d["rainfall_mm"].mean() + 1e-6)).clip(
+        0, 5
+    )
+    d["nutrient_score"] = d["N_index"] * 0.4 + d["P_index"] * 0.3 + d["K_index"] * 0.3
+    d["mgmt_score"] = d["fertilizer_index"] * 0.7 + d["pesticide_index"] * 0.3
     d["season_progress"] = (
-        d["week_of_season"] /
-        d["season"].map(SEASON_LENGTHS).fillna(20)
+        d["week_of_season"] / d["season"].map(SEASON_LENGTHS).fillna(20)
     ).clip(0, 1)
 
     feature_list = [
-        "week_of_year", "week_of_season", "season_progress", "year",
-        "crop_enc", "district_enc", "season_enc",
-        "rainfall_mm", "temp_min_c", "temp_max_c", "humidity_pct",
-        "wind_speed_kmh", "solar_radiation_mj",
-        "temp_range", "heat_stress_flag", "cold_stress_flag", "rain_adequacy",
-        "cultivated_area_ha", "fertilizer_index", "pesticide_index",
-        "soil_ph", "soil_moisture_pct",
-        "irrigation_type_enc", "seed_variety_enc",
-        "N_index", "P_index", "K_index",
-        "nutrient_score", "mgmt_score", "prev_crop_enc",
-        "inflation_index", "demand_index", "consumer_pref_index",
-        "holiday_flag", "festival_flag",
+        "week_of_year",
+        "week_of_season",
+        "season_progress",
+        "year",
+        "crop_enc",
+        "district_enc",
+        "season_enc",
+        "rainfall_mm",
+        "temp_min_c",
+        "temp_max_c",
+        "humidity_pct",
+        "wind_speed_kmh",
+        "solar_radiation_mj",
+        "temp_range",
+        "heat_stress_flag",
+        "cold_stress_flag",
+        "rain_adequacy",
+        "cultivated_area_ha",
+        "fertilizer_index",
+        "pesticide_index",
+        "soil_ph",
+        "soil_moisture_pct",
+        "irrigation_type_enc",
+        "seed_variety_enc",
+        "N_index",
+        "P_index",
+        "K_index",
+        "nutrient_score",
+        "mgmt_score",
+        "prev_crop_enc",
+        "inflation_index",
+        "demand_index",
+        "consumer_pref_index",
+        "holiday_flag",
+        "festival_flag",
     ]
 
     # Fill any missing columns with 0
@@ -279,22 +306,41 @@ def engineer_m4_features(df, crop):
 
     # Rolling features
     d["demand_roll4_mean"] = d["demand_index"].shift(1).rolling(4).mean()
-    d["demand_roll4_std"]  = d["demand_index"].shift(1).rolling(4).std()
+    d["demand_roll4_std"] = d["demand_index"].shift(1).rolling(4).std()
     d["demand_roll8_mean"] = d["demand_index"].shift(1).rolling(8).mean()
 
     # Price change pct
     d["price_change_pct"] = d["farmgate_price_lkr_kg"].pct_change().fillna(0)
 
-    d = d.dropna(subset=[f"demand_lag{l}" for l in [1,2,3,4,8,12]]).reset_index(drop=True)
+    d = d.dropna(
+        subset=[f"demand_lag{lag}" for lag in [1, 2, 3, 4, 8, 12]]
+    ).reset_index(
+        drop=True
+    )
 
     feat_cols = [
-        "demand_index", "consumer_pref_index", "search_trend_index",
-        "retail_price_lkr_kg", "farmgate_price_lkr_kg", "inflation_index",
-        "supply_index", "holiday_flag", "festival_flag", "week_of_year",
-        "demand_lag1", "demand_lag2", "demand_lag3", "demand_lag4",
-        "demand_lag8", "demand_lag12",
-        "demand_roll4_mean", "demand_roll4_std", "demand_roll8_mean",
-        "price_change_pct", "season_enc", "district_enc",
+        "demand_index",
+        "consumer_pref_index",
+        "search_trend_index",
+        "retail_price_lkr_kg",
+        "farmgate_price_lkr_kg",
+        "inflation_index",
+        "supply_index",
+        "holiday_flag",
+        "festival_flag",
+        "week_of_year",
+        "demand_lag1",
+        "demand_lag2",
+        "demand_lag3",
+        "demand_lag4",
+        "demand_lag8",
+        "demand_lag12",
+        "demand_roll4_mean",
+        "demand_roll4_std",
+        "demand_roll8_mean",
+        "price_change_pct",
+        "season_enc",
+        "district_enc",
     ]
 
     for col in feat_cols:
@@ -316,40 +362,58 @@ def engineer_m5_features(df, encoders):
     d["year"] = pd.to_numeric(d.get("year", 2024), errors="coerce").fillna(2024)
 
     for col, enc_key in [
-        ("district",       "district"),
-        ("season",         "season"),
-        ("irrigation_type","irrigation_type"),
-        ("prev_crop",      "prev_crop"),
+        ("district", "district"),
+        ("season", "season"),
+        ("irrigation_type", "irrigation_type"),
+        ("prev_crop", "prev_crop"),
     ]:
         out_col = col + "_enc"
         if col in d.columns and enc_key in encoders:
             le = encoders[enc_key]
             known = set(le.classes_)
-            d[col] = d[col].astype(str).apply(
-                lambda x: x if x in known else le.classes_[0]
+            d[col] = (
+                d[col].astype(str).apply(lambda x: x if x in known else le.classes_[0])
             )
             d[out_col] = le.transform(d[col])
         else:
             d[out_col] = 0
 
-    d["temp_range"]      = d["temp_max_c"] - d["temp_min_c"]
-    d["heat_stress_flag"]= (d["temp_max_c"] > 33).astype(int)
-    d["cold_stress_flag"]= (d["temp_min_c"] < 10).astype(int)
-    d["nutrient_score"]  = (d["N_index"] * 0.4 + d["P_index"] * 0.3 + d["K_index"] * 0.3)
-    d["mgmt_score"]      = (d["fertilizer_index"] * 0.7 + d["pesticide_index"] * 0.3)
+    d["temp_range"] = d["temp_max_c"] - d["temp_min_c"]
+    d["heat_stress_flag"] = (d["temp_max_c"] > 33).astype(int)
+    d["cold_stress_flag"] = (d["temp_min_c"] < 10).astype(int)
+    d["nutrient_score"] = d["N_index"] * 0.4 + d["P_index"] * 0.3 + d["K_index"] * 0.3
+    d["mgmt_score"] = d["fertilizer_index"] * 0.7 + d["pesticide_index"] * 0.3
 
     feature_list = [
-        "week_of_year", "week_of_season", "year",
-        "district_enc", "season_enc",
-        "rainfall_mm", "temp_min_c", "temp_max_c", "humidity_pct",
-        "wind_speed_kmh", "solar_radiation_mj",
-        "temp_range", "heat_stress_flag", "cold_stress_flag",
-        "soil_ph", "soil_moisture_pct",
-        "N_index", "P_index", "K_index", "nutrient_score",
-        "fertilizer_index", "pesticide_index",
-        "irrigation_type_enc", "mgmt_score", "prev_crop_enc",
-        "demand_index", "inflation_index",
-        "holiday_flag", "festival_flag",
+        "week_of_year",
+        "week_of_season",
+        "year",
+        "district_enc",
+        "season_enc",
+        "rainfall_mm",
+        "temp_min_c",
+        "temp_max_c",
+        "humidity_pct",
+        "wind_speed_kmh",
+        "solar_radiation_mj",
+        "temp_range",
+        "heat_stress_flag",
+        "cold_stress_flag",
+        "soil_ph",
+        "soil_moisture_pct",
+        "N_index",
+        "P_index",
+        "K_index",
+        "nutrient_score",
+        "fertilizer_index",
+        "pesticide_index",
+        "irrigation_type_enc",
+        "mgmt_score",
+        "prev_crop_enc",
+        "demand_index",
+        "inflation_index",
+        "holiday_flag",
+        "festival_flag",
     ]
 
     for col in feature_list:
@@ -363,11 +427,14 @@ def engineer_m5_features(df, encoders):
 # Fixtures
 # ─────────────────────────────────────────────
 
+
 @pytest.fixture(scope="module")
 def synthetic_df():
     if not os.path.exists(SYNTHETIC_CSV):
-        pytest.skip(f"Synthetic CSV not found at {SYNTHETIC_CSV}. "
-                    "Copy with: docker cp <path> backend-backend-1:/app/models/files/")
+        pytest.skip(
+            f"Synthetic CSV not found at {SYNTHETIC_CSV}. "
+            "Copy with: docker cp <path> backend-backend-1:/app/models/files/"
+        )
     return load_synthetic_test(year_start=2024)
 
 
@@ -381,8 +448,10 @@ def synthetic_full_df():
 @pytest.fixture(scope="module")
 def real_df():
     if not os.path.exists(REAL_CSV):
-        pytest.skip(f"Real test CSV not found at {REAL_CSV}. "
-                    "Copy with: docker cp <path> backend-backend-1:/app/models/files/")
+        pytest.skip(
+            f"Real test CSV not found at {REAL_CSV}. "
+            "Copy with: docker cp <path> backend-backend-1:/app/models/files/"
+        )
     return load_real_test()
 
 
@@ -405,6 +474,7 @@ def m5_encoders():
 # ─────────────────────────────────────────────
 # M1 — Yield Prediction
 # ─────────────────────────────────────────────
+
 
 class TestYieldModelAccuracy:
     """M1: Per-crop Random Forest yield prediction."""
@@ -441,7 +511,9 @@ class TestYieldModelAccuracy:
 
         crop_col = "crop"
         yield_col = "yield_kg_per_ha"
-        assert crop_col in synthetic_df.columns, "crop column missing from synthetic CSV"
+        assert (
+            crop_col in synthetic_df.columns
+        ), "crop column missing from synthetic CSV"
         assert yield_col in synthetic_df.columns, "yield_kg_per_ha column missing"
 
         crop_df = synthetic_df[synthetic_df[crop_col] == crop].copy()
@@ -454,9 +526,9 @@ class TestYieldModelAccuracy:
         score = r2_score(y, y_pred)
 
         threshold = M1_R2_THRESHOLDS[crop]
-        assert score >= threshold, (
-            f"M1 {crop}: R²={score:.4f} below threshold {threshold}"
-        )
+        assert (
+            score >= threshold
+        ), f"M1 {crop}: R²={score:.4f} below threshold {threshold}"
 
     def test_overall_rmse(self, synthetic_df, m1_encoders):
         """Combined model RMSE across all crops must be ≤ 981 kg/ha."""
@@ -472,15 +544,20 @@ class TestYieldModelAccuracy:
 
         y_pred = model.predict(X)
         error = rmse(y, y_pred)
-        # Colab threshold: 981 kg/ha. Container sklearn 1.8.0 scores 1192 due to version gap.
-        assert error <= 1210, (
-            f"M1 combined RMSE={error:.1f} kg/ha exceeds threshold 1210 kg/ha (sklearn version gap)"
+        # Colab threshold: 981 kg/ha. Container sklearn 1.8.0 scores
+        # 1192 due to version gap.
+        assert (
+            error <= 1210
+        ), (
+            f"M1 combined RMSE={error:.1f} kg/ha exceeds"
+            f" threshold 1210 kg/ha (sklearn version gap)"
         )
 
 
 # ─────────────────────────────────────────────
 # M2 — Weather Forecasting
 # ─────────────────────────────────────────────
+
 
 class TestWeatherModelAccuracy:
     """M2: LSTM (7 districts) + RF (Nuwara Eliya)."""
@@ -490,15 +567,15 @@ class TestWeatherModelAccuracy:
     # humidity=0.804, rainfall=0.206. Simplified inverse_transform
     # loses some precision; thresholds set conservatively.
     LSTM_R2_THRESHOLDS = {
-        "rainfall_mm":  0.100,
-        "temp_min_c":   0.600,
-        "temp_max_c":   0.550,
+        "rainfall_mm": 0.100,
+        "temp_min_c": 0.600,
+        "temp_max_c": 0.550,
         "humidity_pct": 0.500,
     }
     RF_R2_THRESHOLDS = {
-        "rainfall_mm":  0.668,
-        "temp_min_c":   0.998,
-        "temp_max_c":   0.972,
+        "rainfall_mm": 0.668,
+        "temp_min_c": 0.998,
+        "temp_max_c": 0.972,
         "humidity_pct": 0.974,
     }
     WEATHER_TARGETS = ["rainfall_mm", "temp_min_c", "temp_max_c", "humidity_pct"]
@@ -509,9 +586,11 @@ class TestWeatherModelAccuracy:
         if not os.path.exists(model_path):
             pytest.skip("M2_nuwara_eliya_rf.pkl not found")
 
-        ne_df = real_df[
-            real_df["district"].str.lower() == "nuwara eliya"
-        ].copy().reset_index(drop=True)
+        ne_df = (
+            real_df[real_df["district"].str.lower() == "nuwara eliya"]
+            .copy()
+            .reset_index(drop=True)
+        )
 
         assert len(ne_df) >= 20, f"Too few Nuwara Eliya rows: {len(ne_df)}"
 
@@ -565,6 +644,7 @@ class TestWeatherModelAccuracy:
         try:
             from tensorflow import keras
             import tensorflow as tf
+
             tf.get_logger().setLevel("ERROR")
             model = keras.models.load_model(model_path)
             scaler = joblib.load(scaler_path)
@@ -576,16 +656,22 @@ class TestWeatherModelAccuracy:
         district_col = "district"
         date_col = "date" if "date" in real_df.columns else None
 
-        feature_cols = [c for c in [
-            "rainfall_mm", tmin_col, tmax_col, "humidity_pct",
-            "wind_speed_kmh", "solar_radiation_mj"
-        ] if c in real_df.columns]
+        feature_cols = [
+            c
+            for c in [
+                "rainfall_mm",
+                tmin_col,
+                tmax_col,
+                "humidity_pct",
+                "wind_speed_kmh",
+                "solar_radiation_mj",
+            ]
+            if c in real_df.columns
+        ]
 
         assert len(feature_cols) >= 2, "Not enough weather cols in real CSV"
 
-        non_ne = real_df[
-            real_df[district_col].str.lower() != "nuwara eliya"
-        ].copy()
+        non_ne = real_df[real_df[district_col].str.lower() != "nuwara eliya"].copy()
 
         SEQ_LEN = 12
         all_r2_tmin, all_r2_tmax = [], []
@@ -604,7 +690,7 @@ class TestWeatherModelAccuracy:
             except Exception:
                 try:
                     scaled = scaler.transform(
-                        dist_df.values[:, :scaler.n_features_in_]
+                        dist_df.values[:, : scaler.n_features_in_]
                     )
                 except Exception:
                     continue
@@ -614,7 +700,7 @@ class TestWeatherModelAccuracy:
 
             X_seq, y_tmin, y_tmax = [], [], []
             for i in range(SEQ_LEN, len(scaled)):
-                X_seq.append(scaled[i - SEQ_LEN:i])
+                X_seq.append(scaled[i - SEQ_LEN : i])
                 y_tmin.append(dist_df.iloc[i][tmin_col])
                 y_tmax.append(dist_df.iloc[i][tmax_col])
 
@@ -624,7 +710,7 @@ class TestWeatherModelAccuracy:
             try:
                 preds_scaled = model.predict(np.array(X_seq), verbose=0)
                 dummy = np.zeros((len(preds_scaled), len(feature_cols)))
-                dummy[:, :preds_scaled.shape[1]] = preds_scaled
+                dummy[:, : preds_scaled.shape[1]] = preds_scaled
                 preds = scaler.inverse_transform(dummy)
                 all_r2_tmin.append(r2_score(y_tmin, preds[:, tmin_idx]))
                 all_r2_tmax.append(r2_score(y_tmax, preds[:, tmax_idx]))
@@ -651,6 +737,7 @@ class TestWeatherModelAccuracy:
 # M3 — Price Prediction
 # ─────────────────────────────────────────────
 
+
 class TestPriceModelAccuracy:
     """M3: Per-crop LSTM price prediction vs real HARTI data."""
 
@@ -672,6 +759,7 @@ class TestPriceModelAccuracy:
         try:
             from tensorflow import keras
             import tensorflow as tf
+
             tf.get_logger().setLevel("ERROR")
         except ImportError:
             pytest.skip("TensorFlow not available")
@@ -686,9 +774,17 @@ class TestPriceModelAccuracy:
             pytest.skip(f"Cannot load price model for {crop}: {e}")
 
         price_col = next(
-            (c for c in ["farmgate_price_lkr_kg", "farmgate_price",
-                         "producer_price", "farmgate"]
-             if c in real_df.columns), None
+            (
+                c
+                for c in [
+                    "farmgate_price_lkr_kg",
+                    "farmgate_price",
+                    "producer_price",
+                    "farmgate",
+                ]
+                if c in real_df.columns
+            ),
+            None,
         )
         crop_col = "crop" if "crop" in real_df.columns else None
         date_col = "date" if "date" in real_df.columns else None
@@ -703,9 +799,7 @@ class TestPriceModelAccuracy:
 
         crop_df = crop_df.dropna(subset=[price_col])
         if len(crop_df) < 20:
-            pytest.skip(
-                f"Only {len(crop_df)} HARTI rows for {crop} — need ≥20"
-            )
+            pytest.skip(f"Only {len(crop_df)} HARTI rows for {crop} — need ≥20")
 
         if date_col:
             crop_df = crop_df.sort_values(date_col)
@@ -714,7 +808,7 @@ class TestPriceModelAccuracy:
         prices = crop_df[price_col].values.astype(float)
         X_seq, y_true = [], []
         for i in range(SEQ_LEN, len(prices)):
-            X_seq.append(prices[i - SEQ_LEN:i])
+            X_seq.append(prices[i - SEQ_LEN : i])
             y_true.append(prices[i])
 
         if len(X_seq) < 5:
@@ -741,9 +835,7 @@ class TestPriceModelAccuracy:
 
             if scaler is not None:
                 try:
-                    y_pred = scaler.inverse_transform(
-                        y_pred.reshape(-1, 1)
-                    ).flatten()
+                    y_pred = scaler.inverse_transform(y_pred.reshape(-1, 1)).flatten()
                 except Exception:
                     pass
         except Exception as e:
@@ -752,17 +844,18 @@ class TestPriceModelAccuracy:
         score = r2_score(np.array(y_true), y_pred)
         m = mape(np.array(y_true), y_pred)
 
-        assert score >= M3_R2_THRESHOLDS[crop], (
-            f"M3 {crop}: R²={score:.4f} vs HARTI below {M3_R2_THRESHOLDS[crop]}"
-        )
-        assert m <= M3_MAPE_THRESHOLDS[crop], (
-            f"M3 {crop}: MAPE={m:.2f}% vs HARTI exceeds {M3_MAPE_THRESHOLDS[crop]}%"
-        )
+        assert (
+            score >= M3_R2_THRESHOLDS[crop]
+        ), f"M3 {crop}: R²={score:.4f} vs HARTI below {M3_R2_THRESHOLDS[crop]}"
+        assert (
+            m <= M3_MAPE_THRESHOLDS[crop]
+        ), f"M3 {crop}: MAPE={m:.2f}% vs HARTI exceeds {M3_MAPE_THRESHOLDS[crop]}%"
 
 
 # ─────────────────────────────────────────────
 # M4 — Consumer Demand Prediction
 # ─────────────────────────────────────────────
+
 
 class TestDemandModelAccuracy:
     """M4: Per-crop XGBoost demand prediction."""
@@ -795,12 +888,12 @@ class TestDemandModelAccuracy:
         score = r2_score(y_true, y_pred)
         m = mape(y_true, y_pred)
 
-        assert score >= M4_R2_THRESHOLDS[crop], (
-            f"M4 {crop}: R²={score:.4f} below {M4_R2_THRESHOLDS[crop]}"
-        )
-        assert m <= M4_MAPE_THRESHOLDS[crop], (
-            f"M4 {crop}: MAPE={m:.2f}% exceeds {M4_MAPE_THRESHOLDS[crop]}%"
-        )
+        assert (
+            score >= M4_R2_THRESHOLDS[crop]
+        ), f"M4 {crop}: R²={score:.4f} below {M4_R2_THRESHOLDS[crop]}"
+        assert (
+            m <= M4_MAPE_THRESHOLDS[crop]
+        ), f"M4 {crop}: MAPE={m:.2f}% exceeds {M4_MAPE_THRESHOLDS[crop]}%"
 
     @pytest.mark.parametrize("crop", CROPS)
     def test_festival_spike_detection(self, synthetic_df, crop):
@@ -814,8 +907,10 @@ class TestDemandModelAccuracy:
         if model is None:
             pytest.skip(f"{crop} not found in demand model")
 
-        holiday_col  = "holiday_flag"  if "holiday_flag"  in synthetic_df.columns else None
-        festival_col = "festival_flag" if "festival_flag" in synthetic_df.columns else None
+        holiday_col = "holiday_flag" if "holiday_flag" in synthetic_df.columns else None
+        festival_col = (
+            "festival_flag" if "festival_flag" in synthetic_df.columns else None
+        )
         if not holiday_col and not festival_col:
             pytest.skip("No holiday/festival columns found")
 
@@ -828,8 +923,8 @@ class TestDemandModelAccuracy:
         y_all = df_lags["demand_index"].values
 
         mask = pd.Series([False] * len(df_lags))
-        if holiday_col  and holiday_col  in df_lags.columns:
-            mask = mask | (df_lags[holiday_col]  == 1)
+        if holiday_col and holiday_col in df_lags.columns:
+            mask = mask | (df_lags[holiday_col] == 1)
         if festival_col and festival_col in df_lags.columns:
             mask = mask | (df_lags[festival_col] == 1)
 
@@ -841,27 +936,33 @@ class TestDemandModelAccuracy:
 
         y_pred = model.predict(X_fest.values)
         score = r2_score(y_fest, y_pred)
-        # Colab threshold: 0.699. Groundnut container score: 0.603 due to sklearn version gap.
-        assert score >= 0.590, (
-            f"M4 {crop} festival R²={score:.4f} below 0.590"
-        )
+        # Colab threshold: 0.699. Groundnut container score: 0.603
+        # due to sklearn version gap.
+        assert score >= 0.590, f"M4 {crop} festival R²={score:.4f} below 0.590"
 
 
 # ─────────────────────────────────────────────
 # M5 — Crop Recommendation
 # ─────────────────────────────────────────────
 
+
 class TestRecommendModelAccuracy:
     """M5: Random Forest classifier crop recommendation."""
 
     def _build_labels(self, df):
         """Reconstruct recommendation labels: highest yield×price per district-week."""
-        if not all(c in df.columns for c in ["crop", "district", "yield_kg_per_ha",
-                                              "farmgate_price_lkr_kg"]):
+        if not all(
+            c in df.columns
+            for c in ["crop", "district", "yield_kg_per_ha", "farmgate_price_lkr_kg"]
+        ):
             return None
         d = df.copy()
         d["_profit"] = d["yield_kg_per_ha"] * d["farmgate_price_lkr_kg"]
-        keys = ["district", "date"] if "date" in d.columns else ["district", "week_of_year"]
+        keys = (
+            ["district", "date"]
+            if "date" in d.columns
+            else ["district", "week_of_year"]
+        )
         idx = d.groupby(keys)["_profit"].idxmax()
         rec = d.loc[idx, keys + ["crop"]].rename(columns={"crop": "_rec"})
         d = d.merge(rec, on=keys, how="left")
@@ -896,9 +997,7 @@ class TestRecommendModelAccuracy:
             y_pred = y_pred_enc
 
         accuracy = float(np.mean(y_pred == y_true))
-        assert accuracy >= 0.9091, (
-            f"M5 accuracy={accuracy:.4f} below threshold 0.9091"
-        )
+        assert accuracy >= 0.9091, f"M5 accuracy={accuracy:.4f} below threshold 0.9091"
 
     def test_district_constraint_never_violated(self, synthetic_full_df, m5_encoders):
         """Model must NEVER predict an invalid crop for a district."""
@@ -925,15 +1024,20 @@ class TestRecommendModelAccuracy:
             y_pred = y_pred_enc
 
         violations = sum(
-            1 for district, pred in zip(df["district"].values, y_pred)
+            1
+            for district, pred in zip(df["district"].values, y_pred)
             if VALID_PAIRS.get(district) and pred not in VALID_PAIRS[district]
         )
         # 3 violations known from sklearn 1.6.1→1.8.0 version gap:
-        # Row 2589 Monaragala→Carrot, Row 3338 Batticaloa→Carrot, Row 3625 Monaragala→Carrot
+        # Row 2589 Monaragala→Carrot, Row 3338 Batticaloa→Carrot,
+        # Row 3625 Monaragala→Carrot
         # These are borderline rows that flip due to internal tree computation changes.
         # Allowing ≤5 violations as acceptable tolerance for version mismatch.
-        assert violations <= 5, (
-            f"M5 district constraint violated {violations} times (threshold: ≤5 for sklearn version gap)"
+        assert (
+            violations <= 5
+        ), (
+            f"M5 district constraint violated {violations} times"
+            f" (threshold: ≤5 for sklearn version gap)"
         )
 
     def test_carrot_f1(self, synthetic_full_df, m5_encoders):
@@ -965,9 +1069,12 @@ class TestRecommendModelAccuracy:
         fp = np.sum((y_pred == "Carrot") & (y_true != "Carrot"))
         fn = np.sum((y_pred != "Carrot") & (y_true == "Carrot"))
         precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-        recall    = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-        f1 = (2 * precision * recall / (precision + recall)
-              if (precision + recall) > 0 else 0.0)
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = (
+            2 * precision * recall / (precision + recall)
+            if (precision + recall) > 0
+            else 0.0
+        )
 
         assert f1 >= 0.997, f"M5 Carrot F1={f1:.4f} below 0.997"
 
@@ -976,26 +1083,56 @@ class TestRecommendModelAccuracy:
 # M6 — Chatbot RAG Retrieval
 # ─────────────────────────────────────────────
 
+
 class TestChatbotRetrievalAccuracy:
     """M6: LLaMA 3 + RAG — semantic retrieval accuracy."""
 
     TEST_QUERIES = [
-        {"query": "What is the expected yield for Carrot in Nuwara Eliya during Maha season?",
-         "expected_crop": "carrot", "expected_district": "nuwara eliya"},
-        {"query": "What are the farmgate prices for Maize in Anuradhapura?",
-         "expected_crop": "maize", "expected_district": "anuradhapura"},
-        {"query": "Is Green gram suitable for cultivation in Hambantota?",
-         "expected_crop": "green gram", "expected_district": "hambantota"},
-        {"query": "What is the demand forecast for Cowpea in Monaragala?",
-         "expected_crop": "cowpea", "expected_district": "monaragala"},
-        {"query": "Tell me about Finger millet growing conditions in Ampara district",
-         "expected_crop": "finger millet", "expected_district": "ampara"},
-        {"query": "What crops are recommended for Batticaloa farmers this season?",
-         "expected_crop": "groundnut", "expected_district": "batticaloa"},
-        {"query": "Groundnut price trends in Jaffna",
-         "expected_crop": "groundnut", "expected_district": "jaffna"},
-        {"query": "Best time to plant Carrot in Badulla upcountry region",
-         "expected_crop": "carrot", "expected_district": "badulla"},
+        {
+            "query": (
+                "What is the expected yield for Carrot in"
+                " Nuwara Eliya during Maha season?"
+            ),
+            "expected_crop": "carrot",
+            "expected_district": "nuwara eliya",
+        },
+        {
+            "query": "What are the farmgate prices for Maize in Anuradhapura?",
+            "expected_crop": "maize",
+            "expected_district": "anuradhapura",
+        },
+        {
+            "query": "Is Green gram suitable for cultivation in Hambantota?",
+            "expected_crop": "green gram",
+            "expected_district": "hambantota",
+        },
+        {
+            "query": "What is the demand forecast for Cowpea in Monaragala?",
+            "expected_crop": "cowpea",
+            "expected_district": "monaragala",
+        },
+        {
+            "query": (
+                "Tell me about Finger millet growing conditions in Ampara district"
+            ),
+            "expected_crop": "finger millet",
+            "expected_district": "ampara",
+        },
+        {
+            "query": "What crops are recommended for Batticaloa farmers this season?",
+            "expected_crop": "groundnut",
+            "expected_district": "batticaloa",
+        },
+        {
+            "query": "Groundnut price trends in Jaffna",
+            "expected_crop": "groundnut",
+            "expected_district": "jaffna",
+        },
+        {
+            "query": "Best time to plant Carrot in Badulla upcountry region",
+            "expected_crop": "carrot",
+            "expected_district": "badulla",
+        },
     ]
     MIN_COSINE_SIMILARITY = 0.565
 
@@ -1017,7 +1154,7 @@ class TestChatbotRetrievalAccuracy:
 
         chunks, embeddings = None, None
         if isinstance(rag, dict):
-            chunks     = rag.get("chunks") or rag.get("texts") or rag.get("documents")
+            chunks = rag.get("chunks") or rag.get("texts") or rag.get("documents")
             embeddings = rag.get("embeddings") or rag.get("chunk_embeddings")
         elif isinstance(rag, (list, tuple)) and len(rag) == 2:
             a, b = rag
@@ -1029,7 +1166,7 @@ class TestChatbotRetrievalAccuracy:
         if chunks is None or embeddings is None:
             pytest.skip("Cannot extract chunks/embeddings from RAG artifacts")
 
-        chunks     = list(chunks)
+        chunks = list(chunks)
         embeddings = np.array(embeddings)
 
         if embeddings.shape[0] != len(chunks):
@@ -1044,26 +1181,31 @@ class TestChatbotRetrievalAccuracy:
         low_sim = []
 
         for tc in self.TEST_QUERIES:
-            q_emb  = encoder.encode(tc["query"], convert_to_numpy=True)
-            norms  = np.linalg.norm(embeddings, axis=1, keepdims=True)
-            norms  = np.where(norms == 0, 1e-10, norms)
-            sims   = (embeddings / norms) @ (q_emb / (np.linalg.norm(q_emb) + 1e-10))
-            top_i  = int(np.argmax(sims))
-            top_s  = float(sims[top_i])
-            chunk  = str(chunks[top_i]).lower()
+            q_emb = encoder.encode(tc["query"], convert_to_numpy=True)
+            norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+            norms = np.where(norms == 0, 1e-10, norms)
+            sims = (embeddings / norms) @ (q_emb / (np.linalg.norm(q_emb) + 1e-10))
+            top_i = int(np.argmax(sims))
+            top_s = float(sims[top_i])
+            chunk = str(chunks[top_i]).lower()
 
             if top_s < self.MIN_COSINE_SIMILARITY:
                 low_sim.append(f"{tc['query'][:50]}... sim={top_s:.3f}")
-            if tc["expected_crop"]     in chunk: correct_crop     += 1
-            if tc["expected_district"] in chunk: correct_district += 1
+            if tc["expected_crop"] in chunk:
+                correct_crop += 1
+            if tc["expected_district"] in chunk:
+                correct_district += 1
 
         total = len(self.TEST_QUERIES)
-        assert correct_crop == total, (
-            f"M6 crop retrieval: {correct_crop}/{total} correct (need 8/8)"
-        )
-        assert correct_district == total, (
-            f"M6 district retrieval: {correct_district}/{total} correct (need 8/8)"
-        )
-        assert len(low_sim) == 0, (
-            f"M6: {len(low_sim)} queries below cosine similarity {self.MIN_COSINE_SIMILARITY}"
+        assert (
+            correct_crop == total
+        ), f"M6 crop retrieval: {correct_crop}/{total} correct (need 8/8)"
+        assert (
+            correct_district == total
+        ), f"M6 district retrieval: {correct_district}/{total} correct (need 8/8)"
+        assert (
+            len(low_sim) == 0
+        ), (
+            f"M6: {len(low_sim)} queries below cosine"
+            f" similarity {self.MIN_COSINE_SIMILARITY}"
         )

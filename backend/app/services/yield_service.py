@@ -1,4 +1,5 @@
 """Yield prediction service — per-crop Random Forest models."""
+
 import logging
 from datetime import date
 from typing import Dict, List
@@ -26,15 +27,39 @@ _SEASON_START_WEEK = {"Maha": 40, "Yala": 14, "Inter": 1}
 _SEASON_DURATION = {"Maha": 24, "Yala": 24, "Inter": 12}
 
 # Irrigation types the encoder was trained on; map unseen values to nearest
-_IRRIGATION_MAP = {"drip": "drip", "sprinkler": "drip", "flood": "canal", "rainfed": "rainfed"}
+_IRRIGATION_MAP = {
+    "drip": "drip",
+    "sprinkler": "drip",
+    "flood": "canal",
+    "rainfed": "rainfed",
+}
 
 # Seed varieties and prev-crop labels known to the encoder
 _KNOWN_SEED_VARIETIES = {
-    "Bushitao", "Chantenay", "HORDI Maize 1", "Harsha", "Local", "Local Hybrid",
-    "MI 5", "MI 6", "MICP 1", "Nantes", "Ravana", "Ravi", "Ruwan", "Tissa", "Walawa",
+    "Bushitao",
+    "Chantenay",
+    "HORDI Maize 1",
+    "Harsha",
+    "Local",
+    "Local Hybrid",
+    "MI 5",
+    "MI 6",
+    "MICP 1",
+    "Nantes",
+    "Ravana",
+    "Ravi",
+    "Ruwan",
+    "Tissa",
+    "Walawa",
 }
 _KNOWN_PREV_CROPS = {
-    "Carrot", "Cowpea", "Finger millet", "Green gram", "Groundnut", "Maize", "Unknown",
+    "Carrot",
+    "Cowpea",
+    "Finger millet",
+    "Green gram",
+    "Groundnut",
+    "Maize",
+    "Unknown",
 }
 
 
@@ -73,7 +98,12 @@ def predict_yield(req: YieldPredictRequest, user_id: str) -> YieldPredictRespons
             model_used=key,
         )
     except Exception as exc:
-        logger.error("Yield prediction error crop=%s district=%s: %s", req.crop, req.district, exc)
+        logger.error(
+            "Yield prediction error crop=%s district=%s: %s",
+            req.crop,
+            req.district,
+            exc,
+        )
         raise RuntimeError("Yield prediction unavailable") from exc
 
 
@@ -83,7 +113,8 @@ def _build_features(req: YieldPredictRequest) -> List[float]:
     Feature order (from M1_features.pkl):
     week_of_year, week_of_season, season_progress, year,
     crop_enc, district_enc, season_enc,
-    rainfall_mm, temp_min_c, temp_max_c, humidity_pct, wind_speed_kmh, solar_radiation_mj,
+    rainfall_mm, temp_min_c, temp_max_c, humidity_pct,
+    wind_speed_kmh, solar_radiation_mj,
     temp_range, heat_stress_flag, cold_stress_flag, rain_adequacy,
     cultivated_area_ha, fertilizer_index, pesticide_index, soil_ph, soil_moisture_pct,
     irrigation_type_enc, seed_variety_enc,
@@ -123,41 +154,41 @@ def _build_features(req: YieldPredictRequest) -> List[float]:
     mgmt_score = (req.fertilizer_index + req.pesticide_index) / 2.0
 
     return [
-        req.week_of_year,          # 0  week_of_year
-        wos,                        # 1  week_of_season
-        season_prog,                # 2  season_progress
-        year,                       # 3  year
-        crop_enc,                   # 4  crop_enc
-        district_enc,               # 5  district_enc
-        season_enc,                 # 6  season_enc
-        req.rainfall_mm,            # 7  rainfall_mm
-        req.temp_min_c,             # 8  temp_min_c
-        req.temp_max_c,             # 9  temp_max_c
-        req.humidity_pct,           # 10 humidity_pct
-        req.wind_speed_kmh,         # 11 wind_speed_kmh
-        req.solar_radiation_mj,     # 12 solar_radiation_mj
-        temp_range,                 # 13 temp_range
-        heat_stress,                # 14 heat_stress_flag
-        cold_stress,                # 15 cold_stress_flag
-        rain_adequacy,              # 16 rain_adequacy
-        req.cultivated_area_ha,     # 17 cultivated_area_ha
-        req.fertilizer_index,       # 18 fertilizer_index
-        req.pesticide_index,        # 19 pesticide_index
-        req.soil_ph,                # 20 soil_ph
-        req.soil_moisture_pct,      # 21 soil_moisture_pct
-        irrigation_enc,             # 22 irrigation_type_enc
-        seed_enc,                   # 23 seed_variety_enc
-        req.N_index,                # 24 N_index
-        req.P_index,                # 25 P_index
-        req.K_index,                # 26 K_index
-        nutrient_score,             # 27 nutrient_score
-        mgmt_score,                 # 28 mgmt_score
-        prev_crop_enc,              # 29 prev_crop_enc
-        req.inflation_index,        # 30 inflation_index
-        req.demand_index,           # 31 demand_index
-        50.0,                       # 32 consumer_pref_index (not in request — use midpoint)
-        req.holiday_flag,           # 33 holiday_flag
-        req.festival_flag,          # 34 festival_flag
+        req.week_of_year,  # 0  week_of_year
+        wos,  # 1  week_of_season
+        season_prog,  # 2  season_progress
+        year,  # 3  year
+        crop_enc,  # 4  crop_enc
+        district_enc,  # 5  district_enc
+        season_enc,  # 6  season_enc
+        req.rainfall_mm,  # 7  rainfall_mm
+        req.temp_min_c,  # 8  temp_min_c
+        req.temp_max_c,  # 9  temp_max_c
+        req.humidity_pct,  # 10 humidity_pct
+        req.wind_speed_kmh,  # 11 wind_speed_kmh
+        req.solar_radiation_mj,  # 12 solar_radiation_mj
+        temp_range,  # 13 temp_range
+        heat_stress,  # 14 heat_stress_flag
+        cold_stress,  # 15 cold_stress_flag
+        rain_adequacy,  # 16 rain_adequacy
+        req.cultivated_area_ha,  # 17 cultivated_area_ha
+        req.fertilizer_index,  # 18 fertilizer_index
+        req.pesticide_index,  # 19 pesticide_index
+        req.soil_ph,  # 20 soil_ph
+        req.soil_moisture_pct,  # 21 soil_moisture_pct
+        irrigation_enc,  # 22 irrigation_type_enc
+        seed_enc,  # 23 seed_variety_enc
+        req.N_index,  # 24 N_index
+        req.P_index,  # 25 P_index
+        req.K_index,  # 26 K_index
+        nutrient_score,  # 27 nutrient_score
+        mgmt_score,  # 28 mgmt_score
+        prev_crop_enc,  # 29 prev_crop_enc
+        req.inflation_index,  # 30 inflation_index
+        req.demand_index,  # 31 demand_index
+        50.0,  # 32 consumer_pref_index (not in request — use midpoint)
+        req.holiday_flag,  # 33 holiday_flag
+        req.festival_flag,  # 34 festival_flag
     ]
 
 

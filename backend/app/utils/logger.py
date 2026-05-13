@@ -1,4 +1,5 @@
 """Logging configuration for CropSphere backend."""
+
 import logging
 import sys
 

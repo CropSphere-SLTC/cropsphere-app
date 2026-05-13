@@ -824,7 +824,7 @@ class TestPriceModelAccuracy:
                 if isinstance(scalers_obj, dict):
                     scaler = scalers_obj.get(crop)
             except Exception:
-                # Scaler is optional for this test path; continue with unscaled predictions.
+                # Scaler optional; continue with unscaled predictions.
                 pass
 
         try:
@@ -836,7 +836,7 @@ class TestPriceModelAccuracy:
             if scaler is not None:
                 try:
                     y_pred = scaler.inverse_transform(y_pred.reshape(-1, 1)).flatten()
-                except Exception:
+                except Exception as e:
                     warnings.warn(
                         f"Inverse transform failed for {crop}; "
                         f"using raw predictions. Error: {e}"

@@ -206,7 +206,6 @@ def engineer_m1_features(df, encoders):
         ("irrigation_type", "irrigation_type"),
         ("prev_crop", "prev_crop"),
     ]:
-        out_col = f"{enc_key}_enc" if enc_key != "crop" else "crop_enc"
         out_col = col + "_enc"
         if col in d.columns and enc_key in encoders:
             le = encoders[enc_key]

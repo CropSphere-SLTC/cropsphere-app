@@ -1,8 +1,11 @@
 """Shared pytest fixtures — test client, JWT mocks, environment setup."""
+
 import os
 
 # Set required env vars before any app module is imported
-os.environ.setdefault("FIREBASE_CREDENTIALS_JSON", '{"type":"service_account","project_id":"test"}')
+os.environ.setdefault(
+    "FIREBASE_CREDENTIALS_JSON", '{"type":"service_account","project_id":"test"}'
+)
 os.environ.setdefault("FIREBASE_PROJECT_ID", "test-project")
 os.environ.setdefault("GROQ_API_KEY", "test-groq-key")
 os.environ.setdefault("ALLOWED_ORIGINS", "http://localhost:3000")
@@ -16,12 +19,15 @@ from fastapi.testclient import TestClient  # noqa: E402
 @pytest.fixture(scope="session")
 def app():
     """Create test app with all external I/O patched out."""
-    with patch("firebase_admin.initialize_app"), \
-         patch("firebase_admin._apps", new={"[DEFAULT]": MagicMock()}), \
-         patch("app.utils.firestore.init_firestore"), \
-         patch("app.utils.firestore.audit_log"), \
-         patch("app.models.loader.ModelLoader.load_all"):
+    with patch("firebase_admin.initialize_app"), patch(
+        "firebase_admin._apps", new={"[DEFAULT]": MagicMock()}
+    ), patch("app.utils.firestore.init_firestore"), patch(
+        "app.utils.firestore.audit_log"
+    ), patch(
+        "app.models.loader.ModelLoader.load_all"
+    ):
         from app.main import create_app
+
         return create_app()
 
 
@@ -41,6 +47,7 @@ def reset_rate_limit(app):
     still makes 31 real requests and hits 429 correctly.
     """
     from app.middleware.rate_limit import limiter
+
     limiter._storage.reset()
     yield
 
@@ -60,6 +67,7 @@ def expired_auth_header():
 @pytest.fixture
 def mock_valid_token(monkeypatch):
     """Patch Firebase token verification to accept 'valid-test-token'."""
+
     def _verify(token, request, audience=None):
         if token == "valid-test-token":
             return {"uid": "test-user-123", "sub": "test-user-123"}
@@ -71,6 +79,7 @@ def mock_valid_token(monkeypatch):
 @pytest.fixture
 def mock_expired_token(monkeypatch):
     """Patch Firebase token verification to always raise (simulates expiry)."""
+
     def _verify(token, request, audience=None):
         raise Exception("Token has expired")
 

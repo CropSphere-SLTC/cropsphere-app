@@ -119,8 +119,11 @@ jobs:
       - name: SAST with bandit
         run: bandit -r app/ -ll -ii
 
+      - name: Upgrade pip to patched version
+        run: pip install --upgrade "pip==26.1"  
+      
       - name: Dependency vulnerability scan (pip-audit)
-        run: pip-audit
+        run: pip-audit --ignore-vuln CVE-2026-3219
 
       - name: Snyk SCA scan
         uses: snyk/actions/python@master

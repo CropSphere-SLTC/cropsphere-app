@@ -1,8 +1,10 @@
 """Firestore client initialisation and DevSecOps audit logging."""
 
 import hashlib
+import hmac
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Any, Dict
 
@@ -74,11 +76,18 @@ def audit_log(user_id: str, endpoint: str, input_data: Dict[str, Any]) -> None:
         input_hash = hashlib.sha256(
             json.dumps(input_data, sort_keys=True, default=str).encode()
         ).hexdigest()
+        hmac_key = os.environ.get("AUDIT_HMAC_KEY", "")
+        hmac_sig = hmac.new(
+            hmac_key.encode(),
+            input_hash.encode(),
+            hashlib.sha256,
+        ).hexdigest()
         db.collection("audit_logs").add(
             {
                 "user_id": user_id,
                 "endpoint": endpoint,
                 "input_hash": input_hash,
+                "hmac_sha256": hmac_sig,
                 "timestamp": datetime.now(timezone.utc),
             }
         )

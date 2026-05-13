@@ -1,4 +1,5 @@
 """AI chatbot service — LLaMA 3 via Groq API with RAG."""
+
 import logging
 import re
 
@@ -10,7 +11,9 @@ logger = logging.getLogger(__name__)
 
 _MAX_LEN = 500
 _encoder = None  # SentenceTransformer singleton — loaded once on first chat request
-_HF_CACHE = "/tmp/hf_cache"  # nosec B108 — intentional, writable by non-root container user
+_HF_CACHE = (
+    "/tmp/hf_cache"  # nosec B108 — intentional, writable by non-root container user
+)
 
 
 def chat(req: ChatRequest, settings) -> ChatResponse:
@@ -32,6 +35,7 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
 
     try:
         from groq import Groq  # type: ignore
+
         client = Groq(api_key=settings.GROQ_API_KEY)
 
         context = _rag_context(clean)
@@ -57,12 +61,14 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _get_encoder():
     """Return the SentenceTransformer encoder, loading it once and caching it."""
     global _encoder
     if _encoder is None:
         from sentence_transformers import SentenceTransformer  # type: ignore
         import os
+
         os.makedirs(_HF_CACHE, exist_ok=True)
         _encoder = SentenceTransformer("all-MiniLM-L6-v2", cache_folder=_HF_CACHE)
     return _encoder
@@ -90,6 +96,7 @@ def _rag_context(message: str) -> dict:
         return {"text": "", "sources": []}
     try:
         from sentence_transformers import util  # type: ignore
+
         chunks = rag.get("knowledge_chunks", [])
         metadata = rag.get("chunk_metadata", [])
         embeddings = rag.get("chunk_embeddings")
@@ -100,7 +107,9 @@ def _rag_context(message: str) -> dict:
         encoder = _get_encoder()
         q_emb = encoder.encode(message, convert_to_tensor=True)
         idx = int(util.cos_sim(q_emb, embeddings)[0].argmax())
-        source = metadata[idx].get("source", "") if metadata and idx < len(metadata) else ""
+        source = (
+            metadata[idx].get("source", "") if metadata and idx < len(metadata) else ""
+        )
         return {"text": chunks[idx], "sources": [source] if source else []}
     except Exception as exc:
         logger.warning("RAG retrieval failed: %s", exc)
@@ -110,7 +119,9 @@ def _rag_context(message: str) -> dict:
 def _build_messages(system: str, context: dict, req: ChatRequest, message: str) -> list:
     msgs = [{"role": "system", "content": system}]
     if context["text"]:
-        msgs.append({"role": "system", "content": f"Relevant context: {context['text']}"})
+        msgs.append(
+            {"role": "system", "content": f"Relevant context: {context['text']}"}
+        )
     for turn in req.conversation_history[-10:]:
         msgs.append({"role": turn.role, "content": turn.content})
     msgs.append({"role": "user", "content": message})
@@ -130,6 +141,8 @@ def _followups(req: ChatRequest) -> list:
 def _safe_audit(user_id: str, message: str) -> None:
     """Log chat request hash — failure must not interrupt the chat response."""
     try:
-        audit_log(user_id=user_id, endpoint="/api/chat", input_data={"message": message})
+        audit_log(
+            user_id=user_id, endpoint="/api/chat", input_data={"message": message}
+        )
     except Exception as exc:
         logger.warning("Chat audit log failed: %s", exc)

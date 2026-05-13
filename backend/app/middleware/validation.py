@@ -1,5 +1,4 @@
 from pydantic import BaseModel, field_validator, Field
-from typing import Optional
 
 class PredictionInput(BaseModel):
     crop: str = Field(..., min_length=2, max_length=50)

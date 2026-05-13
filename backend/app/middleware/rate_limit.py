@@ -1,4 +1,5 @@
 """Rate limiting configuration — 30 requests/minute per IP via slowapi."""
+
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 

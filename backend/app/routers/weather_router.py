@@ -1,4 +1,5 @@
 """Weather forecast router."""
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.dependencies import get_user_id
@@ -21,7 +22,9 @@ async def weather_forecast(
 
     Requires valid Firebase JWT.  Rate limited: 30 req/min per IP.
     """
-    audit_log(user_id=user_id, endpoint="/api/weather/forecast", input_data=body.model_dump())
+    audit_log(
+        user_id=user_id, endpoint="/api/weather/forecast", input_data=body.model_dump()
+    )
     try:
         return forecast_weather(body)
     except RuntimeError as exc:

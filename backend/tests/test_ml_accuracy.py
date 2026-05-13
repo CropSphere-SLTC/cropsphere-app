@@ -838,9 +838,9 @@ class TestPriceModelAccuracy:
                     y_pred = scaler.inverse_transform(y_pred.reshape(-1, 1)).flatten()
                 except Exception:
                     warnings.warn(
-        f"Inverse transform failed for {crop}; "
-        f"using raw predictions. Error: {e}"
-    )
+                        f"Inverse transform failed for {crop}; "
+                        f"using raw predictions. Error: {e}"
+                    )
         except Exception as e:
             pytest.skip(f"Prediction failed for {crop}: {e}")
 

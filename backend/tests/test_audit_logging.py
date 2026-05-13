@@ -1,6 +1,4 @@
 """Audit log HMAC tests."""
-import hashlib
-import hmac
 from unittest.mock import MagicMock, patch
 
 

@@ -206,7 +206,6 @@ def engineer_m1_features(df, encoders):
         ("irrigation_type", "irrigation_type"),
         ("prev_crop", "prev_crop"),
     ]:
-        out_col = f"{enc_key}_enc" if enc_key != "crop" else "crop_enc"
         out_col = col + "_enc"
         if col in d.columns and enc_key in encoders:
             le = encoders[enc_key]
@@ -824,8 +823,11 @@ class TestPriceModelAccuracy:
                 scalers_obj = joblib.load(scaler_path)
                 if isinstance(scalers_obj, dict):
                     scaler = scalers_obj.get(crop)
-            except Exception:
-                pass
+            except Exception as e:
+                warnings.warn(
+                    f"Failed to load scaler for {crop} from {scaler_path}; "
+                    f"continuing without scaler. Error: {e}"
+                )
 
         try:
             preds_raw = model.predict(X_arr, verbose=0)

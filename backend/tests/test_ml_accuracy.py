@@ -313,9 +313,7 @@ def engineer_m4_features(df, crop):
 
     d = d.dropna(
         subset=[f"demand_lag{lag}" for lag in [1, 2, 3, 4, 8, 12]]
-    ).reset_index(
-        drop=True
-    )
+    ).reset_index(drop=True)
 
     feat_cols = [
         "demand_index",
@@ -545,9 +543,7 @@ class TestYieldModelAccuracy:
         error = rmse(y, y_pred)
         # Colab threshold: 981 kg/ha. Container sklearn 1.8.0 scores
         # 1192 due to version gap.
-        assert (
-            error <= 1210
-        ), (
+        assert error <= 1210, (
             f"M1 combined RMSE={error:.1f} kg/ha exceeds"
             f" threshold 1210 kg/ha (sklearn version gap)"
         )
@@ -1036,9 +1032,7 @@ class TestRecommendModelAccuracy:
         # Row 3625 Monaragala→Carrot
         # These are borderline rows that flip due to internal tree computation changes.
         # Allowing ≤5 violations as acceptable tolerance for version mismatch.
-        assert (
-            violations <= 5
-        ), (
+        assert violations <= 5, (
             f"M5 district constraint violated {violations} times"
             f" (threshold: ≤5 for sklearn version gap)"
         )
@@ -1206,9 +1200,7 @@ class TestChatbotRetrievalAccuracy:
         assert (
             correct_district == total
         ), f"M6 district retrieval: {correct_district}/{total} correct (need 8/8)"
-        assert (
-            len(low_sim) == 0
-        ), (
+        assert len(low_sim) == 0, (
             f"M6: {len(low_sim)} queries below cosine"
             f" similarity {self.MIN_COSINE_SIMILARITY}"
         )

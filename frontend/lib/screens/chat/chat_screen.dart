@@ -273,9 +273,8 @@ class _ChatScreenState extends State<ChatScreen> {
               style: TextStyle(
                 fontSize: 12,
                 color: selected != null ? AppTheme.primary : Colors.grey[600],
-                fontWeight: selected != null
-                    ? FontWeight.w600
-                    : FontWeight.normal,
+                fontWeight:
+                    selected != null ? FontWeight.w600 : FontWeight.normal,
               ),
             ),
             const SizedBox(width: 4),
@@ -331,9 +330,8 @@ class _ChatScreenState extends State<ChatScreen> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
-        mainAxisAlignment: isUser
-            ? MainAxisAlignment.end
-            : MainAxisAlignment.start,
+        mainAxisAlignment:
+            isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (!isUser) ...[
@@ -351,8 +349,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 color: isUser
                     ? AppTheme.primaryDark
                     : isError
-                    ? Colors.red[50]
-                    : Colors.white,
+                        ? Colors.red[50]
+                        : Colors.white,
                 borderRadius: BorderRadius.only(
                   topLeft: const Radius.circular(16),
                   topRight: const Radius.circular(16),
@@ -376,8 +374,8 @@ class _ChatScreenState extends State<ChatScreen> {
                       color: isUser
                           ? Colors.white
                           : isError
-                          ? Colors.red
-                          : Colors.black87,
+                              ? Colors.red
+                              : Colors.black87,
                       fontSize: 14,
                     ),
                   ),
@@ -463,7 +461,7 @@ class _ChatScreenState extends State<ChatScreen> {
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16),
         itemCount: _suggestedFollowups.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        separatorBuilder: (_, index) => const SizedBox(width: 8),
         itemBuilder: (ctx, i) => GestureDetector(
           onTap: () => _sendMessage(_suggestedFollowups[i]),
           child: Container(
@@ -568,9 +566,8 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     }
     // Limit to last 10 turns and truncate long messages
-    final limited = valid.length > 10
-        ? valid.sublist(valid.length - 10)
-        : valid;
+    final limited =
+        valid.length > 10 ? valid.sublist(valid.length - 10) : valid;
     return limited
         .map(
           (m) => ChatMessage(

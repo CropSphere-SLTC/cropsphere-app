@@ -1,3 +1,28 @@
-2026/04/21-00:21:32.604 105795 Reusing MANIFEST /private/var/folders/cn/2rtw4dxd2tjfnxgmqj556x5h0000gn/T/flutter_tools.xJnSdN/flutter_tools_chrome_device.cJu4vX/Default/shared_proto_db/MANIFEST-000001
-2026/04/21-00:21:32.605 105795 Recovering log #10
-2026/04/21-00:21:32.605 105795 Reusing old log /private/var/folders/cn/2rtw4dxd2tjfnxgmqj556x5h0000gn/T/flutter_tools.xJnSdN/flutter_tools_chrome_device.cJu4vX/Default/shared_proto_db/000010.log 
+2026/05/13-14:29:30.567 4dc0 Reusing MANIFEST C:\Users\SUPUNS~1\AppData\Local\Temp\flutter_tools.6f763c83\flutter_tools_chrome_device.2ddca510\Default\shared_proto_db/MANIFEST-000001
+2026/05/13-14:29:30.568 4dc0 Recovering log #29
+2026/05/13-14:29:30.571 4dc0 Reusing old log C:\Users\SUPUNS~1\AppData\Local\Temp\flutter_tools.6f763c83\flutter_tools_chrome_device.2ddca510\Default\shared_proto_db/000029.log 
+2026/05/13-14:29:30.572 4dc0 Delete type=0 #3
+2026/05/13-14:29:30.572 4dc0 Delete type=0 #4
+2026/05/13-14:29:30.572 4dc0 Delete type=0 #7
+2026/05/13-14:29:30.572 4dc0 Delete type=2 #8
+2026/05/13-14:29:30.572 4dc0 Delete type=0 #10
+2026/05/13-14:29:30.572 4dc0 Delete type=2 #11
+2026/05/13-14:29:30.572 4dc0 Delete type=0 #13
+2026/05/13-14:29:30.573 4dc0 Delete type=2 #14
+2026/05/13-14:29:30.573 4dc0 Delete type=0 #16
+2026/05/13-14:29:30.573 4dc0 Delete type=2 #17
+2026/05/13-14:29:30.573 4dc0 Delete type=0 #19
+2026/05/13-14:29:30.573 4dc0 Delete type=0 #23
+2026/05/13-14:29:30.573 4dc0 Delete type=0 #26
+2026/05/13-14:30:46.775 4ca8 Level-0 table #33: started
+2026/05/13-14:30:46.815 4ca8 Level-0 table #33: 136184 bytes OK
+2026/05/13-14:30:46.841 4ca8 Delete type=0 #29
+2026/05/13-14:30:46.843 4ca8 Compacting 4@0 + 1@1 files
+2026/05/13-14:30:46.888 4ca8 Generated table #34@0: 1229 keys, 91318 bytes
+2026/05/13-14:30:46.888 4ca8 Compacted 4@0 + 1@1 files => 91318 bytes
+2026/05/13-14:30:46.894 4ca8 compacted to: files[ 0 1 1 0 0 0 0 ]
+2026/05/13-14:30:46.899 4ca8 Delete type=2 #21
+2026/05/13-14:30:46.900 4ca8 Delete type=2 #24
+2026/05/13-14:30:46.901 4ca8 Delete type=2 #27
+2026/05/13-14:30:46.901 4ca8 Delete type=2 #30
+2026/05/13-14:30:46.901 4ca8 Delete type=2 #33

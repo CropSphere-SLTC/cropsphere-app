@@ -57,59 +57,23 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _selectedIndex = 0;
 
-  final List<Widget> _screens = const [
-    DashboardScreen(),
-    YieldScreen(),
-    PriceScreen(),
-    WeatherScreen(),
-    RecommendScreen(),
-    DemandScreen(),
-    ChatScreen(),
+  // Build screens lazily so DashboardScreen can receive the onNavigate callback
+  late final List<Widget> _screens = [
+    DashboardScreen(onNavigate: _navigateTo), // index 0
+    const YieldScreen(), // index 1
+    const PriceScreen(), // index 2
+    const WeatherScreen(), // index 3
+    const RecommendScreen(), // index 4
+    const DemandScreen(), // index 5
+    const ChatScreen(), // index 6
   ];
 
-  final List<NavigationDestination> _destinations = const [
-    NavigationDestination(
-      icon: Icon(Icons.dashboard_outlined),
-      selectedIcon: Icon(Icons.dashboard),
-      label: 'Dashboard',
-    ),
-    NavigationDestination(
-      icon: Icon(Icons.grass_outlined),
-      selectedIcon: Icon(Icons.grass),
-      label: 'Yield',
-    ),
-    NavigationDestination(
-      icon: Icon(Icons.trending_up_outlined),
-      selectedIcon: Icon(Icons.trending_up),
-      label: 'Price',
-    ),
-    NavigationDestination(
-      icon: Icon(Icons.cloud_outlined),
-      selectedIcon: Icon(Icons.cloud),
-      label: 'Weather',
-    ),
-    NavigationDestination(
-      icon: Icon(Icons.recommend_outlined),
-      selectedIcon: Icon(Icons.recommend),
-      label: 'Crop',
-    ),
-    NavigationDestination(
-      icon: Icon(Icons.bar_chart_outlined),
-      selectedIcon: Icon(Icons.bar_chart),
-      label: 'Demand',
-    ),
-    NavigationDestination(
-      icon: Icon(Icons.chat_outlined),
-      selectedIcon: Icon(Icons.chat),
-      label: 'Chat',
-    ),
-  ];
+  void _navigateTo(int index) {
+    setState(() => _selectedIndex = index);
+  }
 
   Future<void> _signOut() async {
-    // Sign out from Firebase AND clear Google session
     await FirebaseAuth.instance.signOut();
-
-    // Re-show login screen is handled automatically by StreamBuilder
   }
 
   @override
@@ -154,9 +118,44 @@ class _MainShellState extends State<MainShell> {
       body: IndexedStack(index: _selectedIndex, children: _screens),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
-        onDestinationSelected: (index) =>
-            setState(() => _selectedIndex = index),
-        destinations: _destinations,
+        onDestinationSelected: _navigateTo,
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.dashboard_outlined),
+            selectedIcon: Icon(Icons.dashboard),
+            label: 'Dashboard',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.grass_outlined),
+            selectedIcon: Icon(Icons.grass),
+            label: 'Yield',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.trending_up_outlined),
+            selectedIcon: Icon(Icons.trending_up),
+            label: 'Price',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.cloud_outlined),
+            selectedIcon: Icon(Icons.cloud),
+            label: 'Weather',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.recommend_outlined),
+            selectedIcon: Icon(Icons.recommend),
+            label: 'Crop',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.bar_chart_outlined),
+            selectedIcon: Icon(Icons.bar_chart),
+            label: 'Demand',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.chat_outlined),
+            selectedIcon: Icon(Icons.chat),
+            label: 'Chat',
+          ),
+        ],
         backgroundColor: AppTheme.surfaceCard,
         indicatorColor: AppTheme.primary.withValues(alpha: 0.12),
         labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,

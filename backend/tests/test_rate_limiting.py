@@ -10,6 +10,7 @@ def test_rate_limit_allows_normal_requests():
     assert response.status_code == 200
     print("✅ Test 1 Passed — Normal request allowed")
 
+
 def test_rate_limit_middleware_is_active():
     # Verify limiter is attached to app state
     assert hasattr(app.state, "limiter")

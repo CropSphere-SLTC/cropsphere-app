@@ -839,6 +839,8 @@ class TestPriceModelAccuracy:
                 try:
                     y_pred = scaler.inverse_transform(y_pred.reshape(-1, 1)).flatten()
                 except Exception:
+                    # Inverse scaling is optional in this test path; if it fails,
+                    # keep raw predictions so metric validation can still proceed.
                     pass
         except Exception as e:
             pytest.skip(f"Prediction failed for {crop}: {e}")

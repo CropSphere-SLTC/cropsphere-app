@@ -13,7 +13,9 @@ limiter = Limiter(
 )
 
 
-def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+def rate_limit_exceeded_handler(
+    request: Request, exc: RateLimitExceeded
+) -> JSONResponse:
     """Return a 429 JSON response when the rate limit is exceeded."""
     return JSONResponse(
         status_code=429,

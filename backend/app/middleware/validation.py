@@ -1,5 +1,6 @@
 from pydantic import BaseModel, field_validator, Field
 
+
 class PredictionInput(BaseModel):
     crop: str = Field(..., min_length=2, max_length=50)
     rainfall: float

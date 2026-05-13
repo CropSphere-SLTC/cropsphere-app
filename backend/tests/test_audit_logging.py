@@ -1,4 +1,5 @@
 """Audit log HMAC tests."""
+
 from unittest.mock import MagicMock, patch
 
 
@@ -10,6 +11,7 @@ def test_audit_log_has_hmac(monkeypatch):
 
     with patch("app.utils.firestore.get_db", return_value=mock_db):
         from app.utils.firestore import audit_log
+
         audit_log(
             user_id="user-123",
             endpoint="/api/yield/predict",

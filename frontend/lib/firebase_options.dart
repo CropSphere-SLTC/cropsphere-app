@@ -69,7 +69,8 @@ class DefaultFirebaseOptions {
     messagingSenderId: '106249512932',
     projectId: 'cropsphere-2e87c',
     storageBucket: 'cropsphere-2e87c.firebasestorage.app',
-    iosClientId: '106249512932-ncjb98iqj0ostjuur0gjd48kor9re64c.apps.googleusercontent.com',
+    iosClientId:
+        '106249512932-ncjb98iqj0ostjuur0gjd48kor9re64c.apps.googleusercontent.com',
     iosBundleId: 'com.example.cropsphereApp',
   );
 }

@@ -9,11 +9,10 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:cropsphere_app/screens/auth/login_screen.dart';
 
 void main() {
-  testWidgets('LoginScreen renders app name and sign-in button',
-      (WidgetTester tester) async {
-    await tester.pumpWidget(
-      const MaterialApp(home: LoginScreen()),
-    );
+  testWidgets('LoginScreen renders app name and sign-in button', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
 
     // App title is visible
     expect(find.text('CropSphere'), findsOneWidget);

@@ -1,7 +1,0 @@
-FROM python:3.11-slim
-
-RUN pip install --no-cache-dir \
-    tensorflow-cpu==2.16.1 \
-    sentence-transformers==2.7.0 \
-    scikit-learn==1.4.2 \
-    xgboost==2.0.3

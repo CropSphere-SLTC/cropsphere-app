@@ -1,8 +1,0 @@
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-asyncio_mode = "auto"
-addopts = "--cov=app --cov-report=term-missing --cov-fail-under=1"
-
-[tool.bandit]
-exclude_dirs = ["tests", ".venv", "venv"]
-skips = ["B101"]

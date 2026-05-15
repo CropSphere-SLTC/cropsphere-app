@@ -1,4 +1,5 @@
 """Application configuration — all values sourced from environment variables."""
+
 from functools import lru_cache
 from typing import List
 

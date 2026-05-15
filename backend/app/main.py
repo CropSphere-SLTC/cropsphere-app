@@ -30,12 +30,33 @@ logger = logging.getLogger(__name__)
 
 def create_app() -> FastAPI:
     """Construct and configure the FastAPI application."""
+    from contextlib import asynccontextmanager
+
     settings = get_settings()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        logger.info("CropSphere starting — ENV=%s", settings.APP_ENV)
+
+        # Firestore audit logging — optional for dev
+        try:
+            init_firestore(
+                settings.FIREBASE_CREDENTIALS_JSON, settings.FIREBASE_PROJECT_ID
+            )
+        except Exception as exc:
+            logger.warning("Firestore audit logging disabled: %s", exc)
+
+        # Load all ML models on startup (before yield = startup phase)
+        model_loader.load_all(settings.MODEL_DIR)
+        logger.info("Models loaded: %s", model_loader.status_report())
+
+        yield  # app runs here
 
     app = FastAPI(
         title="CropSphere API",
         description="Agricultural intelligence API for Sri Lankan farmers",
         version="1.0.0",
+        lifespan=lifespan,
     )
 
     # ── Rate limiter ──────────────────────────────────────────────────────────
@@ -69,24 +90,6 @@ def create_app() -> FastAPI:
     app.include_router(demand_router.router)
     app.include_router(recommend_router.router)
     app.include_router(chat_router.router)
-
-    # ── Startup ───────────────────────────────────────────────────────────────
-    @app.on_event("startup")
-    async def startup() -> None:
-        logger.info("CropSphere starting — ENV=%s", settings.APP_ENV)
-
-        # JWT verification uses google.oauth2.id_token directly.
-        # No firebase_admin needed.
-        # Firestore audit logging requires a service-account key — optional for dev.
-        try:
-            init_firestore(
-                settings.FIREBASE_CREDENTIALS_JSON, settings.FIREBASE_PROJECT_ID
-            )
-        except Exception as exc:
-            logger.warning("Firestore audit logging disabled: %s", exc)
-
-        model_loader.load_all(settings.MODEL_DIR)
-        logger.info("Models: %s", model_loader.status_report())
 
     return app
 

@@ -47,12 +47,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: /language:${{ matrix.language }}
 
@@ -119,11 +119,8 @@ jobs:
       - name: SAST with bandit
         run: bandit -r app/ -ll -ii
 
-      - name: Upgrade pip to patched version
-        run: pip install --upgrade "pip==26.1"  
-      
       - name: Dependency vulnerability scan (pip-audit)
-        run: pip-audit --ignore-vuln CVE-2026-3219
+        run: pip-audit
 
       - name: Snyk SCA scan
         uses: snyk/actions/python@master
@@ -177,9 +174,6 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - name: Upgrade pip to patched version
-        run: python -m pip install --upgrade "pip==26.1"
-      
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
@@ -196,7 +190,7 @@ jobs:
         run: bandit -r app/services/ -ll
 
       - name: Dependency vulnerability scan (pip-audit)
-        run: pip-audit --ignore-vuln CVE-2026-3219
+        run: pip-audit
 
       - name: Validate ML model tests
         run: |

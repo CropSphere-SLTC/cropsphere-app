@@ -263,9 +263,9 @@ class CsMockBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: AppTheme.warning.withOpacity(0.15),
+        color: AppTheme.warning.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: AppTheme.warning.withOpacity(0.4)),
+        border: Border.all(color: AppTheme.warning.withValues(alpha: 0.4)),
       ),
       child: const Text(
         'MOCK DATA',
@@ -291,9 +291,9 @@ class CsConfidenceBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: color.withOpacity(0.4)),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
       ),
       child: Text(
         confidence.toUpperCase(),

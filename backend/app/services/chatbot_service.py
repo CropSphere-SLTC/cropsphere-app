@@ -3,6 +3,8 @@
 import logging
 import re
 
+from html.parser import HTMLParser
+
 from app.models.loader import model_loader
 from app.models.schemas import ChatRequest, ChatResponse
 from app.utils.firestore import audit_log
@@ -76,7 +78,24 @@ def _get_encoder():
 
 def _strip_html(text: str) -> str:
     """Remove HTML tags to mitigate prompt injection via markup."""
-    return re.sub(r"<[^>]+>", "", text).strip()
+    from html.parser import HTMLParser
+
+class _HTMLStripper(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self._parts: list[str] = []
+
+    def handle_data(self, data: str) -> None:
+        self._parts.append(data)
+
+    def get_text(self) -> str:
+        return "".join(self._parts).strip()
+
+def _strip_html(text: str) -> str:
+    """Remove HTML tags to mitigate prompt injection via markup."""
+    stripper = _HTMLStripper()
+    stripper.feed(text)
+    return stripper.get_text()
 
 
 def _system_prompt(req: ChatRequest) -> str:

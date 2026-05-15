@@ -75,6 +75,7 @@ def _get_encoder():
 
 class _HTMLStripper(HTMLParser):
     """Remove HTML tags to mitigate prompt injection via markup."""
+
     def __init__(self):
         super().__init__()
         self._parts: list[str] = []

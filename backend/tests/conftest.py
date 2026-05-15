@@ -1,86 +1,163 @@
-"""Shared pytest fixtures — test client, JWT mocks, environment setup."""
+"""AI chatbot service — LLaMA 3 via Groq API with RAG."""
 
-import os
+import logging
 
-# Set required env vars before any app module is imported
-os.environ.setdefault(
-    "FIREBASE_CREDENTIALS_JSON", '{"type":"service_account","project_id":"test"}'
+from html.parser import HTMLParser
+
+from app.models.loader import model_loader
+from app.models.schemas import ChatRequest, ChatResponse
+from app.utils.firestore import audit_log
+
+logger = logging.getLogger(__name__)
+
+_MAX_LEN = 500
+_encoder = None  # SentenceTransformer singleton — loaded once on first chat request
+_HF_CACHE = (
+    "/tmp/hf_cache"  # nosec B108 — intentional, writable by non-root container user
 )
-os.environ.setdefault("FIREBASE_PROJECT_ID", "test-project")
-os.environ.setdefault("GROQ_API_KEY", "test-groq-key")
-os.environ.setdefault("ALLOWED_ORIGINS", "http://localhost:3000")
-os.environ.setdefault("MODEL_DIR", "/tmp/models")
-
-import pytest  # noqa: E402
-from unittest.mock import MagicMock, patch  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
 
 
-@pytest.fixture(scope="session")
-def app():
-    """Create test app with all external I/O patched out."""
-    with patch("firebase_admin.initialize_app"), patch(
-        "firebase_admin._apps", new={"[DEFAULT]": MagicMock()}
-    ), patch("app.utils.firestore.init_firestore"), patch(
-        "app.utils.firestore.audit_log"
-    ), patch(
-        "app.models.loader.ModelLoader.load_all"
-    ):
-        from app.main import create_app
+def chat(req: ChatRequest, settings) -> ChatResponse:
+    """Process a farmer chat message and return an AI response.
 
-        return create_app()
+    Security controls (shift-left):
+    - HTML tags stripped before any processing.
+    - Message truncated at 500 chars even if Pydantic somehow passed a longer one.
+    - Input hash logged to Firestore for prompt-injection monitoring.
+    - Stack traces never exposed to the client.
 
-
-@pytest.fixture(scope="session")
-def client(app):
-    """Session-scoped test client (startup/shutdown events fire once)."""
-    with TestClient(app) as c:
-        yield c
-
-
-@pytest.fixture(autouse=True)
-def reset_rate_limit(app):
-    """Reset slowapi's in-memory counter before every test.
-
-    Prevents rate-limit state from bleeding across tests when using a
-    session-scoped client. The limiter stays active, so TestRateLimiting
-    still makes 31 real requests and hits 429 correctly.
+    Inputs: ChatRequest (Pydantic-validated), Settings instance.
+    Outputs: ChatResponse with reply, sources, and follow-up suggestions.
+    Security assumption: user_id verified by JWT middleware before this is called.
     """
-    from app.middleware.rate_limit import limiter
+    clean = _strip_html(req.message)[:_MAX_LEN]
 
-    limiter._storage.reset()
-    yield
+    _safe_audit(req.user_id, clean)
+
+    try:
+        from groq import Groq  # type: ignore
+
+        client = Groq(api_key=settings.GROQ_API_KEY)
+
+        context = _rag_context(clean)
+        messages = _build_messages(_system_prompt(req), context, req, clean)
+
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=messages,
+            max_tokens=512,
+            temperature=0.7,
+        )
+        reply = response.choices[0].message.content
+
+        return ChatResponse(
+            reply=reply,
+            sources_used=context["sources"],
+            suggested_followups=_followups(req),
+        )
+    except Exception as exc:
+        logger.error("Chatbot error user=%s: %s", req.user_id, type(exc).__name__)
+        raise RuntimeError("Chatbot unavailable") from exc
 
 
-@pytest.fixture
-def valid_auth_header():
-    """Authorization header carrying a mock valid token."""
-    return {"Authorization": "Bearer valid-test-token"}
+# ── Helpers ───────────────────────────────────────────────────────────────────
+def _get_encoder():
+    """Return the SentenceTransformer encoder, loading it once and caching it."""
+    global _encoder
+    if _encoder is None:
+        from sentence_transformers import SentenceTransformer  # type: ignore
+        import os
+
+        os.makedirs(_HF_CACHE, exist_ok=True)
+        _encoder = SentenceTransformer("all-MiniLM-L6-v2", cache_folder=_HF_CACHE)
+    return _encoder
 
 
-@pytest.fixture
-def expired_auth_header():
-    """Authorization header carrying a mock expired token."""
-    return {"Authorization": "Bearer expired-test-token"}
+class _HTMLStripper(HTMLParser):
+    """Remove HTML tags to mitigate prompt injection via markup."""
+
+    def __init__(self):
+        super().__init__()
+        self._parts: list[str] = []
+
+    def handle_data(self, data: str) -> None:
+        self._parts.append(data)
+
+    def get_text(self) -> str:
+        return "".join(self._parts).strip()
 
 
-@pytest.fixture
-def mock_valid_token(monkeypatch):
-    """Patch Firebase token verification to accept 'valid-test-token'."""
-
-    def _verify(token, request, audience=None):
-        if token == "valid-test-token":
-            return {"uid": "test-user-123", "sub": "test-user-123"}
-        raise Exception("Token invalid or expired")
-
-    monkeypatch.setattr("app.middleware.auth.verify_firebase_token", _verify)
+def _strip_html(text: str) -> str:
+    """Remove HTML tags to mitigate prompt injection via markup."""
+    stripper = _HTMLStripper()
+    stripper.feed(text)
+    return stripper.get_text()
 
 
-@pytest.fixture
-def mock_expired_token(monkeypatch):
-    """Patch Firebase token verification to always raise (simulates expiry)."""
+def _system_prompt(req: ChatRequest) -> str:
+    district = f" The farmer is in {req.district.value}." if req.district else ""
+    crop = f" They are asking about {req.crop.value}." if req.crop else ""
+    return (
+        "You are CropSphere, an agricultural assistant for Sri Lankan farmers. "
+        "Provide concise, practical advice about crops, weather, and markets."
+        f"{district}{crop}"
+    )
 
-    def _verify(token, request, audience=None):
-        raise Exception("Token has expired")
 
-    monkeypatch.setattr("google.oauth2.id_token.verify_firebase_token", _verify)
+def _rag_context(message: str) -> dict:
+    """Retrieve the most relevant RAG chunk for the query."""
+    rag = model_loader.get_model("rag_artifacts")
+    if rag is None:
+        return {"text": "", "sources": []}
+    try:
+        from sentence_transformers import util  # type: ignore
+
+        chunks = rag.get("knowledge_chunks", [])
+        metadata = rag.get("chunk_metadata", [])
+        embeddings = rag.get("chunk_embeddings")
+
+        if not chunks or embeddings is None:
+            return {"text": "", "sources": []}
+
+        encoder = _get_encoder()
+        q_emb = encoder.encode(message, convert_to_tensor=True)
+        idx = int(util.cos_sim(q_emb, embeddings)[0].argmax())
+        source = (
+            metadata[idx].get("source", "") if metadata and idx < len(metadata) else ""
+        )
+        return {"text": chunks[idx], "sources": [source] if source else []}
+    except Exception as exc:
+        logger.warning("RAG retrieval failed: %s", exc)
+        return {"text": "", "sources": []}
+
+
+def _build_messages(system: str, context: dict, req: ChatRequest, message: str) -> list:
+    msgs = [{"role": "system", "content": system}]
+    if context["text"]:
+        msgs.append(
+            {"role": "system", "content": f"Relevant context: {context['text']}"}
+        )
+    for turn in req.conversation_history[-10:]:
+        msgs.append({"role": turn.role, "content": turn.content})
+    msgs.append({"role": "user", "content": message})
+    return msgs
+
+
+def _followups(req: ChatRequest) -> list:
+    crop = req.crop.value if req.crop else "crops"
+    district = req.district.value if req.district else "your area"
+    return [
+        f"What is the best planting season for {crop} in {district}?",
+        f"What are current market prices for {crop}?",
+        "How can I improve my soil quality?",
+    ]
+
+
+def _safe_audit(user_id: str, message: str) -> None:
+    """Log chat request hash — failure must not interrupt the chat response."""
+    try:
+        audit_log(
+            user_id=user_id, endpoint="/api/chat", input_data={"message": message}
+        )
+    except Exception as exc:
+        logger.warning("Chat audit log failed: %s", exc)

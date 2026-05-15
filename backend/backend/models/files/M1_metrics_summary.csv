@@ -1,0 +1,2 @@
+model,R2,RMSE,MAE,MAPE,CV_mean_R2,CV_std_R2
+M1_combined,0.9753,981.0,444.2,13.71,0.9693,0.0052

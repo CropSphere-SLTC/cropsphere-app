@@ -1,7 +1,6 @@
 """AI chatbot service — LLaMA 3 via Groq API with RAG."""
 
 import logging
-import re
 
 from html.parser import HTMLParser
 
@@ -62,8 +61,6 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-
-
 def _get_encoder():
     """Return the SentenceTransformer encoder, loading it once and caching it."""
     global _encoder
@@ -76,8 +73,8 @@ def _get_encoder():
     return _encoder
 
 
-    """Remove HTML tags to mitigate prompt injection via markup."""
 class _HTMLStripper(HTMLParser):
+    """Remove HTML tags to mitigate prompt injection via markup."""
     def __init__(self):
         super().__init__()
         self._parts: list[str] = []
@@ -87,6 +84,7 @@ class _HTMLStripper(HTMLParser):
 
     def get_text(self) -> str:
         return "".join(self._parts).strip()
+
 
 def _strip_html(text: str) -> str:
     """Remove HTML tags to mitigate prompt injection via markup."""

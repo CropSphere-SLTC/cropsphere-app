@@ -9,7 +9,7 @@ from slowapi.util import get_remote_address
 # Module-level limiter imported by every protected router
 limiter = Limiter(
     key_func=get_remote_address,
-    default_limits=["30/minute"],
+    default_limits=["200/minute"],
 )
 
 

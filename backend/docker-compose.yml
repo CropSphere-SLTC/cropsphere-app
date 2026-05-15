@@ -6,6 +6,7 @@ services:
     # Add the environment variable telling the Google library where to look
     environment:
       - FIREBASE_CREDENTIALS_JSON=/backend/firebase-credentials.json
+      - GOOGLE_APPLICATION_CREDENTIALS=/backend/firebase-credentials.json 
     # Mount the file from your local machine into the container
       
     ports:

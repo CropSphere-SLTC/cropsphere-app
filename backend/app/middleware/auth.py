@@ -1,4 +1,5 @@
 """Firebase JWT authentication middleware (Keshan — shift-left security)."""
+
 import logging
 from typing import Optional
 
@@ -49,7 +50,9 @@ class FirebaseAuthMiddleware(BaseHTTPMiddleware):
 
 def _is_public(path: str) -> bool:
     """Return True if path is exempt from authentication."""
-    return path in _PUBLIC_PATHS or path.startswith("/docs") or path.startswith("/redoc")
+    return (
+        path in _PUBLIC_PATHS or path.startswith("/docs") or path.startswith("/redoc")
+    )
 
 
 def _extract_bearer(request: Request) -> Optional[str]:
@@ -61,22 +64,31 @@ def _extract_bearer(request: Request) -> Optional[str]:
 
 
 def _verify(token: str) -> Optional[str]:
-    """Verify a Firebase ID token using Google's public keys.
+    """Verify a Firebase ID token using the Firebase Admin SDK.
 
-    Uses google.oauth2.id_token directly — no service-account credentials needed.
-    Google's public key endpoint is public; only the project_id is required to
-    validate the 'aud' claim.
+    firebase-admin 5.0+ verifies tokens via Google's public certificate
+    endpoint — no service-account private key is required for this operation.
+    The project_id is used to validate the 'aud' claim.
     """
     try:
-        from google.auth.transport import requests as google_requests
-        from google.oauth2 import id_token
+        import firebase_admin
+        from firebase_admin import auth as fb_auth
         from app.config import get_settings
 
-        request = google_requests.Request()
-        decoded = id_token.verify_firebase_token(
-            token, request, audience=get_settings().FIREBASE_PROJECT_ID
-        )
-        return decoded.get("uid") or decoded.get("sub")
+        # Initialise a minimal Firebase app (project-id only) if none exists.
+        # init_firestore() may have already done this with full credentials;
+        # if it failed (e.g. empty credentials file) _apps will be empty.
+        if not firebase_admin._apps:
+            firebase_admin.initialize_app(
+                options={"projectId": get_settings().FIREBASE_PROJECT_ID}
+            )
+
+        decoded = fb_auth.verify_id_token(token)
+        return decoded.get("uid")
     except Exception as exc:
-        logger.warning("JWT verification failed: %s", type(exc).__name__)
+        logger.warning(
+            "JWT verification failed: %s — %s",
+            type(exc).__name__,
+            str(exc)[:200],
+        )
         return None

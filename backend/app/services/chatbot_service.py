@@ -3,6 +3,8 @@
 import logging
 import re
 
+from html.parser import HTMLParser
+
 from app.models.loader import model_loader
 from app.models.schemas import ChatRequest, ChatResponse
 from app.utils.firestore import audit_log

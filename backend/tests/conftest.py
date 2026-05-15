@@ -26,9 +26,9 @@ def app():
     ), patch(
         "app.models.loader.ModelLoader.load_all"
     ):
-        from app.main import create_app
-
-        return create_app()
+        from app.main import app
+        
+        return app
 
 
 @pytest.fixture(scope="session")
@@ -68,7 +68,7 @@ def expired_auth_header():
 def mock_valid_token(monkeypatch):
     """Patch Firebase token verification to accept 'valid-test-token'."""
 
-    def _verify(token, request, audience=None):
+    def _verify(token, request=None, audience=None):
         if token == "valid-test-token":
             return {"uid": "test-user-123", "sub": "test-user-123"}
         raise Exception("Token invalid or expired")
@@ -80,7 +80,7 @@ def mock_valid_token(monkeypatch):
 def mock_expired_token(monkeypatch):
     """Patch Firebase token verification to always raise (simulates expiry)."""
 
-    def _verify(token, request, audience=None):
+    def _verify(token, request=None, audience=None):
         raise Exception("Token has expired")
 
     monkeypatch.setattr("firebase_admin.auth.verify_id_token", _verify)

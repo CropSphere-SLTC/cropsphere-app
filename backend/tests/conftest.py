@@ -73,7 +73,7 @@ def mock_valid_token(monkeypatch):
             return {"uid": "test-user-123", "sub": "test-user-123"}
         raise Exception("Token invalid or expired")
 
-    monkeypatch.setattr("google.oauth2.id_token.verify_firebase_token", _verify)
+    monkeypatch.setattr("app.middleware.auth.verify_firebase_token", _verify)
 
 
 @pytest.fixture

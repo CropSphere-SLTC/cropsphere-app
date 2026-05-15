@@ -15,7 +15,7 @@ RUN pip install --no-cache-dir --timeout 300 --retries 5 tensorflow==2.21.0
 # Install app dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir "pip==26.1" && \
-    pip install --no-cache-dir --timeout 300 --retries 5 -r requirements.txt
+    pip install --no-cache-dir --timeout 600 --retries 10 -r requirements.txt
 
 # Copy application code and ML model files
 COPY app/ ./app/

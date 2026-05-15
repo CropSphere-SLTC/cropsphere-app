@@ -76,10 +76,7 @@ def _get_encoder():
     return _encoder
 
 
-def _strip_html(text: str) -> str:
     """Remove HTML tags to mitigate prompt injection via markup."""
-    from html.parser import HTMLParser
-
 class _HTMLStripper(HTMLParser):
     def __init__(self):
         super().__init__()

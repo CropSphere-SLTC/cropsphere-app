@@ -86,13 +86,6 @@ class _HTMLStripper(HTMLParser):
         return "".join(self._parts).strip()
 
 
-def _strip_html(text: str) -> str:
-    """Remove HTML tags to mitigate prompt injection via markup."""
-    stripper = _HTMLStripper()
-    stripper.feed(text)
-    return stripper.get_text()
-
-
 def _system_prompt(req: ChatRequest) -> str:
     district = f" The farmer is in {req.district.value}." if req.district else ""
     crop = f" They are asking about {req.crop.value}." if req.crop else ""

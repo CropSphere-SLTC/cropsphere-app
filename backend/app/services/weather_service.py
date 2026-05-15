@@ -16,16 +16,6 @@ from app.models.schemas import (
 
 logger = logging.getLogger(__name__)
 
-_DISTRICT_IDX: Dict[str, int] = {
-    "Nuwara Eliya": 0,
-    "Badulla": 1,
-    "Anuradhapura": 2,
-    "Monaragala": 3,
-    "Ampara": 4,
-    "Hambantota": 5,
-    "Batticaloa": 6,
-    "Jaffna": 7,
-}
 
 # Climatological averages per district:
 # (rainfall_mm, temp_min_c, temp_max_c, humidity_pct,

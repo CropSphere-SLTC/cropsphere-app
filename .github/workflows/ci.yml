@@ -119,11 +119,8 @@ jobs:
       - name: SAST with bandit
         run: bandit -r app/ -ll -ii
 
-      - name: Upgrade pip to patched version
-        run: pip install --upgrade "pip==26.1"  
-      
       - name: Dependency vulnerability scan (pip-audit)
-        run: pip-audit --ignore-vuln CVE-2026-3219
+        run: pip-audit
 
       - name: Snyk SCA scan
         uses: snyk/actions/python@master
@@ -177,9 +174,6 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - name: Upgrade pip to patched version
-        run: python -m pip install --upgrade "pip==26.1"
-      
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
@@ -196,7 +190,7 @@ jobs:
         run: bandit -r app/services/ -ll
 
       - name: Dependency vulnerability scan (pip-audit)
-        run: pip-audit --ignore-vuln CVE-2026-3219
+        run: pip-audit
 
       - name: Validate ML model tests
         run: |
@@ -232,7 +226,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.24.0"
+          flutter-version: "3.41.9"
           channel: stable
           cache: true
 

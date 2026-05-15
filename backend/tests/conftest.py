@@ -27,7 +27,7 @@ def app():
         "app.models.loader.ModelLoader.load_all"
     ):
         from app.main import app
-        
+
         return app
 
 

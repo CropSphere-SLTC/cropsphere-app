@@ -1,9 +1,11 @@
 """CropSphere FastAPI application — entry point."""
+
 import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
+from slowapi.middleware import SlowAPIMiddleware
 from slowapi.errors import RateLimitExceeded
 
 from app.config import get_settings
@@ -40,7 +42,14 @@ def create_app() -> FastAPI:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-    # ── CORS — origins from env; any localhost port allowed in development ───
+    # Middleware execution order = reverse of add_middleware call order.
+    # FirebaseAuthMiddleware must be innermost so CORS is always outermost,
+    # ensuring every response (including 401s) gets CORS headers — without
+    # this Flutter Web sees a network-layer connection error instead of a
+    # readable HTTP error.
+    app.add_middleware(FirebaseAuthMiddleware)  # innermost — runs last
+    app.add_middleware(SlowAPIMiddleware)
+    # ── CORS outermost — wraps every response including auth errors ──────────
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.allowed_origins_list,
@@ -51,9 +60,6 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-
-    # ── JWT auth — applied after CORS ─────────────────────────────────────────
-    app.add_middleware(FirebaseAuthMiddleware)
 
     # ── Routers ───────────────────────────────────────────────────────────────
     app.include_router(health_router.router)
@@ -69,10 +75,13 @@ def create_app() -> FastAPI:
     async def startup() -> None:
         logger.info("CropSphere starting — ENV=%s", settings.APP_ENV)
 
-        # JWT verification uses google.oauth2.id_token directly (no firebase_admin needed).
+        # JWT verification uses google.oauth2.id_token directly.
+        # No firebase_admin needed.
         # Firestore audit logging requires a service-account key — optional for dev.
         try:
-            init_firestore(settings.FIREBASE_CREDENTIALS_JSON, settings.FIREBASE_PROJECT_ID)
+            init_firestore(
+                settings.FIREBASE_CREDENTIALS_JSON, settings.FIREBASE_PROJECT_ID
+            )
         except Exception as exc:
             logger.warning("Firestore audit logging disabled: %s", exc)
 

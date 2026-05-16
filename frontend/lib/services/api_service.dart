@@ -11,6 +11,7 @@ class ApiService {
   factory ApiService() => _instance;
 
   late final Dio _dio;
+  late final Dio _chatDio; // separate client with longer timeout for chatbot
 
   ApiService._internal() {
     _dio = Dio(
@@ -22,24 +23,35 @@ class ApiService {
       ),
     );
 
-    // JWT interceptor — Firebase handles token refresh automatically
-    _dio.interceptors.add(
-      InterceptorsWrapper(
-        onRequest: (options, handler) async {
-          final user = FirebaseAuth.instance.currentUser;
-          if (user != null) {
-            final token = await user.getIdToken();
-            options.headers['Authorization'] = 'Bearer $token';
-          }
-          return handler.next(options);
-        },
-        onError: (error, handler) async {\
-          // Never auto-signout on 401 — this would redirect the user to
-          // LoginScreen instead of showing the error on the prediction screen.
-          return handler.next(error);
-        },
+    _chatDio = Dio(
+      BaseOptions(
+        baseUrl: AppConfig.baseUrl,
+        connectTimeout: AppConfig.apiTimeout,
+        receiveTimeout: AppConfig.chatTimeout, // 120 seconds for LLaMA 3 + RAG
+        headers: {'Content-Type': 'application/json'},
       ),
     );
+
+    // Add JWT interceptor to both clients
+    final interceptor = InterceptorsWrapper(
+      onRequest: (options, handler) async {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          final token = await user.getIdToken();
+          options.headers['Authorization'] = 'Bearer $token';
+        }
+        return handler.next(options);
+      },
+      onError: (error, handler) async {
+        if (error.response?.statusCode == 401) {
+          await FirebaseAuth.instance.signOut();
+        }
+        return handler.next(error);
+      },
+    );
+
+    _dio.interceptors.add(interceptor);
+    _chatDio.interceptors.add(interceptor);
   }
 
   Future<YieldResponse> predictYield(YieldRequest request) async {
@@ -80,7 +92,8 @@ class ApiService {
   }
 
   Future<ChatResponse> sendChat(ChatRequest request) async {
-    final response = await _dio.post('/api/chat', data: request.toJson());
+    // Use _chatDio with 120s timeout — Groq LLaMA 3 + RAG needs more time
+    final response = await _chatDio.post('/api/chat', data: request.toJson());
     return ChatResponse.fromJson(response.data);
   }
 

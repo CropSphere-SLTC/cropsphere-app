@@ -95,28 +95,28 @@ def _build_features(req: DemandPredictRequest) -> List[float]:
     season_enc = _SEASON_ENC.get(req.season.value, 0)
 
     return [
-        lag1,  # 0  demand_index (use most recent lag as proxy)
-        req.consumer_pref_index,  # 1  consumer_pref_index
-        req.search_trend_index,  # 2  search_trend_index
-        req.retail_price_lkr_kg,  # 3  retail_price_lkr_kg
-        farmgate_approx,  # 4  farmgate_price_lkr_kg (approx)
-        req.inflation_index,  # 5  inflation_index
-        100.0,  # 6  supply_index (default neutral)
-        float(req.holiday_flag),  # 7  holiday_flag
-        float(req.festival_flag),  # 8  festival_flag
-        req.week_of_year,  # 9  week_of_year
-        lag1,  # 10 demand_lag1
-        lag2,  # 11 demand_lag2
-        lag3,  # 12 demand_lag3 (interpolated)
-        lag4,  # 13 demand_lag4
-        lag8,  # 14 demand_lag8 (approx)
-        lag12,  # 15 demand_lag12 (approx)
-        roll4_mean,  # 16 demand_roll4_mean
-        roll4_std,  # 17 demand_roll4_std
-        roll8_mean,  # 18 demand_roll8_mean
-        0.0,  # 19 price_change_pct (not available)
-        season_enc,  # 20 season_enc
-        0,  # 21 district_enc (not in request, default 0)
+        lag1,                          # 0  demand_index (use most recent lag as proxy)
+        req.consumer_pref_index,       # 1  consumer_pref_index
+        req.search_trend_index,        # 2  search_trend_index
+        req.retail_price_lkr_kg,       # 3  retail_price_lkr_kg
+        farmgate_approx,               # 4  farmgate_price_lkr_kg (approx)
+        req.inflation_index,           # 5  inflation_index
+        100.0,                         # 6  supply_index (default neutral)
+        float(req.holiday_flag),       # 7  holiday_flag
+        float(req.festival_flag),      # 8  festival_flag
+        req.week_of_year,              # 9  week_of_year
+        lag1,                          # 10 demand_lag1
+        lag2,                          # 11 demand_lag2
+        lag3,                          # 12 demand_lag3 (interpolated)
+        lag4,                          # 13 demand_lag4
+        lag8,                          # 14 demand_lag8 (approx)
+        lag12,                         # 15 demand_lag12 (approx)
+        roll4_mean,                    # 16 demand_roll4_mean
+        roll4_std,                     # 17 demand_roll4_std
+        roll8_mean,                    # 18 demand_roll8_mean
+        0.0,                           # 19 price_change_pct (not available)
+        season_enc,                    # 20 season_enc
+        0,                             # 21 district_enc (not in request, default 0)
     ]
 
 

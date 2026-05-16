@@ -17,6 +17,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir "pip==26.1" && \
     pip install --no-cache-dir --timeout 600 --retries 10 -r requirements.txt
 
+
 # Copy application code and ML model files
 COPY app/ ./app/
 COPY models/ ./models/

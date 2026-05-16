@@ -67,13 +67,9 @@ def get_recommendations(req: RecommendRequest, user_id: str) -> RecommendRespons
                 )
 
         any_mock = any(y.is_mock or p.is_mock for _, y, p in crop_results)
-<<<<<<< HEAD
         return RecommendResponse(
             recommendations=_rank(req, crop_results), is_mock=any_mock
         )
-=======
-        return RecommendResponse(recommendations=_rank(req, crop_results), is_mock=any_mock)
->>>>>>> dev
     except Exception as exc:
         logger.error("Recommendation pipeline failed: %s", exc)
         raise RuntimeError("Recommendation unavailable") from exc

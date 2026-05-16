@@ -72,7 +72,7 @@ M1_R2_THRESHOLDS = {
 # Container scores with real HARTI data and filled missing features:
 M3_R2_THRESHOLDS = {
     "Carrot":        0.500,
-    "Maize":        -0.250,
+    "Maize": -0.250,
     "Green gram":    0.720,
     "Cowpea":        0.720,
     "Finger millet": 0.710,
@@ -703,7 +703,7 @@ class TestWeatherModelAccuracy:
 
             X_seq, y_tmin, y_tmax = [], [], []
             for i in range(SEQ_LEN, len(scaled)):
-                X_seq.append(scaled[i - SEQ_LEN : i])
+                X_seq.append(scaled[i - SEQ_LEN: i])
                 y_tmin.append(dist_df.iloc[i][tmin_col])
                 y_tmax.append(dist_df.iloc[i][tmax_col])
 

@@ -22,12 +22,9 @@ env/
 htmlcov/
 .pytest_cache/
 .mypy_cache/
-<<<<<<< HEAD
 **/__pycache__/
 **/*.pyc
 backend/.coverage
-=======
->>>>>>> dev
 
 # ── Node ────────────────────────────────────────────────────────────────────
 node_modules/
@@ -68,13 +65,5 @@ frontend/.packages
 # ── Firebase / Google ──────────────────────────────────────────────────────────────────────
 *.json
 !package.json
-<<<<<<< HEAD
-!tsconfig*.json# Flutter generated
-frontend/.dart_tool/
-frontend/build/
-frontend/windows/flutter/ephemeral/
-frontend/.flutter-plugins
-frontend/.flutter-plugins-dependencies
-=======
 !tsconfig*.json
->>>>>>> dev
+frontend/windows/flutter/ephemeral/

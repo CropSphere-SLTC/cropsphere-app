@@ -22,6 +22,9 @@ env/
 htmlcov/
 .pytest_cache/
 .mypy_cache/
+**/__pycache__/
+**/*.pyc
+backend/.coverage
 
 # ── Node ────────────────────────────────────────────────────────────────────
 node_modules/
@@ -68,14 +71,3 @@ frontend/build/
 frontend/windows/flutter/ephemeral/
 frontend/.flutter-plugins
 frontend/.flutter-plugins-dependencies
-
-# Python generated
-**/__pycache__/
-**/*.pyc
-backend/.coverage
-
-# macOS
-.DS_Store
-
-# Secrets
-backend/firebase-credentials.json

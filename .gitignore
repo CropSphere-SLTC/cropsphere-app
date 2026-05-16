@@ -62,4 +62,20 @@ frontend/.packages
 # ── Firebase / Google ──────────────────────────────────────────────────────────────────────
 *.json
 !package.json
-!tsconfig*.json
+!tsconfig*.json# Flutter generated
+frontend/.dart_tool/
+frontend/build/
+frontend/windows/flutter/ephemeral/
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+
+# Python generated
+**/__pycache__/
+**/*.pyc
+backend/.coverage
+
+# macOS
+.DS_Store
+
+# Secrets
+backend/firebase-credentials.json

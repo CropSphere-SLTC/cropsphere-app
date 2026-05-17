@@ -1,7 +1,6 @@
 """Security Logging & Monitoring for CropSphere."""
 import logging
 from datetime import datetime, timezone
-from typing import Optional
 
 # Security specific logger
 security_logger = logging.getLogger("cropsphere.security")

@@ -1,14 +1,15 @@
 """NoSQL Injection Prevention — Input Sanitizer."""
+
 import re
 
 # Dangerous characters for Firestore queries
 DANGEROUS_PATTERNS = [
-    r"\$",           # MongoDB-style operators
-    r"\{",           # JSON injection
+    r"\$",  # MongoDB-style operators
+    r"\{",  # JSON injection
     r"\}",
-    r"__.*__",       # Python dunder attributes
+    r"__.*__",  # Python dunder attributes
     r"javascript:",  # JS injection
-    r"<script",      # XSS
+    r"<script",  # XSS
 ]
 
 

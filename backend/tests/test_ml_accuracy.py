@@ -66,7 +66,6 @@ M1_R2_THRESHOLDS = {
 }
 
 # M3 thresholds from report Table 5.4.4 (real HARTI test)
-<<<<<<< HEAD
 # Thresholds adjusted for real CSV vs synthetic training distribution gap.
 # Report values (trained on synthetic): Carrot=0.806, Maize=0.693,
 # Green gram=0.888, Cowpea=0.892, Finger millet=0.918, Groundnut=0.854
@@ -90,23 +89,6 @@ M3_MAPE_THRESHOLDS = {
     "Cowpea":         9.0,
     "Finger millet": 11.0,
     "Groundnut":     22.0,
-=======
-M3_R2_THRESHOLDS = {
-    "Carrot": 0.806,
-    "Maize": 0.693,
-    "Green gram": 0.888,
-    "Cowpea": 0.892,
-    "Finger millet": 0.918,
-    "Groundnut": 0.854,
-}
-M3_MAPE_THRESHOLDS = {
-    "Carrot": 6.3,
-    "Maize": 8.1,
-    "Green gram": 4.8,
-    "Cowpea": 5.3,
-    "Finger millet": 4.4,
-    "Groundnut": 5.6,
->>>>>>> dev
 }
 
 # M4 thresholds from report Table 5.5.3
@@ -721,11 +703,7 @@ class TestWeatherModelAccuracy:
 
             X_seq, y_tmin, y_tmax = [], [], []
             for i in range(SEQ_LEN, len(scaled)):
-<<<<<<< HEAD
                 X_seq.append(scaled[i - SEQ_LEN: i])
-=======
-                X_seq.append(scaled[i - SEQ_LEN : i])
->>>>>>> dev
                 y_tmin.append(dist_df.iloc[i][tmin_col])
                 y_tmax.append(dist_df.iloc[i][tmax_col])
 
@@ -829,7 +807,6 @@ class TestPriceModelAccuracy:
         if date_col:
             crop_df = crop_df.sort_values(date_col)
 
-<<<<<<< HEAD
         PRICE_FEATURES = [
             'farmgate_price_lkr_kg', 'retail_price_lkr_kg',
             'transport_cost_index', 'fuel_price_index',
@@ -850,30 +827,12 @@ class TestPriceModelAccuracy:
         SEQ_LEN = 8
         scaler = None
         scaler_path = os.path.join(MODEL_DIR, 'M3_price_scalers.pkl')
-=======
-        SEQ_LEN = 8
-        prices = crop_df[price_col].values.astype(float)
-        X_seq, y_true = [], []
-        for i in range(SEQ_LEN, len(prices)):
-            X_seq.append(prices[i - SEQ_LEN : i])
-            y_true.append(prices[i])
-
-        if len(X_seq) < 5:
-            pytest.skip(f"Not enough rows for sequences for {crop}")
-
-        X_arr = np.array(X_seq).reshape(-1, SEQ_LEN, 1)
-
-        # Try to load scaler
-        scaler = None
-        scaler_path = os.path.join(MODEL_DIR, "M3_price_scalers.pkl")
->>>>>>> dev
         if os.path.exists(scaler_path):
             try:
                 scalers_obj = joblib.load(scaler_path)
                 if isinstance(scalers_obj, dict):
                     scaler = scalers_obj.get(crop)
             except Exception:
-<<<<<<< HEAD
                 pass
 
         feature_data = crop_df[PRICE_FEATURES].values.astype(float)
@@ -893,17 +852,11 @@ class TestPriceModelAccuracy:
         y_true = crop_df[price_col].values[SEQ_LEN:].astype(float)
         X_arr = np.array(X_seq)
 
-=======
-                # Scaler optional; continue with unscaled predictions.
-                pass
-
->>>>>>> dev
         try:
             preds_raw = model.predict(X_arr, verbose=0)
             if preds_raw.ndim > 1:
                 preds_raw = preds_raw[:, 0]
             y_pred = preds_raw.flatten()
-<<<<<<< HEAD
             if scaler is not None:
                 try:
                     dummy = np.zeros((len(y_pred), len(PRICE_FEATURES)))
@@ -913,18 +866,6 @@ class TestPriceModelAccuracy:
                     pass
         except Exception as e:
             pytest.skip(f'Prediction failed for {crop}: {e}')
-=======
-
-            if scaler is not None:
-                try:
-                    y_pred = scaler.inverse_transform(y_pred.reshape(-1, 1)).flatten()
-                except Exception as e:
-                    warnings.warn(
-                        f"Inverse transform failed for {crop}; "
-                        f"using raw predictions. Error: {e}"
-                    )
-        except Exception as e:
->>>>>>> dev
             pytest.skip(f"Prediction failed for {crop}: {e}")
 
         score = r2_score(np.array(y_true), y_pred)

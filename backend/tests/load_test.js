@@ -34,7 +34,7 @@ import { Rate, Trend } from "k6/metrics";
 // ─────────────────────────────────────────────
 
 const BASE_URL = __ENV.BASE_URL || "http://localhost:8000";
-const TOKEN    = __ENV.TOKEN    || "Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6Ijg2OGU0YWNlMGI2NTE2ZDM2YjlmNTZkZThjZTQ5Nzg4ZmNjZGFjNDMiLCJ0eXAiOiJKV1QifQ.eyJuYW1lIjoiZnlwIHRlc3QiLCJwaWN0dXJlIjoiaHR0cHM6Ly9saDMuZ29vZ2xldXNlcmNvbnRlbnQuY29tL2EvQUNnOG9jS2p3UTdnNWNXOHhzQmhqS2V1dG1HTHFfZzRuVVJJYjdKZ2k3V3M1VmktdmtFbDl3PXM5Ni1jIiwiaXNzIjoiaHR0cHM6Ly9zZWN1cmV0b2tlbi5nb29nbGUuY29tL2Nyb3BzcGhlcmUtMmU4N2MiLCJhdWQiOiJjcm9wc3BoZXJlLTJlODdjIiwiYXV0aF90aW1lIjoxNzc4MzI3NTYyLCJ1c2VyX2lkIjoib0RueExOU3FDNmJwempZVjE3dWlWUzhoYUttMiIsInN1YiI6Im9EbnhMTlNxQzZicHpqWVYxN3VpVlM4aGFLbTIiLCJpYXQiOjE3Nzg2NjIyNTYsImV4cCI6MTc3ODY2NTg1NiwiZW1haWwiOiJmeXB0ZXN0MjVAZ21haWwuY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImZpcmViYXNlIjp7ImlkZW50aXRpZXMiOnsiZ29vZ2xlLmNvbSI6WyIxMDg0MTU1NDQxNTM5ODY3MTU3MzIiXSwiZW1haWwiOlsiZnlwdGVzdDI1QGdtYWlsLmNvbSJdfSwic2lnbl9pbl9wcm92aWRlciI6Imdvb2dsZS5jb20ifX0.AF_aQZN34C4ny9rg64ITmI3Mw6VYubQy0BeWonrvGwNZxKlVFkEu4GtK1DovW1AE0WaiFOpDrc_00v5WmSCc0QsJqWJISOYPLk5rJ73gtxT4ZZDR2YbMTSpcGcYUVRGGcDn-73Kb8zxQ09knS1vBR37AR6A3QtQt_qtjggCTm1c6WYGyT422Cnc1K7xthj9ep72yxSJLloIAkR8b9-30aD5WD98HflpvPG3acqDHBPqo0w_hsJ2bGxcLycJCwFOW5LvtpnPwFPNOebdhi1kG_ifxEM2ADOQzawHGF3JsJvB-IF2QAH2jkXVoHn_KrTcC6JV6QoOdSqySVIwAR44V5g";
+const TOKEN    = __ENV.TOKEN    || "Bearer REPLACE_WITH_YOUR_TOKEN";
 
 // ─────────────────────────────────────────────
 // Custom metrics — one trend per endpoint

@@ -86,6 +86,7 @@ class YieldPredictRequest(BaseModel):
 
 class YieldPredictResponse(BaseModel):
     predicted_yield_kg_per_ha: float
+    average_yield_kg_per_ha: float  # model-derived baseline for this crop
     crop: CropEnum
     district: DistrictEnum
     confidence: ConfidenceEnum

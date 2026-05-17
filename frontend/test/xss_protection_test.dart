@@ -1,5 +1,6 @@
 // test/xss_protection_test.dart
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/foundation.dart';
 import 'package:cropsphere_app/utils/xss_protection.dart';
 
 void main() {

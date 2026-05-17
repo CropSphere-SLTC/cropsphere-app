@@ -1,5 +1,6 @@
 // test/input_sanitizer_test.dart
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/foundation.dart';
 import 'package:cropsphere_app/utils/input_sanitizer.dart';
 
 void main() {

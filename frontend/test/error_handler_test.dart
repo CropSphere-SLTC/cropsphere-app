@@ -1,5 +1,6 @@
 // test/error_handler_test.dart
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/foundation.dart';
 import 'package:cropsphere_app/utils/error_handler.dart';
 
 void main() {

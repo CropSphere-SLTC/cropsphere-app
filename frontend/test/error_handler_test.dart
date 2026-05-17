@@ -7,47 +7,47 @@ void main() {
     test('Invalid credentials returns friendly message', () {
       final msg = ErrorHandler.getErrorMessage('user-not-found');
       expect(msg, 'Invalid email or password. Please try again.');
-      print('✅ Test 1 Passed — Auth error handled');
+      debugPrint('✅ Test 1 Passed — Auth error handled');
     });
 
     test('Network error returns friendly message', () {
       final msg = ErrorHandler.getErrorMessage('network-request-failed');
       expect(msg, 'Network error. Please check your connection.');
-      print('✅ Test 2 Passed — Network error handled');
+      debugPrint('✅ Test 2 Passed — Network error handled');
     });
 
     test('401 error returns friendly message', () {
       final msg = ErrorHandler.getErrorMessage('401 unauthorized');
       expect(msg, 'Session expired. Please login again.');
-      print('✅ Test 3 Passed — 401 error handled');
+      debugPrint('✅ Test 3 Passed — 401 error handled');
     });
 
     test('429 error returns friendly message', () {
       final msg = ErrorHandler.getErrorMessage('429 too many requests');
       expect(msg, 'Too many requests. Please wait a moment.');
-      print('✅ Test 4 Passed — 429 error handled');
+      debugPrint('✅ Test 4 Passed — 429 error handled');
     });
 
     test('500 error returns friendly message', () {
       final msg = ErrorHandler.getErrorMessage('500 server error');
       expect(msg, 'Server error. Please try again later.');
-      print('✅ Test 5 Passed — 500 error handled');
+      debugPrint('✅ Test 5 Passed — 500 error handled');
     });
 
     test('Unknown error returns default message', () {
       final msg = ErrorHandler.getErrorMessage('some random technical error xyz');
       expect(msg, 'Something went wrong. Please try again.');
-      print('✅ Test 6 Passed — Unknown error handled');
+      debugPrint('✅ Test 6 Passed — Unknown error handled');
     });
 
     test('Auth error detection works', () {
       expect(ErrorHandler.isAuthError('401 unauthorized'), true);
-      print('✅ Test 7 Passed — Auth error detected');
+      debugPrint('✅ Test 7 Passed — Auth error detected');
     });
 
     test('Network error detection works', () {
       expect(ErrorHandler.isNetworkError('network timeout'), true);
-      print('✅ Test 8 Passed — Network error detected');
+      debugPrint('✅ Test 8 Passed — Network error detected');
     });
   });
 }

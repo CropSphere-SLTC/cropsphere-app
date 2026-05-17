@@ -1,7 +1,5 @@
 """NoSQL Injection Prevention — Input Sanitizer."""
 import re
-from typing import Any
-
 
 # Dangerous characters for Firestore queries
 DANGEROUS_PATTERNS = [

@@ -1,6 +1,5 @@
 """Tests for Security Logging & Monitoring."""
 import logging
-import pytest
 from app.utils.security_logger import (
     log_unauthorized_access,
     log_suspicious_input,

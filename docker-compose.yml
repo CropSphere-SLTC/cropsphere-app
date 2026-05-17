@@ -1,0 +1,32 @@
+version: "3.8"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cropsphere_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/models/files:/app/models/files
+      - ./backend/firebase-credentials.json:/app/firebase-credentials.json:ro
+    environment:
+      APP_ENV: development
+      FIREBASE_CREDENTIALS_JSON: /app/firebase-credentials.json
+      FIREBASE_PROJECT_ID: cropsphere-2e87c
+      GROQ_API_KEY: ${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}
+      ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:8080,https://cropsphere.web.app"
+      MODEL_DIR: /app/models/files
+      RATE_LIMIT_PER_MINUTE: "60"
+      HF_HOME: /tmp/hf_cache
+      TRANSFORMERS_CACHE: /tmp/hf_cache
+    env_file:
+      - ./backend/.env
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 90s

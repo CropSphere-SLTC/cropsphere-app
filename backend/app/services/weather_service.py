@@ -110,12 +110,16 @@ def forecast_weather(req: WeatherForecastRequest) -> WeatherForecastResponse:
             new_scaled = (
                 scaler.transform(new_raw)[0] if scaler is not None else new_raw[0]
             )
-            
+
             current_window = np.vstack([current_window[1:], new_scaled])
-            
+
             # Slide window forward using the new prediction as the next step
-            new_raw = np.array([[rainfall, temp_min, temp_max, humidity, seed_row[4], seed_row[5]]])
-            new_scaled = scaler.transform(new_raw)[0] if scaler is not None else new_raw[0]
+            new_raw = np.array([
+                [rainfall, temp_min, temp_max, humidity, seed_row[4], seed_row[5]]
+            ])
+            new_scaled = (
+                scaler.transform(new_raw)[0] if scaler is not None else new_raw[0]
+            )
             current_window = np.vstack([current_window[1:], new_scaled])
 
         return WeatherForecastResponse(district=req.district, forecasts=forecasts)

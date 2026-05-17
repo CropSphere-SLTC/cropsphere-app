@@ -23,7 +23,7 @@ _CROP_KEY: Dict[str, str] = {
 
 # Maha: ~Oct(wk40)–Mar(wk12); Yala: ~Apr(wk14)–Sep(wk39); Inter: rest
 _SEASON_START_WEEK = {"Maha": 40, "Yala": 14, "Inter": 1}
-_SEASON_DURATION   = {"Maha": 24, "Yala": 24, "Inter": 12}
+_SEASON_DURATION = {"Maha": 24, "Yala": 24, "Inter": 12}
 
 # Irrigation types the encoder was trained on
 _IRRIGATION_MAP = {
@@ -175,7 +175,9 @@ def _get_average_yield(crop_name: str, key: str) -> float:
         return _avg_yield_cache[crop_name]
 
     try:
-        from app.models.schemas import CropEnum, DistrictEnum, SeasonEnum, IrrigationEnum
+        from app.models.schemas import (
+            CropEnum, DistrictEnum, SeasonEnum, IrrigationEnum
+        )
 
         b = _BASELINE_FEATURES[crop_name]
 
@@ -183,35 +185,35 @@ def _get_average_yield(crop_name: str, key: str) -> float:
             pass
 
         req = _FakeReq()
-        req.week_of_year        = b["week_of_year"]
-        req.season              = SeasonEnum(b["season"])
-        req.rainfall_mm         = b["rainfall_mm"]
-        req.temp_min_c          = b["temp_min_c"]
-        req.temp_max_c          = b["temp_max_c"]
-        req.humidity_pct        = b["humidity_pct"]
-        req.wind_speed_kmh      = b["wind_speed_kmh"]
-        req.solar_radiation_mj  = b["solar_radiation_mj"]
-        req.soil_ph             = b["soil_ph"]
-        req.soil_moisture_pct   = b["soil_moisture_pct"]
-        req.cultivated_area_ha  = b["cultivated_area_ha"]
-        req.seed_variety        = b["seed_variety"]
-        req.fertilizer_index    = b["fertilizer_index"]
-        req.pesticide_index     = b["pesticide_index"]
-        req.irrigation_type     = IrrigationEnum(b["irrigation_type"])
-        req.N_index             = b["N_index"]
-        req.P_index             = b["P_index"]
-        req.K_index             = b["K_index"]
-        req.prev_crop           = b["prev_crop"]
-        req.demand_index        = b["demand_index"]
-        req.inflation_index     = b["inflation_index"]
-        req.holiday_flag        = b["holiday_flag"]
-        req.festival_flag       = b["festival_flag"]
-        req.crop                = CropEnum(crop_name)
-        req.district            = DistrictEnum(_CROP_BASELINE_DISTRICT[crop_name])
+        req.week_of_year = b["week_of_year"]
+        req.season = SeasonEnum(b["season"])
+        req.rainfall_mm = b["rainfall_mm"]
+        req.temp_min_c = b["temp_min_c"]
+        req.temp_max_c = b["temp_max_c"]
+        req.humidity_pct = b["humidity_pct"]
+        req.wind_speed_kmh = b["wind_speed_kmh"]
+        req.solar_radiation_mj = b["solar_radiation_mj"]
+        req.soil_ph = b["soil_ph"]
+        req.soil_moisture_pct = b["soil_moisture_pct"]
+        req.cultivated_area_ha = b["cultivated_area_ha"]
+        req.seed_variety = b["seed_variety"]
+        req.fertilizer_index = b["fertilizer_index"]
+        req.pesticide_index = b["pesticide_index"]
+        req.irrigation_type = IrrigationEnum(b["irrigation_type"])
+        req.N_index = b["N_index"]
+        req.P_index = b["P_index"]
+        req.K_index = b["K_index"]
+        req.prev_crop = b["prev_crop"]
+        req.demand_index = b["demand_index"]
+        req.inflation_index = b["inflation_index"]
+        req.holiday_flag = b["holiday_flag"]
+        req.festival_flag = b["festival_flag"]
+        req.crop = CropEnum(crop_name)
+        req.district = DistrictEnum(_CROP_BASELINE_DISTRICT[crop_name])
 
         features = _build_features(req)
-        model    = model_loader.get_model(key)
-        avg      = round(float(model.predict([features])[0]), 2)
+        model = model_loader.get_model(key)
+        avg = round(float(model.predict([features])[0]), 2)
         _avg_yield_cache[crop_name] = avg
         logger.info("Average yield cached: %s = %.1f kg/ha", crop_name, avg)
         return avg
@@ -246,11 +248,11 @@ def predict_yield(req: YieldPredictRequest, user_id: str) -> YieldPredictRespons
         )
 
     try:
-        features   = _build_features(req)
-        model      = model_loader.get_model(key)
+        features = _build_features(req)
+        model = model_loader.get_model(key)
         prediction = float(model.predict([features])[0])
         confidence = _confidence_from_model(model, features)
-        average    = _get_average_yield(req.crop.value, key)
+        average = _get_average_yield(req.crop.value, key)
 
         logger.info(
             "Yield prediction: crop=%s district=%s predicted=%.1f average=%.1f",
@@ -277,30 +279,30 @@ def _build_features(req) -> List[float]:
     """Build the 35-feature vector matching the training pipeline."""
     encoders: Dict = model_loader.get_model("yield_encoders") or {}
 
-    wos         = _week_of_season(req.week_of_year, req.season.value)
+    wos = _week_of_season(req.week_of_year, req.season.value)
     season_prog = wos / _SEASON_DURATION.get(req.season.value, 24)
-    year        = date.today().year
+    year = date.today().year
 
-    crop_enc     = _safe_encode(encoders.get("crop"),           req.crop.value)
+    crop_enc = _safe_encode(encoders.get("crop"),           req.crop.value)
     district_enc = _safe_encode(encoders.get("district"),       req.district.value)
-    season_enc   = _safe_encode(encoders.get("season"),         req.season.value)
+    season_enc = _safe_encode(encoders.get("season"),         req.season.value)
 
-    irr_mapped   = _IRRIGATION_MAP.get(req.irrigation_type.value, "drip")
+    irr_mapped = _IRRIGATION_MAP.get(req.irrigation_type.value, "drip")
     irrigation_enc = _safe_encode(encoders.get("irrigation_type"), irr_mapped)
 
-    sv       = req.seed_variety if req.seed_variety in _KNOWN_SEED_VARIETIES else "Local"
+    sv = req.seed_variety if req.seed_variety in _KNOWN_SEED_VARIETIES else "Local"
     seed_enc = _safe_encode(encoders.get("seed_variety"), sv)
 
-    pc           = req.prev_crop if req.prev_crop in _KNOWN_PREV_CROPS else "Unknown"
+    pc = req.prev_crop if req.prev_crop in _KNOWN_PREV_CROPS else "Unknown"
     prev_crop_enc = _safe_encode(encoders.get("prev_crop"), pc)
 
-    temp_range   = req.temp_max_c - req.temp_min_c
-    heat_stress  = 1 if req.temp_max_c > 35.0 else 0
-    cold_stress  = 1 if req.temp_min_c < 12.0 else 0
+    temp_range = req.temp_max_c - req.temp_min_c
+    heat_stress = 1 if req.temp_max_c > 35.0 else 0
+    cold_stress = 1 if req.temp_min_c < 12.0 else 0
     rain_adequacy = min(req.rainfall_mm / 100.0, 2.0)
 
     nutrient_score = (req.N_index + req.P_index + req.K_index) / 3.0
-    mgmt_score     = (req.fertilizer_index + req.pesticide_index) / 2.0
+    mgmt_score = (req.fertilizer_index + req.pesticide_index) / 2.0
 
     return [
         req.week_of_year,           # 0  week_of_year
@@ -335,7 +337,7 @@ def _build_features(req) -> List[float]:
         prev_crop_enc,              # 29 prev_crop_enc
         req.inflation_index,        # 30 inflation_index
         req.demand_index,           # 31 demand_index
-        50.0,                       # 32 consumer_pref_index (not in request — use midpoint)
+        50.0,  # 32 consumer_pref_index (not in request — use midpoint)
         req.holiday_flag,           # 33 holiday_flag
         req.festival_flag,          # 34 festival_flag
     ]
@@ -343,8 +345,8 @@ def _build_features(req) -> List[float]:
 
 def _week_of_season(week_of_year: int, season: str) -> int:
     start = _SEASON_START_WEEK.get(season, 1)
-    wos   = (week_of_year - start + 1) if week_of_year >= start \
-            else (52 - start + week_of_year + 1)
+    wos = (week_of_year - start + 1) if week_of_year >= start \
+        else (52 - start + week_of_year + 1)
     return max(1, min(wos, _SEASON_DURATION.get(season, 24)))
 
 

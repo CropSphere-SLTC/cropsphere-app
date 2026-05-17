@@ -45,10 +45,6 @@ def init_firestore(credentials_json: str, project_id: str) -> None:
         firebase_admin.get_app().credential.__class__.__name__
         == "ApplicationDefaultCredentials"
     ):
-<<<<<<< HEAD
-
-=======
->>>>>>> dev
         # App was initialised without a service account — re-init with credentials
         firebase_admin.delete_app(firebase_admin.get_app())
         if credentials_json.strip().startswith("{"):

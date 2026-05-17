@@ -463,7 +463,7 @@ class _ChatScreenState extends State<ChatScreen> {
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16),
         itemCount: _suggestedFollowups.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        separatorBuilder: (_, index) => const SizedBox(width: 8),
         itemBuilder: (ctx, i) => GestureDetector(
           onTap: () => _sendMessage(_suggestedFollowups[i]),
           child: Container(

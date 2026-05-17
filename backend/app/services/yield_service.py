@@ -1,4 +1,5 @@
 """Yield prediction service — per-crop Random Forest models."""
+
 import logging
 from datetime import date
 from typing import Dict, List
@@ -27,17 +28,37 @@ _SEASON_DURATION = {"Maha": 24, "Yala": 24, "Inter": 12}
 
 # Irrigation types the encoder was trained on
 _IRRIGATION_MAP = {
-    "drip": "drip", "sprinkler": "drip",
-    "flood": "canal", "rainfed": "rainfed",
+    "drip": "drip",
+    "sprinkler": "drip",
+    "flood": "canal",
+    "rainfed": "rainfed",
 }
 
 _KNOWN_SEED_VARIETIES = {
-    "Bushitao", "Chantenay", "HORDI Maize 1", "Harsha", "Local", "Local Hybrid",
-    "MI 5", "MI 6", "MICP 1", "Nantes", "Ravana", "Ravi", "Ruwan", "Tissa", "Walawa",
+    "Bushitao",
+    "Chantenay",
+    "HORDI Maize 1",
+    "Harsha",
+    "Local",
+    "Local Hybrid",
+    "MI 5",
+    "MI 6",
+    "MICP 1",
+    "Nantes",
+    "Ravana",
+    "Ravi",
+    "Ruwan",
+    "Tissa",
+    "Walawa",
 }
 _KNOWN_PREV_CROPS = {
-    "Carrot", "Cowpea", "Finger millet", "Green gram",
-    "Groundnut", "Maize", "Unknown",
+    "Carrot",
+    "Cowpea",
+    "Finger millet",
+    "Green gram",
+    "Groundnut",
+    "Maize",
+    "Unknown",
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -59,106 +80,178 @@ _KNOWN_PREV_CROPS = {
 _BASELINE_FEATURES: Dict[str, dict] = {
     # Carrot — Nuwara Eliya, cool upcountry, Yala baseline
     "Carrot": dict(
-        week_of_year=20, season="Yala",
-        rainfall_mm=55.0,   temp_min_c=14.0, temp_max_c=24.0,
-        humidity_pct=75.0,  wind_speed_kmh=9.0, solar_radiation_mj=17.0,
-        soil_ph=6.1,        soil_moisture_pct=58.0,
+        week_of_year=20,
+        season="Yala",
+        rainfall_mm=55.0,
+        temp_min_c=14.0,
+        temp_max_c=24.0,
+        humidity_pct=75.0,
+        wind_speed_kmh=9.0,
+        solar_radiation_mj=17.0,
+        soil_ph=6.1,
+        soil_moisture_pct=58.0,
         cultivated_area_ha=0.5,
-        seed_variety="Local", fertilizer_index=0.5, pesticide_index=0.5,
+        seed_variety="Local",
+        fertilizer_index=0.5,
+        pesticide_index=0.5,
         irrigation_type="drip",
-        N_index=0.45, P_index=0.45, K_index=0.45,
+        N_index=0.45,
+        P_index=0.45,
+        K_index=0.45,
         prev_crop="Unknown",
-        demand_index=75.0, inflation_index=1.15,
-        holiday_flag=0, festival_flag=0,
+        demand_index=75.0,
+        inflation_index=1.15,
+        holiday_flag=0,
+        festival_flag=0,
         district="Nuwara Eliya",
     ),
     # Maize — Ampara, dry zone, Yala baseline
     # NOTE: week_of_year=20 and Yala season deliberately differs from the
     # common Maha test request (week=46, season=Maha) so baseline != actual
     "Maize": dict(
-        week_of_year=20, season="Yala",
-        rainfall_mm=35.0,   temp_min_c=24.0, temp_max_c=33.0,
-        humidity_pct=62.0,  wind_speed_kmh=10.0, solar_radiation_mj=22.0,
-        soil_ph=6.3,        soil_moisture_pct=50.0,
+        week_of_year=20,
+        season="Yala",
+        rainfall_mm=35.0,
+        temp_min_c=24.0,
+        temp_max_c=33.0,
+        humidity_pct=62.0,
+        wind_speed_kmh=10.0,
+        solar_radiation_mj=22.0,
+        soil_ph=6.3,
+        soil_moisture_pct=50.0,
         cultivated_area_ha=0.5,
-        seed_variety="Local", fertilizer_index=0.5, pesticide_index=0.5,
+        seed_variety="Local",
+        fertilizer_index=0.5,
+        pesticide_index=0.5,
         irrigation_type="rainfed",
-        N_index=0.45, P_index=0.45, K_index=0.45,
+        N_index=0.45,
+        P_index=0.45,
+        K_index=0.45,
         prev_crop="Unknown",
-        demand_index=75.0, inflation_index=1.15,
-        holiday_flag=0, festival_flag=0,
+        demand_index=75.0,
+        inflation_index=1.15,
+        holiday_flag=0,
+        festival_flag=0,
         district="Ampara",
     ),
     # Green gram — Hambantota, dry zone, Maha baseline
     "Green gram": dict(
-        week_of_year=46, season="Maha",
-        rainfall_mm=25.0,   temp_min_c=22.0, temp_max_c=31.0,
-        humidity_pct=63.0,  wind_speed_kmh=11.0, solar_radiation_mj=20.0,
-        soil_ph=6.4,        soil_moisture_pct=48.0,
+        week_of_year=46,
+        season="Maha",
+        rainfall_mm=25.0,
+        temp_min_c=22.0,
+        temp_max_c=31.0,
+        humidity_pct=63.0,
+        wind_speed_kmh=11.0,
+        solar_radiation_mj=20.0,
+        soil_ph=6.4,
+        soil_moisture_pct=48.0,
         cultivated_area_ha=0.5,
-        seed_variety="Local", fertilizer_index=0.5, pesticide_index=0.5,
+        seed_variety="Local",
+        fertilizer_index=0.5,
+        pesticide_index=0.5,
         irrigation_type="rainfed",
-        N_index=0.45, P_index=0.45, K_index=0.40,
+        N_index=0.45,
+        P_index=0.45,
+        K_index=0.40,
         prev_crop="Unknown",
-        demand_index=75.0, inflation_index=1.15,
-        holiday_flag=0, festival_flag=0,
+        demand_index=75.0,
+        inflation_index=1.15,
+        holiday_flag=0,
+        festival_flag=0,
         district="Hambantota",
     ),
     # Cowpea — Ampara, dry zone, Maha baseline
     "Cowpea": dict(
-        week_of_year=46, season="Maha",
-        rainfall_mm=28.0,   temp_min_c=23.0, temp_max_c=32.0,
-        humidity_pct=64.0,  wind_speed_kmh=10.0, solar_radiation_mj=20.0,
-        soil_ph=6.3,        soil_moisture_pct=49.0,
+        week_of_year=46,
+        season="Maha",
+        rainfall_mm=28.0,
+        temp_min_c=23.0,
+        temp_max_c=32.0,
+        humidity_pct=64.0,
+        wind_speed_kmh=10.0,
+        solar_radiation_mj=20.0,
+        soil_ph=6.3,
+        soil_moisture_pct=49.0,
         cultivated_area_ha=0.5,
-        seed_variety="Local", fertilizer_index=0.5, pesticide_index=0.5,
+        seed_variety="Local",
+        fertilizer_index=0.5,
+        pesticide_index=0.5,
         irrigation_type="rainfed",
-        N_index=0.45, P_index=0.45, K_index=0.40,
+        N_index=0.45,
+        P_index=0.45,
+        K_index=0.40,
         prev_crop="Unknown",
-        demand_index=75.0, inflation_index=1.15,
-        holiday_flag=0, festival_flag=0,
+        demand_index=75.0,
+        inflation_index=1.15,
+        holiday_flag=0,
+        festival_flag=0,
         district="Ampara",
     ),
     # Finger millet — Monaragala, dry zone, Maha baseline
     "Finger millet": dict(
-        week_of_year=46, season="Maha",
-        rainfall_mm=25.0,   temp_min_c=22.0, temp_max_c=32.0,
-        humidity_pct=62.0,  wind_speed_kmh=10.0, solar_radiation_mj=20.0,
-        soil_ph=5.9,        soil_moisture_pct=47.0,
+        week_of_year=46,
+        season="Maha",
+        rainfall_mm=25.0,
+        temp_min_c=22.0,
+        temp_max_c=32.0,
+        humidity_pct=62.0,
+        wind_speed_kmh=10.0,
+        solar_radiation_mj=20.0,
+        soil_ph=5.9,
+        soil_moisture_pct=47.0,
         cultivated_area_ha=0.5,
-        seed_variety="Local", fertilizer_index=0.5, pesticide_index=0.5,
+        seed_variety="Local",
+        fertilizer_index=0.5,
+        pesticide_index=0.5,
         irrigation_type="rainfed",
-        N_index=0.45, P_index=0.40, K_index=0.40,
+        N_index=0.45,
+        P_index=0.40,
+        K_index=0.40,
         prev_crop="Unknown",
-        demand_index=75.0, inflation_index=1.15,
-        holiday_flag=0, festival_flag=0,
+        demand_index=75.0,
+        inflation_index=1.15,
+        holiday_flag=0,
+        festival_flag=0,
         district="Monaragala",
     ),
     # Groundnut — Ampara, dry zone, Maha baseline
     "Groundnut": dict(
-        week_of_year=46, season="Maha",
-        rainfall_mm=22.0,   temp_min_c=23.0, temp_max_c=33.0,
-        humidity_pct=63.0,  wind_speed_kmh=11.0, solar_radiation_mj=21.0,
-        soil_ph=6.3,        soil_moisture_pct=48.0,
+        week_of_year=46,
+        season="Maha",
+        rainfall_mm=22.0,
+        temp_min_c=23.0,
+        temp_max_c=33.0,
+        humidity_pct=63.0,
+        wind_speed_kmh=11.0,
+        solar_radiation_mj=21.0,
+        soil_ph=6.3,
+        soil_moisture_pct=48.0,
         cultivated_area_ha=0.5,
-        seed_variety="Local", fertilizer_index=0.5, pesticide_index=0.5,
+        seed_variety="Local",
+        fertilizer_index=0.5,
+        pesticide_index=0.5,
         irrigation_type="rainfed",
-        N_index=0.45, P_index=0.45, K_index=0.45,
+        N_index=0.45,
+        P_index=0.45,
+        K_index=0.45,
         prev_crop="Unknown",
-        demand_index=75.0, inflation_index=1.15,
-        holiday_flag=0, festival_flag=0,
+        demand_index=75.0,
+        inflation_index=1.15,
+        holiday_flag=0,
+        festival_flag=0,
         district="Ampara",
     ),
 }
 
 # District map for baseline requests
 _CROP_BASELINE_DISTRICT: Dict[str, str] = {
-    "Carrot":        "Nuwara Eliya",
-    "Maize":         "Ampara",
-    "Green gram":    "Hambantota",
-    "Cowpea":        "Ampara",
+    "Carrot": "Nuwara Eliya",
+    "Maize": "Ampara",
+    "Green gram": "Hambantota",
+    "Cowpea": "Ampara",
     "Finger millet": "Monaragala",
-    "Groundnut":     "Ampara",
+    "Groundnut": "Ampara",
 }
 
 # In-process cache — resets on server restart (i.e. after retrain)
@@ -176,7 +269,10 @@ def _get_average_yield(crop_name: str, key: str) -> float:
 
     try:
         from app.models.schemas import (
-            CropEnum, DistrictEnum, SeasonEnum, IrrigationEnum
+            CropEnum,
+            DistrictEnum,
+            SeasonEnum,
+            IrrigationEnum,
         )
 
         b = _BASELINE_FEATURES[crop_name]
@@ -221,12 +317,17 @@ def _get_average_yield(crop_name: str, key: str) -> float:
     except Exception as exc:
         logger.warning(
             "Could not compute average yield for %s: %s — using fallback",
-            crop_name, exc,
+            crop_name,
+            exc,
         )
         # Fallback — only used if model.predict() itself fails
         _fallback = {
-            "Carrot": 12800.0, "Maize": 2600.0, "Green gram": 950.0,
-            "Cowpea": 1050.0,  "Finger millet": 900.0, "Groundnut": 1400.0,
+            "Carrot": 12800.0,
+            "Maize": 2600.0,
+            "Green gram": 950.0,
+            "Cowpea": 1050.0,
+            "Finger millet": 900.0,
+            "Groundnut": 1400.0,
         }
         return _fallback.get(crop_name, 1500.0)
 
@@ -256,7 +357,10 @@ def predict_yield(req: YieldPredictRequest, user_id: str) -> YieldPredictRespons
 
         logger.info(
             "Yield prediction: crop=%s district=%s predicted=%.1f average=%.1f",
-            req.crop.value, req.district.value, prediction, average,
+            req.crop.value,
+            req.district.value,
+            prediction,
+            average,
         )
 
         return YieldPredictResponse(
@@ -270,7 +374,9 @@ def predict_yield(req: YieldPredictRequest, user_id: str) -> YieldPredictRespons
     except Exception as exc:
         logger.error(
             "Yield prediction error crop=%s district=%s: %s",
-            req.crop, req.district, exc,
+            req.crop,
+            req.district,
+            exc,
         )
         raise RuntimeError("Yield prediction unavailable") from exc
 
@@ -283,9 +389,9 @@ def _build_features(req) -> List[float]:
     season_prog = wos / _SEASON_DURATION.get(req.season.value, 24)
     year = date.today().year
 
-    crop_enc = _safe_encode(encoders.get("crop"),           req.crop.value)
-    district_enc = _safe_encode(encoders.get("district"),       req.district.value)
-    season_enc = _safe_encode(encoders.get("season"),         req.season.value)
+    crop_enc = _safe_encode(encoders.get("crop"), req.crop.value)
+    district_enc = _safe_encode(encoders.get("district"), req.district.value)
+    season_enc = _safe_encode(encoders.get("season"), req.season.value)
 
     irr_mapped = _IRRIGATION_MAP.get(req.irrigation_type.value, "drip")
     irrigation_enc = _safe_encode(encoders.get("irrigation_type"), irr_mapped)
@@ -305,48 +411,51 @@ def _build_features(req) -> List[float]:
     mgmt_score = (req.fertilizer_index + req.pesticide_index) / 2.0
 
     return [
-        req.week_of_year,           # 0  week_of_year
-        wos,                        # 1  week_of_season
-        season_prog,                # 2  season_progress
-        year,                       # 3  year
-        crop_enc,                   # 4  crop_enc
-        district_enc,               # 5  district_enc
-        season_enc,                 # 6  season_enc
-        req.rainfall_mm,            # 7  rainfall_mm
-        req.temp_min_c,             # 8  temp_min_c
-        req.temp_max_c,             # 9  temp_max_c
-        req.humidity_pct,           # 10 humidity_pct
-        req.wind_speed_kmh,         # 11 wind_speed_kmh
-        req.solar_radiation_mj,     # 12 solar_radiation_mj
-        temp_range,                 # 13 temp_range
-        heat_stress,                # 14 heat_stress_flag
-        cold_stress,                # 15 cold_stress_flag
-        rain_adequacy,              # 16 rain_adequacy
-        req.cultivated_area_ha,     # 17 cultivated_area_ha
-        req.fertilizer_index,       # 18 fertilizer_index
-        req.pesticide_index,        # 19 pesticide_index
-        req.soil_ph,                # 20 soil_ph
-        req.soil_moisture_pct,      # 21 soil_moisture_pct
-        irrigation_enc,             # 22 irrigation_type_enc
-        seed_enc,                   # 23 seed_variety_enc
-        req.N_index,                # 24 N_index
-        req.P_index,                # 25 P_index
-        req.K_index,                # 26 K_index
-        nutrient_score,             # 27 nutrient_score
-        mgmt_score,                 # 28 mgmt_score
-        prev_crop_enc,              # 29 prev_crop_enc
-        req.inflation_index,        # 30 inflation_index
-        req.demand_index,           # 31 demand_index
+        req.week_of_year,  # 0  week_of_year
+        wos,  # 1  week_of_season
+        season_prog,  # 2  season_progress
+        year,  # 3  year
+        crop_enc,  # 4  crop_enc
+        district_enc,  # 5  district_enc
+        season_enc,  # 6  season_enc
+        req.rainfall_mm,  # 7  rainfall_mm
+        req.temp_min_c,  # 8  temp_min_c
+        req.temp_max_c,  # 9  temp_max_c
+        req.humidity_pct,  # 10 humidity_pct
+        req.wind_speed_kmh,  # 11 wind_speed_kmh
+        req.solar_radiation_mj,  # 12 solar_radiation_mj
+        temp_range,  # 13 temp_range
+        heat_stress,  # 14 heat_stress_flag
+        cold_stress,  # 15 cold_stress_flag
+        rain_adequacy,  # 16 rain_adequacy
+        req.cultivated_area_ha,  # 17 cultivated_area_ha
+        req.fertilizer_index,  # 18 fertilizer_index
+        req.pesticide_index,  # 19 pesticide_index
+        req.soil_ph,  # 20 soil_ph
+        req.soil_moisture_pct,  # 21 soil_moisture_pct
+        irrigation_enc,  # 22 irrigation_type_enc
+        seed_enc,  # 23 seed_variety_enc
+        req.N_index,  # 24 N_index
+        req.P_index,  # 25 P_index
+        req.K_index,  # 26 K_index
+        nutrient_score,  # 27 nutrient_score
+        mgmt_score,  # 28 mgmt_score
+        prev_crop_enc,  # 29 prev_crop_enc
+        req.inflation_index,  # 30 inflation_index
+        req.demand_index,  # 31 demand_index
         50.0,  # 32 consumer_pref_index (not in request — use midpoint)
-        req.holiday_flag,           # 33 holiday_flag
-        req.festival_flag,          # 34 festival_flag
+        req.holiday_flag,  # 33 holiday_flag
+        req.festival_flag,  # 34 festival_flag
     ]
 
 
 def _week_of_season(week_of_year: int, season: str) -> int:
     start = _SEASON_START_WEEK.get(season, 1)
-    wos = (week_of_year - start + 1) if week_of_year >= start \
+    wos = (
+        (week_of_year - start + 1)
+        if week_of_year >= start
         else (52 - start + week_of_year + 1)
+    )
     return max(1, min(wos, _SEASON_DURATION.get(season, 24)))
 
 

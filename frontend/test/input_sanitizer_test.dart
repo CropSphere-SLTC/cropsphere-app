@@ -12,7 +12,9 @@ void main() {
     });
 
     test('Script injection blocked', () {
-      final result = InputSanitizer.sanitizeString('<script>alert(xss)</script>');
+      final result = InputSanitizer.sanitizeString(
+        '<script>alert(xss)</script>',
+      );
       expect(result, null);
       debugPrint('✅ Test 2 Passed — Script injection blocked');
     });

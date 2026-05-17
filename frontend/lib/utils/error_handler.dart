@@ -21,8 +21,7 @@ class ErrorHandler {
       return 'Network error. Please check your connection.';
     }
 
-    if (errorStr.contains('unauthorized') ||
-        errorStr.contains('401')) {
+    if (errorStr.contains('unauthorized') || errorStr.contains('401')) {
       return 'Session expired. Please login again.';
     }
 
@@ -30,8 +29,7 @@ class ErrorHandler {
       return 'Too many requests. Please wait a moment.';
     }
 
-    if (errorStr.contains('500') ||
-        errorStr.contains('server')) {
+    if (errorStr.contains('500') || errorStr.contains('server')) {
       return 'Server error. Please try again later.';
     }
 

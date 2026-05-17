@@ -89,6 +89,8 @@ class YieldRequest {
 
 class YieldResponse {
   final double predictedYieldKgPerHa;
+  final double
+  averageYieldKgPerHa; // ← model-derived baseline — never hardcoded
   final String crop;
   final String district;
   final String confidence;
@@ -97,6 +99,7 @@ class YieldResponse {
 
   YieldResponse({
     required this.predictedYieldKgPerHa,
+    required this.averageYieldKgPerHa,
     required this.crop,
     required this.district,
     required this.confidence,
@@ -107,6 +110,7 @@ class YieldResponse {
   factory YieldResponse.fromJson(Map<String, dynamic> json) => YieldResponse(
     predictedYieldKgPerHa: (json['predicted_yield_kg_per_ha'] as num)
         .toDouble(),
+    averageYieldKgPerHa: (json['average_yield_kg_per_ha'] as num).toDouble(),
     crop: json['crop'],
     district: json['district'],
     confidence: json['confidence'],

@@ -32,6 +32,7 @@ class MockService {
 
     return YieldResponse(
       predictedYieldKgPerHa: predicted,
+      averageYieldKgPerHa: base,
       crop: request.crop,
       district: request.district,
       confidence: predicted > base * 0.95 ? 'high' : 'medium',

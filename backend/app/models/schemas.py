@@ -86,7 +86,7 @@ class YieldPredictRequest(BaseModel):
 
 class YieldPredictResponse(BaseModel):
     predicted_yield_kg_per_ha: float
-    average_yield_kg_per_ha: float          # ← NEW: model-derived baseline for this crop
+    average_yield_kg_per_ha: float  # model-derived baseline for this crop
     crop: CropEnum
     district: DistrictEnum
     confidence: ConfidenceEnum
@@ -231,4 +231,3 @@ class ChatResponse(BaseModel):
     sources_used: List[str]
     suggested_followups: List[str]
     is_mock: bool = False
-    

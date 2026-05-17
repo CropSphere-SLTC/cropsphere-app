@@ -67,3 +67,14 @@ frontend/.packages
 !package.json
 !tsconfig*.json
 frontend/windows/flutter/ephemeral/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Flutter generated
+.flutter-plugins
+.flutter-plugins-dependencies
+**/ephemeral/
+**/.plugin_symlinks/

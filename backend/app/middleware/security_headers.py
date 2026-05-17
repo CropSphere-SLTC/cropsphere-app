@@ -14,15 +14,23 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Content-Type-Options"] = "nosniff"
 
         # Force HTTPS in production
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=31536000; includeSubDomains"
+        )
 
         # Control referrer information
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Referrer-Policy"] = (
+            "strict-origin-when-cross-origin"
+        )
 
         # Disable browser features not needed
-        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        response.headers["Permissions-Policy"] = (
+            "geolocation=(), microphone=(), camera=()"
+        )
 
         # Content Security Policy
-        response.headers["Content-Security-Policy"] = "default-src 'self' 'unsafe-inline' cdn.jsdelivr.net"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self' 'unsafe-inline' cdn.jsdelivr.net"
+        )
 
         return response

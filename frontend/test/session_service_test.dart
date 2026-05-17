@@ -1,6 +1,6 @@
 // test/session_service_test.dart
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter/foundation.dart'; 
+import 'package:flutter/foundation.dart';
 import 'package:cropsphere_app/services/session_service.dart';
 
 void main() {

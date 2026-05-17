@@ -36,7 +36,9 @@ void main() {
     });
 
     test('Unknown error returns default message', () {
-      final msg = ErrorHandler.getErrorMessage('some random technical error xyz');
+      final msg = ErrorHandler.getErrorMessage(
+        'some random technical error xyz',
+      );
       expect(msg, 'Something went wrong. Please try again.');
       debugPrint('✅ Test 6 Passed — Unknown error handled');
     });

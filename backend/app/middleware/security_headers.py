@@ -19,9 +19,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         )
 
         # Control referrer information
-        response.headers["Referrer-Policy"] = (
-            "strict-origin-when-cross-origin"
-        )
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
 
         # Disable browser features not needed
         response.headers["Permissions-Policy"] = (

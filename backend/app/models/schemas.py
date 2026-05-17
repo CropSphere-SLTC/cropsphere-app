@@ -1,9 +1,9 @@
 """Pydantic request/response schemas with strict input validation for all endpoints."""
+
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
-
 
 # ── Enums ────────────────────────────────────────────────────────────────────
 

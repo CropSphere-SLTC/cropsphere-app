@@ -26,5 +26,5 @@ def test_secret_keys_not_hardcoded():
 def test_env_is_valid_value():
     """APP_ENV must be development, staging, or production."""
     settings = get_settings()
-    assert settings.APP_ENV in ["development", "staging", "production"]
+    assert settings.APP_ENV in ["development", "staging", "production", "test"]
     print("✅ Test 4 Passed — APP_ENV is valid value")

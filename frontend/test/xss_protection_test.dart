@@ -26,7 +26,9 @@ void main() {
     });
 
     test('Script tag removed from HTML', () {
-      final result = XSSProtection.sanitizeHtml('<script>alert(1)</script>Hello');
+      final result = XSSProtection.sanitizeHtml(
+        '<script>alert(1)</script>Hello',
+      );
       expect(result.contains('script'), false);
       debugPrint('✅ Test 5 Passed — Script tag removed');
     });

@@ -1,4 +1,5 @@
 """Tests for Security Logging & Monitoring."""
+
 import logging
 from app.utils.security_logger import (
     log_unauthorized_access,

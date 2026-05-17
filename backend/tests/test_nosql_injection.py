@@ -1,4 +1,5 @@
 """Tests for NoSQL Injection Prevention."""
+
 import pytest
 from app.utils.sanitizer import sanitize_string, sanitize_dict
 

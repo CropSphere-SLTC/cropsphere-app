@@ -1,4 +1,5 @@
 """Security Logging & Monitoring for CropSphere."""
+
 import logging
 from datetime import datetime, timezone
 

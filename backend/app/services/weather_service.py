@@ -16,7 +16,6 @@ from app.models.schemas import (
 
 logger = logging.getLogger(__name__)
 
-
 # Climatological averages per district:
 # (rainfall_mm, temp_min_c, temp_max_c, humidity_pct,
 #  wind_speed_kmh, solar_radiation_mj)
@@ -103,7 +102,6 @@ def forecast_weather(req: WeatherForecastRequest) -> WeatherForecastResponse:
                     humidity_pct=humidity,
                 )
             )
-<<<<<<< HEAD
 
             # Slide window forward using the new prediction as the next step
             new_raw = np.array(
@@ -112,17 +110,12 @@ def forecast_weather(req: WeatherForecastRequest) -> WeatherForecastResponse:
             new_scaled = (
                 scaler.transform(new_raw)[0] if scaler is not None else new_raw[0]
             )
+            
             current_window = np.vstack([current_window[1:], new_scaled])
-=======
->>>>>>> dev
-
+            
             # Slide window forward using the new prediction as the next step
-            new_raw = np.array(
-                [[rainfall, temp_min, temp_max, humidity, seed_row[4], seed_row[5]]]
-            )
-            new_scaled = (
-                scaler.transform(new_raw)[0] if scaler is not None else new_raw[0]
-            )
+            new_raw = np.array([[rainfall, temp_min, temp_max, humidity, seed_row[4], seed_row[5]]])
+            new_scaled = scaler.transform(new_raw)[0] if scaler is not None else new_raw[0]
             current_window = np.vstack([current_window[1:], new_scaled])
 
         return WeatherForecastResponse(district=req.district, forecasts=forecasts)
@@ -144,10 +137,6 @@ def _mock_forecast(req: WeatherForecastRequest) -> WeatherForecastResponse:
     climate = _DISTRICT_CLIMATE.get(
         req.district.value, (75.0, 18.0, 28.0, 70.0, 10.0, 15.0)
     )
-<<<<<<< HEAD
-
-=======
->>>>>>> dev
     rain, t_min, t_max, humidity = climate[0], climate[1], climate[2], climate[3]
     start = date.fromisoformat(req.start_date)
     forecasts = [

@@ -33,13 +33,10 @@ class ApiService {
           }
           return handler.next(options);
         },
-<<<<<<< HEAD
-        onError: (error, handler) async {\
-=======
         onError: (error, handler) async {
->>>>>>> dev
-          // Never auto-signout on 401 — this would redirect the user to
-          // LoginScreen instead of showing the error on the prediction screen.
+          if (error.response?.statusCode == 401) {
+            await FirebaseAuth.instance.signOut();
+          }
           return handler.next(error);
         },
       ),

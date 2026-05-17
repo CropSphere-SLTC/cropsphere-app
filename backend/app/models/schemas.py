@@ -1,9 +1,9 @@
 """Pydantic request/response schemas with strict input validation for all endpoints."""
-
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
+
 
 # ── Enums ────────────────────────────────────────────────────────────────────
 
@@ -86,6 +86,7 @@ class YieldPredictRequest(BaseModel):
 
 class YieldPredictResponse(BaseModel):
     predicted_yield_kg_per_ha: float
+    average_yield_kg_per_ha: float          # ← NEW: model-derived baseline for this crop
     crop: CropEnum
     district: DistrictEnum
     confidence: ConfidenceEnum
@@ -230,3 +231,4 @@ class ChatResponse(BaseModel):
     sources_used: List[str]
     suggested_followups: List[str]
     is_mock: bool = False
+    

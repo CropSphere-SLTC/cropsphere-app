@@ -3,9 +3,11 @@ name: CI Pipeline
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, dev]
   pull_request:
-    branches: [main, develop]
+    branches: [main, dev]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:    # manual trigger from GitHub UI
 
 # Cancel in-progress runs on new push to same branch
 concurrency:
@@ -262,6 +264,19 @@ jobs:
     name: ✅ CI Gate
     runs-on: ubuntu-latest
     needs: [backend, ml, frontend]
+    if: always()                        # always runs regardless of above jobs
     steps:
       - name: All checks passed
-        run: echo "✅ All CI checks passed — safe to merge or deploy"
+        run: |
+          echo "backend:   ${{ needs.backend.result }}"
+          echo "ml:        ${{ needs.ml.result }}"
+          echo "frontend:  ${{ needs.frontend.result }}"
+
+          if [[ "${{ needs.backend.result }}"  != "success" || \
+                "${{ needs.ml.result }}"       != "success" || \
+                "${{ needs.frontend.result }}" != "success" ]]; then
+            echo "❌ One or more checks failed."
+            exit 1
+          fi
+
+          echo "✅ All CI checks passed — safe to merge or deploy"

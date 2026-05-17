@@ -1,5 +1,8 @@
 FROM python:3.11-slim
 
+# in your backend/Dockerfile, find the base image section and add:
+RUN apt-get update && apt-get upgrade -y && apt-get clean && rm -rf /var/lib/apt/lists/*
+
 # Security: non-root user
 RUN groupadd -r cropsphere && useradd -r -g cropsphere cropsphere
 

@@ -1,4 +1,5 @@
 """CropSphere FastAPI application — entry point."""
+
 import logging
 
 from fastapi import FastAPI
@@ -10,6 +11,7 @@ from slowapi.errors import RateLimitExceeded
 from app.config import get_settings
 from app.middleware.auth import FirebaseAuthMiddleware
 from app.middleware.rate_limit import limiter
+from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.models.loader import model_loader
 from app.routers import (
     chat_router,
@@ -29,13 +31,52 @@ logger = logging.getLogger(__name__)
 
 def create_app() -> FastAPI:
     """Construct and configure the FastAPI application."""
+    from contextlib import asynccontextmanager
+
     settings = get_settings()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        logger.info("CropSphere starting — ENV=%s", settings.APP_ENV)
+
+        # Firestore audit logging — optional for dev
+        try:
+            init_firestore(
+                settings.FIREBASE_CREDENTIALS_JSON, settings.FIREBASE_PROJECT_ID
+            )
+        except Exception as exc:
+            logger.warning("Firestore audit logging disabled: %s", exc)
+
+        # Load all ML models on startup (before yield = startup phase)
+        model_loader.load_all(settings.MODEL_DIR)
+        logger.info("Models loaded: %s", model_loader.status_report())
+
+        yield  # app runs here
 
     app = FastAPI(
         title="CropSphere API",
         description="Agricultural intelligence API for Sri Lankan farmers",
         version="1.0.0",
+        lifespan=lifespan,
     )
+
+    # ── Middleware ────────────────────────────────────────────────────────────
+    # Middleware execution order = reverse of add_middleware call order.
+    # CORS outermost — wraps every response including auth errors.
+    # FirebaseAuth innermost — runs last.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.allowed_origins_list,
+        allow_origin_regex=(
+            r"http://localhost(:\d+)?" if settings.APP_ENV == "development" else None
+        ),
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(SlowAPIMiddleware)
+    app.add_middleware(FirebaseAuthMiddleware)  # innermost — runs last
 
     # ── Rate limiter ──────────────────────────────────────────────────────────
     app.state.limiter = limiter
@@ -54,9 +95,6 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # ── JWT auth — applied after CORS ─────────────────────────────────────────
-    app.add_middleware(FirebaseAuthMiddleware)
-
     # ── Routers ───────────────────────────────────────────────────────────────
     app.include_router(health_router.router)
     app.include_router(yield_router.router)
@@ -65,21 +103,6 @@ def create_app() -> FastAPI:
     app.include_router(demand_router.router)
     app.include_router(recommend_router.router)
     app.include_router(chat_router.router)
-
-    # ── Startup ───────────────────────────────────────────────────────────────
-    @app.on_event("startup")
-    async def startup() -> None:
-        logger.info("CropSphere starting — ENV=%s", settings.APP_ENV)
-
-        # JWT verification uses google.oauth2.id_token directly (no firebase_admin needed).
-        # Firestore audit logging requires a service-account key — optional for dev.
-        try:
-            init_firestore(settings.FIREBASE_CREDENTIALS_JSON, settings.FIREBASE_PROJECT_ID)
-        except Exception as exc:
-            logger.warning("Firestore audit logging disabled: %s", exc)
-
-        model_loader.load_all(settings.MODEL_DIR)
-        logger.info("Models: %s", model_loader.status_report())
 
     return app
 

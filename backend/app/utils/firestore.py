@@ -1,7 +1,10 @@
 """Firestore client initialisation and DevSecOps audit logging."""
+
 import hashlib
+import hmac
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Any, Dict
 
@@ -26,7 +29,8 @@ def init_firestore(credentials_json: str, project_id: str) -> None:
 
     if not credentials_json or credentials_json.strip().startswith("/path/to"):
         raise ValueError(
-            "FIREBASE_CREDENTIALS_JSON is not configured — Firestore audit logging disabled"
+            "FIREBASE_CREDENTIALS_JSON is not configured"
+            " — Firestore audit logging disabled"
         )
 
     # App may already be initialised by main.py for JWT verification; only
@@ -37,7 +41,10 @@ def init_firestore(credentials_json: str, project_id: str) -> None:
         else:
             cred = credentials.Certificate(credentials_json)
         firebase_admin.initialize_app(cred, {"projectId": project_id})
-    elif firebase_admin.get_app().credential.__class__.__name__ == "ApplicationDefaultCredentials":
+    elif (
+        firebase_admin.get_app().credential.__class__.__name__
+        == "ApplicationDefaultCredentials"
+    ):
         # App was initialised without a service account — re-init with credentials
         firebase_admin.delete_app(firebase_admin.get_app())
         if credentials_json.strip().startswith("{"):
@@ -69,14 +76,25 @@ def audit_log(user_id: str, endpoint: str, input_data: Dict[str, Any]) -> None:
         input_hash = hashlib.sha256(
             json.dumps(input_data, sort_keys=True, default=str).encode()
         ).hexdigest()
-        db.collection("audit_logs").add({
-            "user_id": user_id,
-            "endpoint": endpoint,
-            "input_hash": input_hash,
-            "timestamp": datetime.now(timezone.utc),
-        })
+        hmac_key = os.environ.get("AUDIT_HMAC_KEY", "")
+        hmac_sig = hmac.new(
+            hmac_key.encode(),
+            input_hash.encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        db.collection("audit_logs").add(
+            {
+                "user_id": user_id,
+                "endpoint": endpoint,
+                "input_hash": input_hash,
+                "hmac_sha256": hmac_sig,
+                "timestamp": datetime.now(timezone.utc),
+            }
+        )
     except Exception as exc:
         logger.error(
             "Audit log write failed — user=%s endpoint=%s: %s",
-            user_id, endpoint, exc,
+            user_id,
+            endpoint,
+            exc,
         )

@@ -53,11 +53,12 @@ VALID = {
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _mock_model(yield_value: float = 21450.0) -> MagicMock:
     """Return a mock sklearn-style model that predicts a fixed yield."""
     m = MagicMock()
     m.predict.return_value = [yield_value]
-    m.predict_proba = None          # triggers ConfidenceEnum.medium path
+    m.predict_proba = None  # triggers ConfidenceEnum.medium path
     return m
 
 
@@ -69,13 +70,21 @@ def _post(client, payload, headers=None):
 # 1. Happy path
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestHappyPath:
 
-    def test_valid_carrot_nuwara_eliya(self, client, mock_valid_token, valid_auth_header):
+    def test_valid_carrot_nuwara_eliya(
+        self, client, mock_valid_token, valid_auth_header
+    ):
         """Standard Carrot / Nuwara Eliya request returns 200 with a positive yield."""
-        with patch("app.models.loader.model_loader.is_loaded", return_value=True), \
-             patch("app.models.loader.model_loader.get_model", return_value=_mock_model(21450.0)), \
-             patch("app.utils.firestore.audit_log"):
+        with patch(
+            "app.models.loader.model_loader.is_loaded", return_value=True
+        ), patch(
+            "app.models.loader.model_loader.get_model",
+            return_value=_mock_model(21450.0),
+        ), patch(
+            "app.utils.firestore.audit_log"
+        ):
             resp = _post(client, VALID, valid_auth_header)
 
         assert resp.status_code == 200
@@ -85,17 +94,25 @@ class TestHappyPath:
         assert body["crop"] == "Carrot"
         assert body["district"] == "Nuwara Eliya"
 
-    @pytest.mark.parametrize("crop,district,expected_model_key", [
-        ("Carrot",        "Nuwara Eliya",  "yield_Carrot"),
-        ("Maize",         "Anuradhapura",  "yield_Maize"),
-        ("Green gram",    "Monaragala",    "yield_Greengram"),
-        ("Cowpea",        "Ampara",        "yield_Cowpea"),
-        ("Finger millet", "Hambantota",    "yield_Fingermillet"),
-        ("Groundnut",     "Jaffna",        "yield_Groundnut"),
-    ])
+    @pytest.mark.parametrize(
+        "crop,district,expected_model_key",
+        [
+            ("Carrot", "Nuwara Eliya", "yield_Carrot"),
+            ("Maize", "Anuradhapura", "yield_Maize"),
+            ("Green gram", "Monaragala", "yield_Greengram"),
+            ("Cowpea", "Ampara", "yield_Cowpea"),
+            ("Finger millet", "Hambantota", "yield_Fingermillet"),
+            ("Groundnut", "Jaffna", "yield_Groundnut"),
+        ],
+    )
     def test_all_six_crops(
-        self, client, mock_valid_token, valid_auth_header,
-        crop, district, expected_model_key
+        self,
+        client,
+        mock_valid_token,
+        valid_auth_header,
+        crop,
+        district,
+        expected_model_key,
     ):
         """Every crop-district combo returns 200 and uses the correct model key."""
         payload = {**VALID, "crop": crop, "district": district}
@@ -106,24 +123,32 @@ class TestHappyPath:
             captured_keys.append(key)
             return _mock_model(15000.0)
 
-        with patch("app.models.loader.model_loader.is_loaded", return_value=True), \
-             patch("app.models.loader.model_loader.get_model", side_effect=_fake_get_model), \
-             patch("app.utils.firestore.audit_log"):
+        with patch(
+            "app.models.loader.model_loader.is_loaded", return_value=True
+        ), patch(
+            "app.models.loader.model_loader.get_model", side_effect=_fake_get_model
+        ), patch(
+            "app.utils.firestore.audit_log"
+        ):
             resp = _post(client, payload, valid_auth_header)
 
         assert resp.status_code == 200, f"Failed for {crop} / {district}"
         # First call to get_model should be for the crop's model key
-        assert expected_model_key in captured_keys, (
-            f"Expected model key '{expected_model_key}' but got {captured_keys}"
-        )
+        assert (
+            expected_model_key in captured_keys
+        ), f"Expected model key '{expected_model_key}' but got {captured_keys}"
 
     def test_all_seasons(self, client, mock_valid_token, valid_auth_header):
         """Maha, Yala, and Inter seasons all return 200."""
         for season in ("Maha", "Yala", "Inter"):
             payload = {**VALID, "season": season}
-            with patch("app.models.loader.model_loader.is_loaded", return_value=True), \
-                 patch("app.models.loader.model_loader.get_model", return_value=_mock_model()), \
-                 patch("app.utils.firestore.audit_log"):
+            with patch(
+                "app.models.loader.model_loader.is_loaded", return_value=True
+            ), patch(
+                "app.models.loader.model_loader.get_model", return_value=_mock_model()
+            ), patch(
+                "app.utils.firestore.audit_log"
+            ):
                 resp = _post(client, payload, valid_auth_header)
             assert resp.status_code == 200, f"Failed for season={season}"
 
@@ -131,9 +156,13 @@ class TestHappyPath:
         """drip, sprinkler, flood, rainfed all accepted."""
         for irr in ("drip", "sprinkler", "flood", "rainfed"):
             payload = {**VALID, "irrigation_type": irr}
-            with patch("app.models.loader.model_loader.is_loaded", return_value=True), \
-                 patch("app.models.loader.model_loader.get_model", return_value=_mock_model()), \
-                 patch("app.utils.firestore.audit_log"):
+            with patch(
+                "app.models.loader.model_loader.is_loaded", return_value=True
+            ), patch(
+                "app.models.loader.model_loader.get_model", return_value=_mock_model()
+            ), patch(
+                "app.utils.firestore.audit_log"
+            ):
                 resp = _post(client, payload, valid_auth_header)
             assert resp.status_code == 200, f"Failed for irrigation_type={irr}"
 
@@ -141,6 +170,7 @@ class TestHappyPath:
 # ═══════════════════════════════════════════════════════════════════════════════
 # 2. Authentication enforcement
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class TestAuth:
 
@@ -150,7 +180,9 @@ class TestAuth:
         assert resp.status_code == 401
         assert "detail" in resp.json()
 
-    def test_expired_token_returns_401(self, client, mock_expired_token, expired_auth_header):
+    def test_expired_token_returns_401(
+        self, client, mock_expired_token, expired_auth_header
+    ):
         """Expired token must return 401, not 500."""
         resp = _post(client, VALID, expired_auth_header)
         assert resp.status_code == 401
@@ -167,9 +199,13 @@ class TestAuth:
 
     def test_valid_token_accepted(self, client, mock_valid_token, valid_auth_header):
         """Valid token must pass auth and reach the service layer."""
-        with patch("app.models.loader.model_loader.is_loaded", return_value=True), \
-             patch("app.models.loader.model_loader.get_model", return_value=_mock_model()), \
-             patch("app.utils.firestore.audit_log"):
+        with patch(
+            "app.models.loader.model_loader.is_loaded", return_value=True
+        ), patch(
+            "app.models.loader.model_loader.get_model", return_value=_mock_model()
+        ), patch(
+            "app.utils.firestore.audit_log"
+        ):
             resp = _post(client, VALID, valid_auth_header)
         assert resp.status_code == 200
 
@@ -178,76 +214,103 @@ class TestAuth:
 # 3. Input validation — missing required fields
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestMissingFields:
 
-    @pytest.mark.parametrize("missing_field", [
-        "crop", "district", "season", "week_of_year",
-        "rainfall_mm", "temp_min_c", "temp_max_c", "humidity_pct",
-        "wind_speed_kmh", "solar_radiation_mj", "soil_ph", "soil_moisture_pct",
-        "cultivated_area_ha", "seed_variety", "fertilizer_index", "pesticide_index",
-        "irrigation_type", "N_index", "P_index", "K_index",
-        "prev_crop", "demand_index", "inflation_index",
-        "holiday_flag", "festival_flag",
-    ])
+    @pytest.mark.parametrize(
+        "missing_field",
+        [
+            "crop",
+            "district",
+            "season",
+            "week_of_year",
+            "rainfall_mm",
+            "temp_min_c",
+            "temp_max_c",
+            "humidity_pct",
+            "wind_speed_kmh",
+            "solar_radiation_mj",
+            "soil_ph",
+            "soil_moisture_pct",
+            "cultivated_area_ha",
+            "seed_variety",
+            "fertilizer_index",
+            "pesticide_index",
+            "irrigation_type",
+            "N_index",
+            "P_index",
+            "K_index",
+            "prev_crop",
+            "demand_index",
+            "inflation_index",
+            "holiday_flag",
+            "festival_flag",
+        ],
+    )
     def test_missing_field_returns_422(
         self, client, mock_valid_token, valid_auth_header, missing_field
     ):
         """Every required field, when absent, must produce 422 (not 500)."""
         payload = {k: v for k, v in VALID.items() if k != missing_field}
         resp = _post(client, payload, valid_auth_header)
-        assert resp.status_code == 422, (
-            f"Expected 422 when '{missing_field}' is missing, got {resp.status_code}"
-        )
+        assert (
+            resp.status_code == 422
+        ), f"Expected 422 when '{missing_field}' is missing, got {resp.status_code}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 4. Input validation — out-of-range numeric values
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestOutOfRange:
 
-    @pytest.mark.parametrize("field,bad_value", [
-        # Above maximum
-        ("rainfall_mm",         501.0),
-        ("temp_min_c",          46.0),
-        ("temp_max_c",          51.0),
-        ("humidity_pct",        101.0),
-        ("wind_speed_kmh",      101.0),
-        ("solar_radiation_mj",  36.0),
-        ("soil_ph",             9.1),
-        ("soil_moisture_pct",   101.0),
-        ("cultivated_area_ha",  501.0),
-        ("fertilizer_index",    1.01),
-        ("pesticide_index",     1.01),
-        ("N_index",             1.01),
-        ("P_index",             1.01),
-        ("K_index",             1.01),
-        ("demand_index",        201.0),
-        ("inflation_index",     3.01),
-        ("week_of_year",        53),
-        # Below minimum
-        ("rainfall_mm",         -1.0),
-        ("temp_min_c",          -6.0),
-        ("soil_ph",             3.4),
-        ("cultivated_area_ha",  0.0),
-        ("inflation_index",     0.4),
-        ("week_of_year",        0),
-        ("holiday_flag",        2),
-        ("festival_flag",       -1),
-    ])
+    @pytest.mark.parametrize(
+        "field,bad_value",
+        [
+            # Above maximum
+            ("rainfall_mm", 501.0),
+            ("temp_min_c", 46.0),
+            ("temp_max_c", 51.0),
+            ("humidity_pct", 101.0),
+            ("wind_speed_kmh", 101.0),
+            ("solar_radiation_mj", 36.0),
+            ("soil_ph", 9.1),
+            ("soil_moisture_pct", 101.0),
+            ("cultivated_area_ha", 501.0),
+            ("fertilizer_index", 1.01),
+            ("pesticide_index", 1.01),
+            ("N_index", 1.01),
+            ("P_index", 1.01),
+            ("K_index", 1.01),
+            ("demand_index", 201.0),
+            ("inflation_index", 3.01),
+            ("week_of_year", 53),
+            # Below minimum
+            ("rainfall_mm", -1.0),
+            ("temp_min_c", -6.0),
+            ("soil_ph", 3.4),
+            ("cultivated_area_ha", 0.0),
+            ("inflation_index", 0.4),
+            ("week_of_year", 0),
+            ("holiday_flag", 2),
+            ("festival_flag", -1),
+        ],
+    )
     def test_out_of_range_returns_422(
         self, client, mock_valid_token, valid_auth_header, field, bad_value
     ):
         """Out-of-range numeric values must be rejected with 422."""
         resp = _post(client, {**VALID, field: bad_value}, valid_auth_header)
-        assert resp.status_code == 422, (
-            f"Expected 422 for {field}={bad_value}, got {resp.status_code}"
-        )
+        assert (
+            resp.status_code == 422
+        ), f"Expected 422 for {field}={bad_value}, got {resp.status_code}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 5. Input validation — invalid enum values
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class TestEnumValidation:
 
@@ -266,14 +329,15 @@ class TestEnumValidation:
     ):
         """Invalid enum strings must be rejected with 422."""
         resp = _post(client, {**VALID, field: bad_value}, valid_auth_header)
-        assert resp.status_code == 422, (
-            f"Expected 422 for {field}='{bad_value}', got {resp.status_code}"
-        )
+        assert (
+            resp.status_code == 422
+        ), f"Expected 422 for {field}='{bad_value}', got {resp.status_code}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 6. Model mock fallback
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class TestMockFallback:
 
@@ -281,8 +345,9 @@ class TestMockFallback:
         self, client, mock_valid_token, valid_auth_header
     ):
         """When model file is absent, response is 200 with is_mock: true."""
-        with patch("app.models.loader.model_loader.is_loaded", return_value=False), \
-             patch("app.utils.firestore.audit_log"):
+        with patch(
+            "app.models.loader.model_loader.is_loaded", return_value=False
+        ), patch("app.utils.firestore.audit_log"):
             resp = _post(client, VALID, valid_auth_header)
 
         assert resp.status_code == 200
@@ -296,8 +361,9 @@ class TestMockFallback:
     ):
         """Mock response echoes back the correct crop and district."""
         payload = {**VALID, "crop": "Maize", "district": "Anuradhapura"}
-        with patch("app.models.loader.model_loader.is_loaded", return_value=False), \
-             patch("app.utils.firestore.audit_log"):
+        with patch(
+            "app.models.loader.model_loader.is_loaded", return_value=False
+        ), patch("app.utils.firestore.audit_log"):
             resp = _post(client, payload, valid_auth_header)
 
         body = resp.json()
@@ -308,9 +374,13 @@ class TestMockFallback:
         self, client, mock_valid_token, valid_auth_header
     ):
         """When model is loaded, is_mock must be False."""
-        with patch("app.models.loader.model_loader.is_loaded", return_value=True), \
-             patch("app.models.loader.model_loader.get_model", return_value=_mock_model()), \
-             patch("app.utils.firestore.audit_log"):
+        with patch(
+            "app.models.loader.model_loader.is_loaded", return_value=True
+        ), patch(
+            "app.models.loader.model_loader.get_model", return_value=_mock_model()
+        ), patch(
+            "app.utils.firestore.audit_log"
+        ):
             resp = _post(client, VALID, valid_auth_header)
 
         assert resp.json()["is_mock"] is False
@@ -319,6 +389,7 @@ class TestMockFallback:
 # ═══════════════════════════════════════════════════════════════════════════════
 # 7. Feature engineering correctness
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class TestFeatureEngineering:
     """
@@ -339,9 +410,13 @@ class TestFeatureEngineering:
         mock_model.predict.side_effect = _fake_predict
         mock_model.predict_proba = None
 
-        with patch("app.models.loader.model_loader.is_loaded", return_value=True), \
-             patch("app.models.loader.model_loader.get_model", return_value=mock_model), \
-             patch("app.utils.firestore.audit_log"):
+        with patch(
+            "app.models.loader.model_loader.is_loaded", return_value=True
+        ), patch(
+            "app.models.loader.model_loader.get_model", return_value=mock_model
+        ), patch(
+            "app.utils.firestore.audit_log"
+        ):
             resp = client.post(URL, json=payload, headers=valid_auth_header)
 
         assert resp.status_code == 200, f"Request failed: {resp.json()}"
@@ -383,15 +458,13 @@ class TestFeatureEngineering:
         self, client, mock_valid_token, valid_auth_header
     ):
         """rain_adequacy (index 16) = rainfall_mm / 100, capped at 2.0."""
-        payload = {**VALID, "rainfall_mm": 500.0}   # 500/100 = 5.0 → capped to 2.0
+        payload = {**VALID, "rainfall_mm": 500.0}  # 500/100 = 5.0 → capped to 2.0
         features = self._captured_features(client, valid_auth_header, payload)
-        assert features[16] == pytest.approx(2.0), (
-            f"rain_adequacy should be capped at 2.0, got {features[16]}"
-        )
+        assert features[16] == pytest.approx(
+            2.0
+        ), f"rain_adequacy should be capped at 2.0, got {features[16]}"
 
-    def test_rain_adequacy_normal(
-        self, client, mock_valid_token, valid_auth_header
-    ):
+    def test_rain_adequacy_normal(self, client, mock_valid_token, valid_auth_header):
         """rain_adequacy for rainfall_mm=80 should be 0.8."""
         payload = {**VALID, "rainfall_mm": 80.0}
         features = self._captured_features(client, valid_auth_header, payload)
@@ -419,9 +492,13 @@ class TestFeatureEngineering:
     ):
         """An unknown seed variety should not crash — service falls back to 'Local'."""
         payload = {**VALID, "seed_variety": "SomeRandomVarietyNotInTrainingData"}
-        with patch("app.models.loader.model_loader.is_loaded", return_value=True), \
-             patch("app.models.loader.model_loader.get_model", return_value=_mock_model()), \
-             patch("app.utils.firestore.audit_log"):
+        with patch(
+            "app.models.loader.model_loader.is_loaded", return_value=True
+        ), patch(
+            "app.models.loader.model_loader.get_model", return_value=_mock_model()
+        ), patch(
+            "app.utils.firestore.audit_log"
+        ):
             resp = _post(client, payload, valid_auth_header)
         assert resp.status_code == 200
 
@@ -430,9 +507,13 @@ class TestFeatureEngineering:
     ):
         """An unknown prev_crop should not crash — service falls back to 'Unknown'."""
         payload = {**VALID, "prev_crop": "Avocado"}
-        with patch("app.models.loader.model_loader.is_loaded", return_value=True), \
-             patch("app.models.loader.model_loader.get_model", return_value=_mock_model()), \
-             patch("app.utils.firestore.audit_log"):
+        with patch(
+            "app.models.loader.model_loader.is_loaded", return_value=True
+        ), patch(
+            "app.models.loader.model_loader.get_model", return_value=_mock_model()
+        ), patch(
+            "app.utils.firestore.audit_log"
+        ):
             resp = _post(client, payload, valid_auth_header)
         assert resp.status_code == 200
 
@@ -441,15 +522,20 @@ class TestFeatureEngineering:
 # 8. Response shape validation
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestResponseShape:
 
     def test_response_contains_all_required_fields(
         self, client, mock_valid_token, valid_auth_header
     ):
         """Response must contain every field defined in YieldPredictResponse."""
-        with patch("app.models.loader.model_loader.is_loaded", return_value=True), \
-             patch("app.models.loader.model_loader.get_model", return_value=_mock_model()), \
-             patch("app.utils.firestore.audit_log"):
+        with patch(
+            "app.models.loader.model_loader.is_loaded", return_value=True
+        ), patch(
+            "app.models.loader.model_loader.get_model", return_value=_mock_model()
+        ), patch(
+            "app.utils.firestore.audit_log"
+        ):
             resp = _post(client, VALID, valid_auth_header)
 
         body = resp.json()
@@ -468,9 +554,13 @@ class TestResponseShape:
         self, client, mock_valid_token, valid_auth_header
     ):
         """confidence field must be one of high / medium / low."""
-        with patch("app.models.loader.model_loader.is_loaded", return_value=True), \
-             patch("app.models.loader.model_loader.get_model", return_value=_mock_model()), \
-             patch("app.utils.firestore.audit_log"):
+        with patch(
+            "app.models.loader.model_loader.is_loaded", return_value=True
+        ), patch(
+            "app.models.loader.model_loader.get_model", return_value=_mock_model()
+        ), patch(
+            "app.utils.firestore.audit_log"
+        ):
             resp = _post(client, VALID, valid_auth_header)
 
         assert resp.json()["confidence"] in ("high", "medium", "low")
@@ -479,9 +569,14 @@ class TestResponseShape:
         self, client, mock_valid_token, valid_auth_header
     ):
         """predicted_yield_kg_per_ha must be a positive float (not mock)."""
-        with patch("app.models.loader.model_loader.is_loaded", return_value=True), \
-             patch("app.models.loader.model_loader.get_model", return_value=_mock_model(21450.0)), \
-             patch("app.utils.firestore.audit_log"):
+        with patch(
+            "app.models.loader.model_loader.is_loaded", return_value=True
+        ), patch(
+            "app.models.loader.model_loader.get_model",
+            return_value=_mock_model(21450.0),
+        ), patch(
+            "app.utils.firestore.audit_log"
+        ):
             resp = _post(client, VALID, valid_auth_header)
 
         yield_val = resp.json()["predicted_yield_kg_per_ha"]
@@ -492,9 +587,13 @@ class TestResponseShape:
         self, client, mock_valid_token, valid_auth_header
     ):
         """model_used field must reference the correct per-crop model key."""
-        with patch("app.models.loader.model_loader.is_loaded", return_value=True), \
-             patch("app.models.loader.model_loader.get_model", return_value=_mock_model()), \
-             patch("app.utils.firestore.audit_log"):
+        with patch(
+            "app.models.loader.model_loader.is_loaded", return_value=True
+        ), patch(
+            "app.models.loader.model_loader.get_model", return_value=_mock_model()
+        ), patch(
+            "app.utils.firestore.audit_log"
+        ):
             resp = _post(client, VALID, valid_auth_header)
 
         assert resp.json()["model_used"] == "yield_Carrot"
@@ -504,39 +603,47 @@ class TestResponseShape:
 # 9. Boundary / edge-case values
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestBoundaryValues:
 
-    @pytest.mark.parametrize("field,boundary_value", [
-        # Exact minimum allowed values
-        ("rainfall_mm",        0.0),
-        ("temp_min_c",        -5.0),
-        ("temp_max_c",         0.0),
-        ("humidity_pct",       0.0),
-        ("soil_ph",            3.5),
-        ("cultivated_area_ha", 0.1),
-        ("inflation_index",    0.5),
-        ("week_of_year",       1),
-        ("holiday_flag",       0),
-        # Exact maximum allowed values
-        ("rainfall_mm",        500.0),
-        ("temp_min_c",         45.0),
-        ("temp_max_c",         50.0),
-        ("humidity_pct",       100.0),
-        ("soil_ph",            9.0),
-        ("demand_index",       200.0),
-        ("inflation_index",    3.0),
-        ("week_of_year",       52),
-        ("holiday_flag",       1),
-        ("festival_flag",      1),
-    ])
+    @pytest.mark.parametrize(
+        "field,boundary_value",
+        [
+            # Exact minimum allowed values
+            ("rainfall_mm", 0.0),
+            ("temp_min_c", -5.0),
+            ("temp_max_c", 0.0),
+            ("humidity_pct", 0.0),
+            ("soil_ph", 3.5),
+            ("cultivated_area_ha", 0.1),
+            ("inflation_index", 0.5),
+            ("week_of_year", 1),
+            ("holiday_flag", 0),
+            # Exact maximum allowed values
+            ("rainfall_mm", 500.0),
+            ("temp_min_c", 45.0),
+            ("temp_max_c", 50.0),
+            ("humidity_pct", 100.0),
+            ("soil_ph", 9.0),
+            ("demand_index", 200.0),
+            ("inflation_index", 3.0),
+            ("week_of_year", 52),
+            ("holiday_flag", 1),
+            ("festival_flag", 1),
+        ],
+    )
     def test_boundary_values_accepted(
         self, client, mock_valid_token, valid_auth_header, field, boundary_value
     ):
         """Exact boundary values must be accepted (not rejected with 422)."""
         payload = {**VALID, field: boundary_value}
-        with patch("app.models.loader.model_loader.is_loaded", return_value=True), \
-             patch("app.models.loader.model_loader.get_model", return_value=_mock_model()), \
-             patch("app.utils.firestore.audit_log"):
+        with patch(
+            "app.models.loader.model_loader.is_loaded", return_value=True
+        ), patch(
+            "app.models.loader.model_loader.get_model", return_value=_mock_model()
+        ), patch(
+            "app.utils.firestore.audit_log"
+        ):
             resp = _post(client, payload, valid_auth_header)
         assert resp.status_code == 200, (
             f"Boundary value {field}={boundary_value} was incorrectly rejected: "
@@ -548,15 +655,20 @@ class TestBoundaryValues:
 # 10. Audit logging
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestAuditLogging:
 
     def test_audit_log_called_on_successful_prediction(
         self, client, mock_valid_token, valid_auth_header
     ):
         """audit_log must be called exactly once per successful prediction."""
-        with patch("app.models.loader.model_loader.is_loaded", return_value=True), \
-             patch("app.models.loader.model_loader.get_model", return_value=_mock_model()), \
-             patch("app.routers.yield_router.audit_log") as mock_audit:
+        with patch(
+            "app.models.loader.model_loader.is_loaded", return_value=True
+        ), patch(
+            "app.models.loader.model_loader.get_model", return_value=_mock_model()
+        ), patch(
+            "app.routers.yield_router.audit_log"
+        ) as mock_audit:
             _post(client, VALID, valid_auth_header)
 
         mock_audit.assert_called_once()
@@ -567,8 +679,9 @@ class TestAuditLogging:
         self, client, mock_valid_token, valid_auth_header
     ):
         """audit_log must fire even when model is absent (mock response)."""
-        with patch("app.models.loader.model_loader.is_loaded", return_value=False), \
-             patch("app.routers.yield_router.audit_log") as mock_audit:
+        with patch(
+            "app.models.loader.model_loader.is_loaded", return_value=False
+        ), patch("app.routers.yield_router.audit_log") as mock_audit:
             _post(client, VALID, valid_auth_header)
 
         mock_audit.assert_called_once()
@@ -598,9 +711,12 @@ class TestAuditLogging:
 # 11. Rate limiting (requires slowapi to be active)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestRateLimiting:
 
-    def test_31st_request_returns_429(self, client, mock_valid_token, valid_auth_header):
+    def test_31st_request_returns_429(
+        self, client, mock_valid_token, valid_auth_header
+    ):
         """
         31 requests from the same IP within 1 minute must result in a 429.
 
@@ -614,15 +730,16 @@ class TestRateLimiting:
         if getattr(limiter, "_disabled", False):
             pytest.skip("Rate limiter is disabled in test environment")
 
-        with patch("app.models.loader.model_loader.is_loaded", return_value=True), \
-             patch("app.models.loader.model_loader.get_model", return_value=_mock_model()), \
-             patch("app.utils.firestore.audit_log"):
-            responses = [
-                _post(client, VALID, valid_auth_header)
-                for _ in range(31)
-            ]
+        with patch(
+            "app.models.loader.model_loader.is_loaded", return_value=True
+        ), patch(
+            "app.models.loader.model_loader.get_model", return_value=_mock_model()
+        ), patch(
+            "app.utils.firestore.audit_log"
+        ):
+            responses = [_post(client, VALID, valid_auth_header) for _ in range(31)]
 
         status_codes = [r.status_code for r in responses]
-        assert 429 in status_codes, (
-            f"Expected at least one 429 in 31 requests, got: {set(status_codes)}"
-        )
+        assert (
+            429 in status_codes
+        ), f"Expected at least one 429 in 31 requests, got: {set(status_codes)}"

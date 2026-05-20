@@ -849,7 +849,9 @@ class TestPriceModelAccuracy:
             try:
                 feature_data = scaler.transform(feature_data)
             except (ValueError, AttributeError) as e:
-                warnings.warn(f"Scaler transform failed for {crop}, using raw values: {e}")
+                warnings.warn(
+                    f"Scaler transform failed for {crop}, using raw values: {e}"
+                )
                 scaler = None
 
         X_seq = []
@@ -873,7 +875,9 @@ class TestPriceModelAccuracy:
                     dummy[:, 0] = y_pred
                     y_pred = scaler.inverse_transform(dummy)[:, 0]
                 except (ValueError, AttributeError) as e:
-                    warnings.warn(f"Inverse transform failed for {crop}, using scaled values: {e}")
+                    warnings.warn(
+                        f"Inverse transform failed for {crop}, using scaled values: {e}"
+                    )
         except Exception as e:
             pytest.skip(f"Prediction failed for {crop}: {e}")
 

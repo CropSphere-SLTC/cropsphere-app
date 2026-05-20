@@ -31,8 +31,6 @@ jobs:
         uses: trufflesecurity/trufflehog@v3.94.3
         with:
           path: ./
-          base: ${{ github.event.repository.default_branch }}
-          head: HEAD
 
   codeql:
     name: 🔍 CodeQL Deep SAST (Python + Dart)

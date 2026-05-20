@@ -1,41 +1,332 @@
-name: CI
+
+name: CI Pipeline
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, dev]
   pull_request:
-    branches: [main, develop]
+    branches: [main, dev]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:    # manual trigger from GitHub UI
+
+# Cancel in-progress runs on new push to same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  ci:
+  # ═══════════════════════════════════════════════════
+  # STAGE 1 — Shared security (runs first, blocks all)
+  # ═══════════════════════════════════════════════════
+
+  secret-scan:
+    name: 🔐 Secret Scanning (TruffleHog)
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run TruffleHog
+        uses: trufflesecurity/trufflehog@v3.94.3
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+
+  codeql:
+    name: 🔍 CodeQL Deep SAST (Python + Dart)
+    runs-on: ubuntu-latest
+    needs: secret-scan
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    strategy:
+      matrix:
+        language: [python]   # Dart CodeQL not yet supported — flutter analyze covers it
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}
+
+  container-scan:
+    name: 🐳 Container Scan (Trivy)
+    runs-on: ubuntu-latest
+    needs: secret-scan
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image for scanning
+        run: |
+          docker build -t cropsphere-backend:ci ./backend
+
+      - name: Run Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@v0.35.0
+        with:
+          image-ref: cropsphere-backend:ci
+          format: table
+          exit-code: 1           # Fail on HIGH or CRITICAL
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+
+  # ═══════════════════════════════════════════════════
+  # STAGE 2 — Parallel jobs (all need Stage 1 to pass)
+  # ═══════════════════════════════════════════════════
+
+  backend:
+    name: 🐍 FastAPI Backend
+    runs-on: ubuntu-latest
+    needs: [codeql, container-scan]
     defaults:
       run:
         working-directory: backend
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt 
+          pip install pytest pytest-cov pytest-asyncio httpx \
+                      flake8 black bandit pip-audit
+
+      - name: Validate required secrets exist
+        run: |
+          [ -z "$SECRET_KEY" ] && echo "❌ SECRET_KEY missing" && exit 1
+          echo "✅ Environment variables present"
+        env:
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
 
       - name: Lint with flake8
-        run: flake8 app/ tests/
+        run: python -m flake8 app/ tests/ --max-line-length=88
 
-      - name: Security scan with bandit
+      - name: Format check with black
+        run: black --check app/ tests/
+
+      - name: SAST with bandit
         run: bandit -r app/ -ll -ii
 
-      - name: Run pytest with coverage
+      - name: Dependency vulnerability scan (pip-audit)
+        run: |
+          python -m pip_audit \
+            --ignore-vuln PYSEC-2024-277 \
+            --ignore-vuln PYSEC-2025-121 \
+            --ignore-vuln PYSEC-2025-183 \
+            --ignore-vuln PYSEC-2025-189 \
+            --ignore-vuln PYSEC-2025-190 \
+            --ignore-vuln PYSEC-2025-191 \
+            --ignore-vuln PYSEC-2025-192 \
+            --ignore-vuln PYSEC-2025-193 \
+            --ignore-vuln PYSEC-2025-194 \
+            --ignore-vuln PYSEC-2025-195 \
+            --ignore-vuln PYSEC-2025-196 \
+            --ignore-vuln PYSEC-2025-197 \
+            --ignore-vuln PYSEC-2025-210 \
+            --ignore-vuln PYSEC-2025-211 \
+            --ignore-vuln PYSEC-2025-212 \
+            --ignore-vuln PYSEC-2025-213 \
+            --ignore-vuln PYSEC-2025-214 \
+            --ignore-vuln PYSEC-2025-215 \
+            --ignore-vuln PYSEC-2025-216 \
+            --ignore-vuln PYSEC-2025-217 \
+            --ignore-vuln PYSEC-2025-218 \
+            --ignore-vuln PYSEC-2026-139
+          # All ignored IDs have no fix version available in PyPI advisory DB.
+          # joblib/keras/pyjwt: unfixed upstream; torch+transformers: transitive
+          # deps via sentence-transformers with no patched release yet.
+          # Re-evaluate on each dependency upgrade.
+
+      - name: Snyk SCA scan
+        uses: snyk/actions/python@master
+        continue-on-error: true       # Non-blocking — report only
         env:
-          FIREBASE_CREDENTIALS_JSON: '{"type":"service_account","project_id":"ci-test"}'
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high --sarif-file-output=snyk.sarif
+
+      - name: Upload Snyk results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles('backend/snyk.sarif') != ''
+        with:
+          sarif_file: snyk.sarif
+
+      - name: Run pytest with coverage
+        run: |
+          pytest tests/ -v \
+            --cov=app \
+            --cov-report=term-missing \
+            --cov-report=html \
+            --cov-fail-under=70
+        env:
+          FIREBASE_CREDENTIALS_JSON: '{"type":"service_account","project_id":"ci-test","private_key_id":"test","private_key":"-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA0Z3VS5JJcds3xHn/ygWep4sOsxKdBkSl7u6v/KHrVhxmVt9E\nHBw1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n-----END RSA PRIVATE KEY-----\n","client_email":"test@ci-test.iam.gserviceaccount.com","client_id":"123","auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token"}'
           FIREBASE_PROJECT_ID: ci-test-project
           GROQ_API_KEY: ci-test-key
           ALLOWED_ORIGINS: http://localhost:3000
           MODEL_DIR: /tmp/models
-        run: pytest tests/ -v --cov=app --cov-report=term-missing --cov-fail-under=70
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/htmlcov/
+
+  ml:
+    name: 🤖 ML Pipeline
+    runs-on: ubuntu-latest
+    needs: [codeql, container-scan]
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-cov flake8 black bandit pip-audit \
+                      great-expectations
+
+      - name: Lint with flake8
+        run: python -m flake8 app/services/ --max-line-length=88
+
+      - name: Format check with black
+        run: black --check app/services/
+
+      - name: SAST with bandit (ML services)
+        run: bandit -r app/services/ -ll
+
+      - name: Dependency vulnerability scan (pip-audit)
+        run: |
+          python -m pip_audit \
+            --ignore-vuln PYSEC-2024-277 \
+            --ignore-vuln PYSEC-2025-121 \
+            --ignore-vuln PYSEC-2025-183 \
+            --ignore-vuln PYSEC-2025-189 \
+            --ignore-vuln PYSEC-2025-190 \
+            --ignore-vuln PYSEC-2025-191 \
+            --ignore-vuln PYSEC-2025-192 \
+            --ignore-vuln PYSEC-2025-193 \
+            --ignore-vuln PYSEC-2025-194 \
+            --ignore-vuln PYSEC-2025-195 \
+            --ignore-vuln PYSEC-2025-196 \
+            --ignore-vuln PYSEC-2025-197 \
+            --ignore-vuln PYSEC-2025-210 \
+            --ignore-vuln PYSEC-2025-211 \
+            --ignore-vuln PYSEC-2025-212 \
+            --ignore-vuln PYSEC-2025-213 \
+            --ignore-vuln PYSEC-2025-214 \
+            --ignore-vuln PYSEC-2025-215 \
+            --ignore-vuln PYSEC-2025-216 \
+            --ignore-vuln PYSEC-2025-217 \
+            --ignore-vuln PYSEC-2025-218 \
+            --ignore-vuln PYSEC-2026-139
+
+      - name: Validate ML model tests
+        run: |
+          pytest tests/ -v -k "yield or weather or price or demand or recommend or chat" \
+            --cov=app/services \
+            --cov-report=term-missing \
+            --cov-report=html \
+            --cov-fail-under=60
+        env:
+          FIREBASE_CREDENTIALS_JSON: '{"type":"service_account","project_id":"ci-test","private_key_id":"test","private_key":"-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA0Z3VS5JJcds3xHn/ygWep4sOsxKdBkSl7u6v/KHrVhxmVt9E\nHBw1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n-----END RSA PRIVATE KEY-----\n","client_email":"test@ci-test.iam.gserviceaccount.com","client_id":"123","auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token"}'
+          FIREBASE_PROJECT_ID: ci-test-project
+          GROQ_API_KEY: ci-test-key
+          ALLOWED_ORIGINS: http://localhost:3000
+          MODEL_DIR: /tmp/models
+
+      - name: Upload ML coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-coverage
+          path: backend/htmlcov/
+
+  frontend:
+    name: 🦋 Flutter Frontend
+    runs-on: ubuntu-latest
+    needs: [codeql, container-scan]
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.41.9"
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Check for outdated dependencies
+        run: flutter pub outdated >> $GITHUB_STEP_SUMMARY
+        continue-on-error: true   # Informational only
+
+      - name: Dart format check
+        run: dart format --output=none --set-exit-if-changed .
+
+      - name: Flutter analyze (lint)
+        run: flutter analyze
+
+      - name: Run Flutter tests with coverage
+        run: flutter test --coverage
+        continue-on-error: true   # No tests written yet — non-blocking
+
+      - name: Upload Flutter coverage
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: flutter-coverage
+          path: frontend/coverage/
+
+  # ═══════════════════════════════════════════════════
+  # STAGE 3 — Final gate (all Stage 2 jobs must pass)
+  # ═══════════════════════════════════════════════════
+
+  ci-gate:
+    name: ✅ CI Gate
+    runs-on: ubuntu-latest
+    needs: [backend, ml, frontend]
+    if: always()                        # always runs regardless of above jobs
+    steps:
+      - name: All checks passed
+        run: |
+          echo "backend:   ${{ needs.backend.result }}"
+          echo "ml:        ${{ needs.ml.result }}"
+          echo "frontend:  ${{ needs.frontend.result }}"
+
+          if [[ "${{ needs.backend.result }}"  != "success" || \
+                "${{ needs.ml.result }}"       != "success" || \
+                "${{ needs.frontend.result }}" != "success" ]]; then
+            echo "❌ One or more checks failed."
+            exit 1
+          fi
+
+          echo "✅ All CI checks passed — safe to merge or deploy"

@@ -1,4 +1,10 @@
-# Python
+# ── Secrets — never commit these ────────────────────────────────────────────
+backend/.env
+backend/firebase-credentials.json
+**/*.pem
+**/*.key
+
+# ── Python ───────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *.pyo
@@ -12,8 +18,15 @@ build/
 .venv/
 venv/
 env/
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+**/__pycache__/
+**/*.pyc
+backend/.coverage
 
-# Node
+# ── Node ────────────────────────────────────────────────────────────────────
 node_modules/
 npm-debug.log*
 yarn-debug.log*
@@ -21,27 +34,42 @@ yarn-error.log*
 .pnp/
 .pnp.js
 
-# Environment
+# ── Environment ────────────────────────────────────────────────────────────────────
 .env
 .env.local
 .env.*.local
 
-# macOS
+# ── macOS ────────────────────────────────────────────────────────────────────
 .DS_Store
 .AppleDouble
 .LSOverride
 
-# IDEs
+# ── Docker ───────────────────────────────────────────────────────────────────
+backend/models/files/*.csv
+
+# ── Flutter/Dart ─────────────────────────────────────────────────────────────
+frontend/.dart_tool/
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+frontend/build/
+frontend/.packages
+/frontend/dist/
+.DS_Store,backend/.DS_Store
+
+# ── IDE ──────────────────────────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# Firebase / Google
+# ── Firebase / Google ──────────────────────────────────────────────────────────────────────
 *.json
 !package.json
 !tsconfig*.json
-
-# Build outputs
-/frontend/build/
-/frontend/dist/
+frontend/.dart_tool/
+frontend/build/
+frontend/windows/flutter/ephemeral/
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+__pycache__/
+.DS_Store

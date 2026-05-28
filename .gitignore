@@ -1,6 +1,7 @@
 # ── Secrets — never commit these ────────────────────────────────────────────
 backend/.env
 backend/firebase-credentials.json
+backend/tests/load_test_report.txt
 **/*.pem
 **/*.key
 

@@ -29,6 +29,23 @@ class ApiService {
         connectTimeout: AppConfig.apiTimeout,
         receiveTimeout: AppConfig.chatTimeout, // 120 seconds for LLaMA 3 + RAG
         headers: {'Content-Type': 'application/json'},
+    // JWT interceptor — Firebase handles token refresh automatically
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) async {
+          final user = FirebaseAuth.instance.currentUser;
+          if (user != null) {
+            final token = await user.getIdToken();
+            options.headers['Authorization'] = 'Bearer $token';
+          }
+          return handler.next(options);
+        },
+        onError: (error, handler) async {
+          if (error.response?.statusCode == 401) {
+            await FirebaseAuth.instance.signOut();
+          }
+          return handler.next(error);
+        },
       ),
     );
 

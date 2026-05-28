@@ -428,18 +428,18 @@ class _LoginScreenState extends State<LoginScreen>
     );
     _tabSlideOut =
         Tween<Offset>(begin: Offset.zero, end: const Offset(0, -0.025)).animate(
-          CurvedAnimation(
-            parent: _tabCtrl,
-            curve: const Interval(0.0, 0.45, curve: Curves.easeIn),
-          ),
-        );
-    _tabSlideIn = Tween<Offset>(begin: const Offset(0, 0.025), end: Offset.zero)
-        .animate(
-          CurvedAnimation(
-            parent: _tabCtrl,
-            curve: const Interval(0.45, 1.0, curve: Curves.easeOutCubic),
-          ),
-        );
+      CurvedAnimation(
+        parent: _tabCtrl,
+        curve: const Interval(0.0, 0.45, curve: Curves.easeIn),
+      ),
+    );
+    _tabSlideIn =
+        Tween<Offset>(begin: const Offset(0, 0.025), end: Offset.zero).animate(
+      CurvedAnimation(
+        parent: _tabCtrl,
+        curve: const Interval(0.45, 1.0, curve: Curves.easeOutCubic),
+      ),
+    );
 
     _langCtrl = AnimationController(
       vsync: this,

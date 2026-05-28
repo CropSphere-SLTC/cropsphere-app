@@ -184,10 +184,10 @@ class _CropBottomNav extends StatelessWidget {
   ];
 
   List<String> get _labels => switch (lang) {
-    AppLang.si => _labelsSi,
-    AppLang.ta => _labelsTa,
-    _ => _labelsEn,
-  };
+        AppLang.si => _labelsSi,
+        AppLang.ta => _labelsTa,
+        _ => _labelsEn,
+      };
 
   @override
   Widget build(BuildContext context) {
@@ -246,9 +246,8 @@ class _CropBottomNav extends StatelessWidget {
                         labels[i],
                         style: TextStyle(
                           fontSize: 7.5,
-                          fontWeight: active
-                              ? FontWeight.w700
-                              : FontWeight.w500,
+                          fontWeight:
+                              active ? FontWeight.w700 : FontWeight.w500,
                           color: active
                               ? _activeColor[i]
                               : const Color(0xFFAEAEAE),

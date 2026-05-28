@@ -91,22 +91,22 @@ String _seasonPill(String season, AppLang lang) {
   final emoji = season == 'Maha'
       ? '🌧️'
       : season == 'Yala'
-      ? '☀️'
-      : '🌤️';
+          ? '☀️'
+          : '🌤️';
   switch (lang) {
     case AppLang.si:
       final sl = season == 'Maha'
           ? 'මහ කන්නය'
           : season == 'Yala'
-          ? 'යල කන්නය'
-          : 'අන්තර් කන්නය';
+              ? 'යල කන්නය'
+              : 'අන්තර් කන්නය';
       return '$emoji $sl — ${now.year} $monthName';
     case AppLang.ta:
       final tl = season == 'Maha'
           ? 'மகா பருவம்'
           : season == 'Yala'
-          ? 'யாழ் பருவம்'
-          : 'இடைப்பருவம்';
+              ? 'யாழ் பருவம்'
+              : 'இடைப்பருவம்';
       return '$emoji $tl — $monthName ${now.year}';
     default:
       return '$emoji $season Season — $monthName ${now.year}';
@@ -1341,9 +1341,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                         return Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 2),
                           child: TextButton(
-                            onPressed: navigate == null
-                                ? null
-                                : () => navigate(i),
+                            onPressed:
+                                navigate == null ? null : () => navigate(i),
                             style: TextButton.styleFrom(
                               backgroundColor: active
                                   ? const Color(0xFFE8F5E9)
@@ -1365,9 +1364,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                               navLabels[i],
                               style: TextStyle(
                                 fontSize: 11.5,
-                                fontWeight: active
-                                    ? FontWeight.w700
-                                    : FontWeight.w500,
+                                fontWeight:
+                                    active ? FontWeight.w700 : FontWeight.w500,
                               ),
                             ),
                           ),
@@ -1468,11 +1466,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (lang == AppLang.si) {
       final h = DateTime.now().hour;
       greet =
-          'සුභ ${h < 12
-              ? "ඊදැසනක්"
-              : h < 17
-              ? "සන්ධ්‍යාවක්"
-              : "රාත්‍රියක්"},';
+          'සුභ ${h < 12 ? "ඊදැසනක්" : h < 17 ? "සන්ධ්‍යාවක්" : "රාත්‍රියක්"},';
     } else if (lang == AppLang.ta) {
       greet = 'வணக்கம்,';
     } else {
@@ -1631,37 +1625,38 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Widget _weatherChip(String label) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-    decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: 0.15),
-      borderRadius: BorderRadius.circular(20),
-      border: Border.all(color: Colors.white.withValues(alpha: 0.25), width: 1),
-    ),
-    child: Text(
-      label,
-      style: const TextStyle(
-        color: Colors.white,
-        fontSize: 10,
-        fontWeight: FontWeight.w600,
-      ),
-    ),
-  );
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(20),
+          border:
+              Border.all(color: Colors.white.withValues(alpha: 0.25), width: 1),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      );
 
   Widget _heroPill(String label) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
-    decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: 0.14),
-      borderRadius: BorderRadius.circular(20),
-    ),
-    child: Text(
-      label,
-      style: const TextStyle(
-        color: Colors.white,
-        fontSize: 10,
-        fontWeight: FontWeight.w600,
-      ),
-    ),
-  );
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      );
 
   // ─────────────────────────────────────────────────────────────────────────
   //  Quick stats strip (NEW)
@@ -1748,7 +1743,8 @@ class _DashboardScreenState extends State<DashboardScreen>
             ),
           ),
         );
-      }).toList()..last, // remove trailing margin on last item
+      }).toList()
+        ..last, // remove trailing margin on last item
     );
   }
 
@@ -1890,22 +1886,22 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Widget _tipArrow(bool forward) => GestureDetector(
-    onTap: () => _moveTip(forward ? 1 : -1),
-    child: Container(
-      width: 28,
-      height: 28,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFD0E8C8), width: 1.5),
-      ),
-      child: Icon(
-        forward ? Icons.chevron_right_rounded : Icons.chevron_left_rounded,
-        size: 17,
-        color: const Color(0xFF2E7D32),
-      ),
-    ),
-  );
+        onTap: () => _moveTip(forward ? 1 : -1),
+        child: Container(
+          width: 28,
+          height: 28,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFD0E8C8), width: 1.5),
+          ),
+          child: Icon(
+            forward ? Icons.chevron_right_rounded : Icons.chevron_left_rounded,
+            size: 17,
+            color: const Color(0xFF2E7D32),
+          ),
+        ),
+      );
 
   // ─────────────────────────────────────────────────────────────────────────
   //  Saved tips slide-over panel
@@ -2077,19 +2073,20 @@ class _DashboardScreenState extends State<DashboardScreen>
   //  Section label
   // ─────────────────────────────────────────────────────────────────────────
   Widget _sectionLabel(String text) => Row(
-    children: [
-      const Icon(Icons.touch_app_rounded, size: 17, color: Color(0xFF4CAF50)),
-      const SizedBox(width: 6),
-      Text(
-        text,
-        style: const TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w800,
-          color: Color(0xFF1B4D1B),
-        ),
-      ),
-    ],
-  );
+        children: [
+          const Icon(Icons.touch_app_rounded,
+              size: 17, color: Color(0xFF4CAF50)),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF1B4D1B),
+            ),
+          ),
+        ],
+      );
 
   // ─────────────────────────────────────────────────────────────────────────
   //  Action grid
@@ -2115,9 +2112,8 @@ class _DashboardScreenState extends State<DashboardScreen>
           data: _kActions[i],
           langKey: _langKey,
           iconSize: iconSize,
-          onTap: navigate == null
-              ? () {}
-              : () => navigate(_kActions[i].navIndex),
+          onTap:
+              navigate == null ? () {} : () => navigate(_kActions[i].navIndex),
         );
       },
     );
@@ -2249,8 +2245,8 @@ class _LangPill extends StatelessWidget {
                   color: active
                       ? (onDark ? const Color(0xFF1B5E20) : Colors.white)
                       : (onDark
-                            ? Colors.white.withValues(alpha: 0.55)
-                            : const Color(0xFF888888)),
+                          ? Colors.white.withValues(alpha: 0.55)
+                          : const Color(0xFF888888)),
                 ),
               ),
             ),

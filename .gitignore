@@ -1,7 +1,6 @@
 # ── Secrets — never commit these ────────────────────────────────────────────
 backend/.env
 backend/firebase-credentials.json
-backend/tests/load_test_report.txt
 **/*.pem
 **/*.key
 
@@ -78,7 +77,11 @@ __pycache__/
 .flutter-plugins
 .flutter-plugins-dependencies
 **/ephemeral/
-**/.plugin_symlinks/"frontend/.flutter-plugins-dependencies" 
-"frontend/android/local.properties" 
-"backend/tests/load_test_report.txt" 
-"backend/tests/load_test_report.txt" 
+**/.plugin_symlinks/"frontend/.flutter-plugins-dependencies"
+"frontend/android/local.properties"
+"backend/tests/load_test_report.txt"
+frontend/.dart_tool/
+frontend/build/
+frontend/windows/flutter/ephemeral/
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies

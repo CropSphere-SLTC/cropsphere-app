@@ -80,3 +80,4 @@ __pycache__/
 **/.plugin_symlinks/"frontend/.flutter-plugins-dependencies" 
 "frontend/android/local.properties" 
 "backend/tests/load_test_report.txt" 
+"backend/tests/load_test_report.txt" 

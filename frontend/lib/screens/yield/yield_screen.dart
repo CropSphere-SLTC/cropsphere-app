@@ -113,10 +113,8 @@ Future<_WeatherData> _fetchWeather(String district) async {
   final daily = json['daily'] as Map<String, dynamic>;
 
   double avg(String key) {
-    final vals = (daily[key] as List)
-        .whereType<num>()
-        .map((e) => e.toDouble())
-        .toList();
+    final vals =
+        (daily[key] as List).whereType<num>().map((e) => e.toDouble()).toList();
     if (vals.isEmpty) return 0;
     return vals.reduce((a, b) => a + b) / vals.length;
   }
@@ -205,14 +203,11 @@ const Map<String, _SoilRec> _kSoilRecs = {
     pIndex: 0.70,
     kIndex: 0.65,
     summary: {
-      'en':
-          'Carrot needs loose, well-drained sandy loam. '
+      'en': 'Carrot needs loose, well-drained sandy loam. '
           'Good phosphorus and moderate nitrogen gives straight, long roots and high yield.',
-      'si':
-          'කැරට් සඳහා ලිහිල්, හොඳ ජල ඌරණ ගති ඇති වැලි-ලෝම් පස අවශ්‍ය. '
+      'si': 'කැරට් සඳහා ලිහිල්, හොඳ ජල ඌරණ ගති ඇති වැලි-ලෝම් පස අවශ්‍ය. '
           'ප්‍රමාණවත් පොස්පරස් සහ මධ්‍යස්ථ නයිට්‍රජන් සෘජු, දිගු මූල හා ඉහළ අස්වැන්නක් ලබාදේ.',
-      'ta':
-          'கேரட்டிற்கு தளர்வான, நல்ல வடிகால் கொண்ட மணல் மண் தேவை. '
+      'ta': 'கேரட்டிற்கு தளர்வான, நல்ல வடிகால் கொண்ட மணல் மண் தேவை. '
           'நல்ல பாஸ்பரஸும் மிதமான நைட்ரஜனும் நேரான, நீண்ட வேர்களையும் அதிக விளைச்சலையும் தரும்.',
     },
     phNote: {
@@ -424,14 +419,11 @@ const Map<String, _SoilRec> _kSoilRecs = {
     pIndex: 0.60,
     kIndex: 0.70,
     summary: {
-      'en':
-          'Maize is a high-input crop that responds strongly to nitrogen. '
+      'en': 'Maize is a high-input crop that responds strongly to nitrogen. '
           'Well-drained fertile loam with high N and good potassium gives the best grain yields.',
-      'si':
-          'බඩිරිඳු ඉහළ ආදාන අවශ්‍ය භෝගයකි; නයිට්‍රජන් සඳහා ප්‍රබල ප්‍රතිචාර දක්වයි. '
+      'si': 'බඩිරිඳු ඉහළ ආදාන අවශ්‍ය භෝගයකි; නයිට්‍රජන් සඳහා ප්‍රබල ප්‍රතිචාර දක්වයි. '
           'ඉහළ N සහ හොඳ පොටෑසියම් සහිත ජල ඌරණ සරු ලෝම් පස හොඳම ධාන්‍ය අස්වැන්නක් ලබාදේ.',
-      'ta':
-          'மக்காச்சோளம் அதிக உள்ளீடு தேவைப்படும் பயிர்; நைட்ரஜனுக்கு வலுவாக பதிலளிக்கும். '
+      'ta': 'மக்காச்சோளம் அதிக உள்ளீடு தேவைப்படும் பயிர்; நைட்ரஜனுக்கு வலுவாக பதிலளிக்கும். '
           'அதிக N மற்றும் நல்ல பொட்டாசியம் கொண்ட வடிகால் வளமான மண் சிறந்த தானிய விளைச்சலை தரும்.',
     },
     phNote: {
@@ -643,14 +635,11 @@ const Map<String, _SoilRec> _kSoilRecs = {
     pIndex: 0.55,
     kIndex: 0.50,
     summary: {
-      'en':
-          'Green gram is a low-input legume that fixes its own nitrogen. '
+      'en': 'Green gram is a low-input legume that fixes its own nitrogen. '
           'Minimal fertiliser, well-drained soil and moderate moisture give reliable yields.',
-      'si':
-          'මුං ඇට තමාගේ නයිට්‍රජන් ඇති කරන අඩු ආදාන රනිල ශාකයකි. '
+      'si': 'මුං ඇට තමාගේ නයිට්‍රජන් ඇති කරන අඩු ආදාන රනිල ශාකයකි. '
           'අවම පොහොර, හොඳ ජල ඌරණ පස හා මධ්‍යස්ථ ආර්ද්‍රතාව විශ්වාසදායක අස්වැන්නක් ලබාදේ.',
-      'ta':
-          'பச்சைப்பயிறு தனது நைட்ரஜனை தானே நிலைநிறுத்திக் கொள்ளும் குறைந்த உள்ளீடு தேவைப்படும் பயறு வகை. '
+      'ta': 'பச்சைப்பயிறு தனது நைட்ரஜனை தானே நிலைநிறுத்திக் கொள்ளும் குறைந்த உள்ளீடு தேவைப்படும் பயறு வகை. '
           'குறைந்த உரம், நல்ல வடிகால் மண் மற்றும் மிதமான ஈரப்பதம் நம்பகமான விளைச்சலை தரும்.',
     },
     phNote: {
@@ -829,14 +818,11 @@ const Map<String, _SoilRec> _kSoilRecs = {
     pIndex: 0.50,
     kIndex: 0.45,
     summary: {
-      'en':
-          'Cowpea is one of the most drought-tolerant crops in Sri Lanka. '
+      'en': 'Cowpea is one of the most drought-tolerant crops in Sri Lanka. '
           'It needs very little fertiliser and thrives in sandy or loamy soils with good drainage.',
-      'si':
-          'කව්පී ශ්‍රී ලංකාවේ නියං ඔරොත්තු දෙන ම භෝගවලින් එකකි. '
+      'si': 'කව්පී ශ්‍රී ලංකාවේ නියං ඔරොත්තු දෙන ම භෝගවලින් එකකි. '
           'ඉතා අඩු පොහොර අවශ්‍ය කරන අතර, හොඳ ජල ඌරණ ඇති වැලි හෝ ලෝම් පස්වල හොඳින් වැඩෙයි.',
-      'ta':
-          'அவரை இலங்கையில் மிகவும் வறட்சி தாங்கும் பயிர்களில் ஒன்று. '
+      'ta': 'அவரை இலங்கையில் மிகவும் வறட்சி தாங்கும் பயிர்களில் ஒன்று. '
           'மிகக் குறைந்த உரம் தேவை; நல்ல வடிகால் கொண்ட மணல் அல்லது கலவை மண்ணில் நன்றாக வளரும்.',
     },
     phNote: {
@@ -941,14 +927,11 @@ const Map<String, _SoilRec> _kSoilRecs = {
     pIndex: 0.45,
     kIndex: 0.55,
     summary: {
-      'en':
-          'Finger millet (Kurakkan) is a hardy crop well-adapted to dry zones. '
+      'en': 'Finger millet (Kurakkan) is a hardy crop well-adapted to dry zones. '
           'Moderate fertiliser on well-drained red loam or sandy soil gives good yields with minimal inputs.',
-      'si':
-          'කුරක්කන් (ඇඟිලි ධාන්‍ය) වියළි කලාපයේ හොඳින් ගැලෙන ශක්තිමත් භෝගයකි. '
+      'si': 'කුරක්කන් (ඇඟිලි ධාන්‍ය) වියළි කලාපයේ හොඳින් ගැලෙන ශක්තිමත් භෝගයකි. '
           'හොඳ ජල ඌරණ රතු ලෝම් හෝ වැලි පස්වල මධ්‍යස්ථ පොහොර සමඟ අඩු ආදාන සහිතව හොඳ අස්වැන්නක් ලබාදේ.',
-      'ta':
-          'கேழ்வரகு (குராக்கன்) வறண்ட மண்டலத்திற்கு நன்றாக தகவமைத்துக்கொண்ட வலுவான பயிர். '
+      'ta': 'கேழ்வரகு (குராக்கன்) வறண்ட மண்டலத்திற்கு நன்றாக தகவமைத்துக்கொண்ட வலுவான பயிர். '
           'நல்ல வடிகால் சிவப்பு மண் அல்லது மணல் மண்ணில் மிதமான உரம் குறைந்த உள்ளீடுகளில் நல்ல விளைச்சல் தரும்.',
     },
     phNote: {
@@ -1088,14 +1071,11 @@ const Map<String, _SoilRec> _kSoilRecs = {
     pIndex: 0.65,
     kIndex: 0.60,
     summary: {
-      'en':
-          'Groundnut needs loose, well-drained sandy loam so pods can penetrate the soil easily. '
+      'en': 'Groundnut needs loose, well-drained sandy loam so pods can penetrate the soil easily. '
           'Low nitrogen, good phosphorus and calcium-rich soil give the best yield and oil quality.',
-      'si':
-          'රටකජු සඳහා ලිහිල්, හොඳ ජල ඌරණ ගති ඇති වැලි ලෝම් පස අවශ්‍ය — කරල් පහසුවෙන් පස් ඇතුළට ඇතුල් විය හැකිය. '
+      'si': 'රටකජු සඳහා ලිහිල්, හොඳ ජල ඌරණ ගති ඇති වැලි ලෝම් පස අවශ්‍ය — කරල් පහසුවෙන් පස් ඇතුළට ඇතුල් විය හැකිය. '
           'අඩු නයිට්‍රජන්, හොඳ පොස්පරස් හා කැල්සියම් බහුල පස් හොඳ අස්වැන්නක් හා තෙල් ගුණාත්මකභාවය ලබාදේ.',
-      'ta':
-          'வேர்க்கடலைக்கு தளர்வான, நல்ல வடிகால் கொண்ட மணல் மண் தேவை — காய்கள் எளிதாக மண்ணில் நுழைய வேண்டும். '
+      'ta': 'வேர்க்கடலைக்கு தளர்வான, நல்ல வடிகால் கொண்ட மணல் மண் தேவை — காய்கள் எளிதாக மண்ணில் நுழைய வேண்டும். '
           'குறைந்த நைட்ரஜன், நல்ல பாஸ்பரஸ் மற்றும் கால்சியம் நிறைந்த மண் சிறந்த விளைச்சலையும் எண்ணெய் தரத்தையும் தரும்.',
     },
     phNote: {
@@ -1480,54 +1460,49 @@ String _navSvg(int i, Color color) {
           '<path d="M4 12L10 8L16 4" stroke="$c" stroke-width="1.6" stroke-linecap="round"/>'
           '<circle cx="16" cy="4" r="1.8" fill="$c"/>'
           '</svg>',
-    2 =>
-      '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
-          '<ellipse cx="11" cy="18" rx="6" ry="3.5" fill="$c" opacity="0.35"/>'
-          '<ellipse cx="11" cy="15.5" rx="6" ry="3.5" fill="$c" opacity="0.6"/>'
-          '<ellipse cx="11" cy="13" rx="6" ry="3.5" fill="$c"/>'
-          '<path d="M19 8L21 5L23 8" stroke="$c" stroke-width="1.6" stroke-linecap="round" fill="none"/>'
-          '<line x1="21" y1="5" x2="21" y2="11" stroke="$c" stroke-width="1.6" stroke-linecap="round"/>'
-          '</svg>',
-    3 =>
-      '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
-          '<circle cx="8" cy="8" r="3.5" fill="$c"/>'
-          '<line x1="8" y1="2" x2="8" y2="4" stroke="$c" stroke-width="1.5" stroke-linecap="round"/>'
-          '<line x1="8" y1="12" x2="8" y2="14" stroke="$c" stroke-width="1.5" stroke-linecap="round"/>'
-          '<line x1="2" y1="8" x2="4" y2="8" stroke="$c" stroke-width="1.5" stroke-linecap="round"/>'
-          '<line x1="12" y1="8" x2="14" y2="8" stroke="$c" stroke-width="1.5" stroke-linecap="round"/>'
-          '<ellipse cx="17.5" cy="15.5" rx="5.5" ry="4" fill="$c"/>'
-          '<line x1="13.5" y1="21" x2="13" y2="23" stroke="$c" stroke-width="1.4" stroke-linecap="round"/>'
-          '<line x1="17" y1="21" x2="16.5" y2="23" stroke="$c" stroke-width="1.4" stroke-linecap="round"/>'
-          '<line x1="20.5" y1="21" x2="20" y2="23" stroke="$c" stroke-width="1.4" stroke-linecap="round"/>'
-          '</svg>',
-    4 =>
-      '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
-          '<path d="M12 22C12 16 12 11 12 6" stroke="$c" stroke-width="2" stroke-linecap="round"/>'
-          '<path d="M12 15C8 13 4 9 6 4C10 8 11 12 12 15Z" fill="$c" opacity="0.65"/>'
-          '<path d="M12 11C16 9 20 5 18 0C14 5 12 9 12 11Z" fill="$c"/>'
-          '<circle cx="18" cy="5" r="4.5" fill="$c"/>'
-          '<path d="M16 5L17.5 7L20 3.5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'
-          '</svg>',
-    5 =>
-      '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
-          '<rect x="2" y="13" width="20" height="9" rx="2" fill="$c" opacity="0.35"/>'
-          '<path d="M2 13Q12 7 22 13Z" fill="$c"/>'
-          '<circle cx="7.5" cy="17" r="2" fill="$c" opacity="0.7"/>'
-          '<circle cx="12" cy="16.5" r="2.3" fill="$c" opacity="0.55"/>'
-          '<circle cx="16.5" cy="17.5" r="1.8" fill="$c" opacity="0.7"/>'
-          '<path d="M10 7L12 3L14 7" stroke="$c" stroke-width="1.6" stroke-linecap="round" fill="none"/>'
-          '<line x1="12" y1="3" x2="12" y2="9" stroke="$c" stroke-width="1.6" stroke-linecap="round"/>'
-          '</svg>',
-    _ =>
-      '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
-          '<rect x="1" y="2" width="16" height="12" rx="4" fill="$c" opacity="0.85"/>'
-          '<path d="M4 14L3 19L9 14Z" fill="$c" opacity="0.85"/>'
-          '<circle cx="5.5" cy="8" r="1.4" fill="white"/>'
-          '<circle cx="9" cy="8" r="1.4" fill="white"/>'
-          '<circle cx="12.5" cy="8" r="1.4" fill="white"/>'
-          '<circle cx="19" cy="5.5" r="4.5" fill="$c"/>'
-          '<path d="M17 5.5L18.5 7L21 4" stroke="white" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>'
-          '</svg>',
+    2 => '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
+        '<ellipse cx="11" cy="18" rx="6" ry="3.5" fill="$c" opacity="0.35"/>'
+        '<ellipse cx="11" cy="15.5" rx="6" ry="3.5" fill="$c" opacity="0.6"/>'
+        '<ellipse cx="11" cy="13" rx="6" ry="3.5" fill="$c"/>'
+        '<path d="M19 8L21 5L23 8" stroke="$c" stroke-width="1.6" stroke-linecap="round" fill="none"/>'
+        '<line x1="21" y1="5" x2="21" y2="11" stroke="$c" stroke-width="1.6" stroke-linecap="round"/>'
+        '</svg>',
+    3 => '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
+        '<circle cx="8" cy="8" r="3.5" fill="$c"/>'
+        '<line x1="8" y1="2" x2="8" y2="4" stroke="$c" stroke-width="1.5" stroke-linecap="round"/>'
+        '<line x1="8" y1="12" x2="8" y2="14" stroke="$c" stroke-width="1.5" stroke-linecap="round"/>'
+        '<line x1="2" y1="8" x2="4" y2="8" stroke="$c" stroke-width="1.5" stroke-linecap="round"/>'
+        '<line x1="12" y1="8" x2="14" y2="8" stroke="$c" stroke-width="1.5" stroke-linecap="round"/>'
+        '<ellipse cx="17.5" cy="15.5" rx="5.5" ry="4" fill="$c"/>'
+        '<line x1="13.5" y1="21" x2="13" y2="23" stroke="$c" stroke-width="1.4" stroke-linecap="round"/>'
+        '<line x1="17" y1="21" x2="16.5" y2="23" stroke="$c" stroke-width="1.4" stroke-linecap="round"/>'
+        '<line x1="20.5" y1="21" x2="20" y2="23" stroke="$c" stroke-width="1.4" stroke-linecap="round"/>'
+        '</svg>',
+    4 => '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
+        '<path d="M12 22C12 16 12 11 12 6" stroke="$c" stroke-width="2" stroke-linecap="round"/>'
+        '<path d="M12 15C8 13 4 9 6 4C10 8 11 12 12 15Z" fill="$c" opacity="0.65"/>'
+        '<path d="M12 11C16 9 20 5 18 0C14 5 12 9 12 11Z" fill="$c"/>'
+        '<circle cx="18" cy="5" r="4.5" fill="$c"/>'
+        '<path d="M16 5L17.5 7L20 3.5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'
+        '</svg>',
+    5 => '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
+        '<rect x="2" y="13" width="20" height="9" rx="2" fill="$c" opacity="0.35"/>'
+        '<path d="M2 13Q12 7 22 13Z" fill="$c"/>'
+        '<circle cx="7.5" cy="17" r="2" fill="$c" opacity="0.7"/>'
+        '<circle cx="12" cy="16.5" r="2.3" fill="$c" opacity="0.55"/>'
+        '<circle cx="16.5" cy="17.5" r="1.8" fill="$c" opacity="0.7"/>'
+        '<path d="M10 7L12 3L14 7" stroke="$c" stroke-width="1.6" stroke-linecap="round" fill="none"/>'
+        '<line x1="12" y1="3" x2="12" y2="9" stroke="$c" stroke-width="1.6" stroke-linecap="round"/>'
+        '</svg>',
+    _ => '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
+        '<rect x="1" y="2" width="16" height="12" rx="4" fill="$c" opacity="0.85"/>'
+        '<path d="M4 14L3 19L9 14Z" fill="$c" opacity="0.85"/>'
+        '<circle cx="5.5" cy="8" r="1.4" fill="white"/>'
+        '<circle cx="9" cy="8" r="1.4" fill="white"/>'
+        '<circle cx="12.5" cy="8" r="1.4" fill="white"/>'
+        '<circle cx="19" cy="5.5" r="4.5" fill="$c"/>'
+        '<path d="M17 5.5L18.5 7L21 4" stroke="white" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>'
+        '</svg>',
   };
 }
 
@@ -1816,10 +1791,10 @@ class _YieldScreenState extends State<YieldScreen> {
   }
 
   Color _confColor(String c) => switch (c.toLowerCase()) {
-    'high' => AppTheme.success,
-    'medium' => AppTheme.warning,
-    _ => AppTheme.error,
-  };
+        'high' => AppTheme.success,
+        'medium' => AppTheme.warning,
+        _ => AppTheme.error,
+      };
 
   // ── AI Chat context string ─────────────────────────────────────────────────
   String _buildAiContext() {
@@ -1850,8 +1825,8 @@ class _YieldScreenState extends State<YieldScreen> {
               child: w >= 960
                   ? _buildWebLayout()
                   : w >= 600
-                  ? _buildTabletLayout()
-                  : _buildMobileLayout(),
+                      ? _buildTabletLayout()
+                      : _buildMobileLayout(),
             ),
           ],
         );
@@ -1865,16 +1840,16 @@ class _YieldScreenState extends State<YieldScreen> {
     final List<String> navLabels = lang == AppLang.si
         ? ['ඩෑෂ්', 'අස්වැන්න', 'මිල', 'කාලගුණ', 'භෝග', 'ඉල්ලුම', 'AI']
         : lang == AppLang.ta
-        ? ['முகப்பு', 'விளைச்சல்', 'விலை', 'வானிலை', 'பயிர்', 'தேவை', 'AI']
-        : [
-            'Dashboard',
-            'Yield',
-            'Price',
-            'Weather',
-            'Crop Rec.',
-            'Demand',
-            'AI Chat',
-          ];
+            ? ['முகப்பு', 'விளைச்சல்', 'விலை', 'வானிலை', 'பயிர்', 'தேவை', 'AI']
+            : [
+                'Dashboard',
+                'Yield',
+                'Price',
+                'Weather',
+                'Crop Rec.',
+                'Demand',
+                'AI Chat',
+              ];
 
     const activeBg = Color(0xFFE8F5E9);
     const activeColor = Color(0xFF2E7D32);
@@ -1931,12 +1906,10 @@ class _YieldScreenState extends State<YieldScreen> {
                             ? null
                             : () => widget.onNavigate!(i),
                         style: TextButton.styleFrom(
-                          backgroundColor: active
-                              ? activeBg
-                              : Colors.transparent,
-                          foregroundColor: active
-                              ? activeColor
-                              : const Color(0xFF555555),
+                          backgroundColor:
+                              active ? activeBg : Colors.transparent,
+                          foregroundColor:
+                              active ? activeColor : const Color(0xFF555555),
                           padding: const EdgeInsets.symmetric(
                             horizontal: 11,
                             vertical: 6,
@@ -1951,9 +1924,8 @@ class _YieldScreenState extends State<YieldScreen> {
                           navLabels[i],
                           style: TextStyle(
                             fontSize: 11.5,
-                            fontWeight: active
-                                ? FontWeight.w700
-                                : FontWeight.w500,
+                            fontWeight:
+                                active ? FontWeight.w700 : FontWeight.w500,
                           ),
                         ),
                       ),
@@ -1971,339 +1943,345 @@ class _YieldScreenState extends State<YieldScreen> {
 
   // ── Layout helpers ─────────────────────────────────────────────────────────
   Widget _buildMobileLayout() => Stack(
-    children: [
-      SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
-        child: _formColumn(),
-      ),
-      _stickyPredict(),
-    ],
-  );
-
-  Widget _buildTabletLayout() => Stack(
-    children: [
-      LayoutBuilder(
-        builder: (ctx, bc) {
-          final hPad = ((bc.maxWidth - 700) / 2).clamp(0.0, 200.0);
-          return SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(hPad + 16, 14, hPad + 16, 100),
-            child: _formColumn(),
-          );
-        },
-      ),
-      _stickyPredict(),
-    ],
-  );
-
-  Widget _buildWebLayout() => LayoutBuilder(
-    builder: (ctx, bc) {
-      final leftW = (bc.maxWidth * 0.45).clamp(340.0, 520.0);
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SizedBox(
-            width: leftW,
-            child: Stack(
-              children: [
-                SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(20, 14, 12, 100),
-                  child: _formColumn(webLeft: true),
-                ),
-                _stickyPredict(),
-              ],
-            ),
+          SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
+            child: _formColumn(),
           ),
-          Container(width: 1, color: const Color(0xFFE4EEE4)),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 14, 20, 28),
-              child: _rightPanel(),
-            ),
-          ),
+          _stickyPredict(),
         ],
       );
-    },
-  );
 
-  // ── Form column ────────────────────────────────────────────────────────────
-  Widget _formColumn({bool webLeft = false}) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      _pageHeader(),
-      const SizedBox(height: 16),
-      _cropQuickChips(),
-      const SizedBox(height: 16),
-      _sectionTitle(
-        _ts({
-          'en': 'Crop & Location',
-          'si': 'භෝගය හා ස්ථානය',
-          'ta': 'பயிர் மற்றும் இடம்',
-        }),
-        Icons.eco,
-      ),
-      const SizedBox(height: 10),
-      _cropLocationCard(),
-      const SizedBox(height: 20),
-      _sectionTitle(
-        _ts({
-          'en': 'Farm Area',
-          'si': 'ගොවිපොළ ප්‍රමාණය',
-          'ta': 'பண்ணை பரப்பளவு',
-        }),
-        Icons.crop_square,
-      ),
-      const SizedBox(height: 10),
-      _areaCard(),
-      const SizedBox(height: 20),
-      _sectionTitle(
-        _ts({
-          'en': 'Weather Conditions',
-          'si': 'කාලගුණ තත්ත්වය',
-          'ta': 'வானிலை நிலைமைகள்',
-        }),
-        Icons.cloud,
-      ),
-      const SizedBox(height: 10),
-      _weatherCard(),
-      const SizedBox(height: 20),
-      _sectionTitle(
-        _ts({
-          'en': 'Soil & Management Guide',
-          'si': 'පස හා කළමනාකරණ මාර්ගෝපදේශය',
-          'ta': 'மண் மற்றும் மேலாண்மை வழிகாட்டி',
-        }),
-        Icons.science,
-      ),
-      const SizedBox(height: 10),
-      _soilCard(),
-      if (!webLeft) ...[
-        const SizedBox(height: 16),
-        _inputChecklist(),
-        const SizedBox(height: 10),
-        if (_errorMessage != null) _errorCard(),
-        if (_result != null) _resultCard(),
-      ],
-    ],
-  );
-
-  Widget _rightPanel() => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      _inputChecklist(),
-      const SizedBox(height: 14),
-      if (_errorMessage != null) ...[_errorCard(), const SizedBox(height: 14)],
-      if (_result != null) ...[_resultCard(), const SizedBox(height: 14)],
-      if (_result == null && _errorMessage == null) _emptyResultPlaceholder(),
-    ],
-  );
-
-  // ── Page header ────────────────────────────────────────────────────────────
-  Widget _pageHeader() => Container(
-    padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(
-      gradient: const LinearGradient(
-        colors: [AppTheme.primaryDark, AppTheme.primary],
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-      ),
-      borderRadius: BorderRadius.circular(14),
-      boxShadow: [
-        BoxShadow(
-          color: AppTheme.primaryDark.withValues(alpha: 0.3),
-          blurRadius: 10,
-          offset: const Offset(0, 4),
-        ),
-      ],
-    ),
-    child: Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(10),
+  Widget _buildTabletLayout() => Stack(
+        children: [
+          LayoutBuilder(
+            builder: (ctx, bc) {
+              final hPad = ((bc.maxWidth - 700) / 2).clamp(0.0, 200.0);
+              return SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(hPad + 16, 14, hPad + 16, 100),
+                child: _formColumn(),
+              );
+            },
           ),
-          child: SvgPicture.string(
-            _navSvg(1, Colors.white),
-            width: 26,
-            height: 26,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          _stickyPredict(),
+        ],
+      );
+
+  Widget _buildWebLayout() => LayoutBuilder(
+        builder: (ctx, bc) {
+          final leftW = (bc.maxWidth * 0.45).clamp(340.0, 520.0);
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                _ts({
-                  'en': 'Yield Predictor',
-                  'si': 'අස්වැන්න පුරෝකථකය',
-                  'ta': 'விளைச்சல் கணிப்பான்',
-                }),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
+              SizedBox(
+                width: leftW,
+                child: Stack(
+                  children: [
+                    SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(20, 14, 12, 100),
+                      child: _formColumn(webLeft: true),
+                    ),
+                    _stickyPredict(),
+                  ],
                 ),
               ),
-              Text(
-                _ts({
-                  'en': 'AI-powered harvest estimate',
-                  'si': 'AI-ශක්තිමත් අස්වැන්න ඇස්තමේන්තුව',
-                  'ta': 'AI-சார்ந்த அறுவடை மதிப்பீடு',
-                }),
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.75),
-                  fontSize: 12,
+              Container(width: 1, color: const Color(0xFFE4EEE4)),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 20, 28),
+                  child: _rightPanel(),
                 ),
               ),
             ],
+          );
+        },
+      );
+
+  // ── Form column ────────────────────────────────────────────────────────────
+  Widget _formColumn({bool webLeft = false}) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _pageHeader(),
+          const SizedBox(height: 16),
+          _cropQuickChips(),
+          const SizedBox(height: 16),
+          _sectionTitle(
+            _ts({
+              'en': 'Crop & Location',
+              'si': 'භෝගය හා ස්ථානය',
+              'ta': 'பயிர் மற்றும் இடம்',
+            }),
+            Icons.eco,
           ),
-        ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(20),
+          const SizedBox(height: 10),
+          _cropLocationCard(),
+          const SizedBox(height: 20),
+          _sectionTitle(
+            _ts({
+              'en': 'Farm Area',
+              'si': 'ගොවිපොළ ප්‍රමාණය',
+              'ta': 'பண்ணை பரப்பளவு',
+            }),
+            Icons.crop_square,
           ),
-          child: Text(
-            'Week ${_weekOfYear()}',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
+          const SizedBox(height: 10),
+          _areaCard(),
+          const SizedBox(height: 20),
+          _sectionTitle(
+            _ts({
+              'en': 'Weather Conditions',
+              'si': 'කාලගුණ තත්ත්වය',
+              'ta': 'வானிலை நிலைமைகள்',
+            }),
+            Icons.cloud,
+          ),
+          const SizedBox(height: 10),
+          _weatherCard(),
+          const SizedBox(height: 20),
+          _sectionTitle(
+            _ts({
+              'en': 'Soil & Management Guide',
+              'si': 'පස හා කළමනාකරණ මාර්ගෝපදේශය',
+              'ta': 'மண் மற்றும் மேலாண்மை வழிகாட்டி',
+            }),
+            Icons.science,
+          ),
+          const SizedBox(height: 10),
+          _soilCard(),
+          if (!webLeft) ...[
+            const SizedBox(height: 16),
+            _inputChecklist(),
+            const SizedBox(height: 10),
+            if (_errorMessage != null) _errorCard(),
+            if (_result != null) _resultCard(),
+          ],
+        ],
+      );
+
+  Widget _rightPanel() => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _inputChecklist(),
+          const SizedBox(height: 14),
+          if (_errorMessage != null) ...[
+            _errorCard(),
+            const SizedBox(height: 14)
+          ],
+          if (_result != null) ...[_resultCard(), const SizedBox(height: 14)],
+          if (_result == null && _errorMessage == null)
+            _emptyResultPlaceholder(),
+        ],
+      );
+
+  // ── Page header ────────────────────────────────────────────────────────────
+  Widget _pageHeader() => Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [AppTheme.primaryDark, AppTheme.primary],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [
+            BoxShadow(
+              color: AppTheme.primaryDark.withValues(alpha: 0.3),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
-          ),
+          ],
         ),
-      ],
-    ),
-  );
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: SvgPicture.string(
+                _navSvg(1, Colors.white),
+                width: 26,
+                height: 26,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _ts({
+                      'en': 'Yield Predictor',
+                      'si': 'අස්වැන්න පුරෝකථකය',
+                      'ta': 'விளைச்சல் கணிப்பான்',
+                    }),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    _ts({
+                      'en': 'AI-powered harvest estimate',
+                      'si': 'AI-ශක්තිමත් අස්වැන්න ඇස්තමේන්තුව',
+                      'ta': 'AI-சார்ந்த அறுவடை மதிப்பீடு',
+                    }),
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.75),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                'Week ${_weekOfYear()}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
 
   // ── Crop quick chips ───────────────────────────────────────────────────────
   Widget _cropQuickChips() => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        _ts({
-          'en': 'Quick select:',
-          'si': 'ඉක්මන් තේරීම:',
-          'ta': 'விரைவு தேர்வு:',
-        }),
-        style: const TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: AppTheme.textMuted,
-        ),
-      ),
-      const SizedBox(height: 7),
-      Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: CropSphereConstants.crops.map((crop) {
-          final active = _selectedCrop == crop;
-          final emoji = _cropEmoji[crop] ?? '🌿';
-          return GestureDetector(
-            onTap: () => setState(() {
-              _selectedCrop = crop;
-              _selectedDistrict = null;
-              _result = null;
-              _fertExpanded = false;
-              _pestExpanded = false;
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            _ts({
+              'en': 'Quick select:',
+              'si': 'ඉක්මන් තේරීම:',
+              'ta': 'விரைவு தேர்வு:',
             }),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-              decoration: BoxDecoration(
-                color: active ? AppTheme.primary : Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: active ? AppTheme.primary : const Color(0xFFD0E8C8),
-                  width: active ? 2 : 1.5,
-                ),
-                boxShadow: active
-                    ? [
-                        BoxShadow(
-                          color: AppTheme.primary.withValues(alpha: 0.2),
-                          blurRadius: 6,
-                          offset: const Offset(0, 2),
-                        ),
-                      ]
-                    : [],
-              ),
-              child: Text(
-                '$emoji  $crop',
-                style: TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w600,
-                  color: active ? Colors.white : AppTheme.textPrimary,
-                ),
-              ),
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.textMuted,
             ),
-          );
-        }).toList(),
-      ),
-    ],
-  );
+          ),
+          const SizedBox(height: 7),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: CropSphereConstants.crops.map((crop) {
+              final active = _selectedCrop == crop;
+              final emoji = _cropEmoji[crop] ?? '🌿';
+              return GestureDetector(
+                onTap: () => setState(() {
+                  _selectedCrop = crop;
+                  _selectedDistrict = null;
+                  _result = null;
+                  _fertExpanded = false;
+                  _pestExpanded = false;
+                }),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: active ? AppTheme.primary : Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color:
+                          active ? AppTheme.primary : const Color(0xFFD0E8C8),
+                      width: active ? 2 : 1.5,
+                    ),
+                    boxShadow: active
+                        ? [
+                            BoxShadow(
+                              color: AppTheme.primary.withValues(alpha: 0.2),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
+                          ]
+                        : [],
+                  ),
+                  child: Text(
+                    '$emoji  $crop',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: active ? Colors.white : AppTheme.textPrimary,
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      );
 
   // ── Crop & location card ───────────────────────────────────────────────────
   Widget _cropLocationCard() => _card(
-    child: Column(
-      children: [
-        _nullDropdown(
-          label: _ts({
-            'en': 'Select Crop',
-            'si': 'භෝගය තෝරන්න',
-            'ta': 'பயிர் தேர்ந்தெடுக்கவும்',
-          }),
-          value: _selectedCrop,
-          items: CropSphereConstants.crops,
-          icon: Icons.eco,
-          onChanged: (val) => setState(() {
-            _selectedCrop = val;
-            _selectedDistrict = null;
-            _result = null;
-            _fertExpanded = false;
-            _pestExpanded = false;
-          }),
+        child: Column(
+          children: [
+            _nullDropdown(
+              label: _ts({
+                'en': 'Select Crop',
+                'si': 'භෝගය තෝරන්න',
+                'ta': 'பயிர் தேர்ந்தெடுக்கவும்',
+              }),
+              value: _selectedCrop,
+              items: CropSphereConstants.crops,
+              icon: Icons.eco,
+              onChanged: (val) => setState(() {
+                _selectedCrop = val;
+                _selectedDistrict = null;
+                _result = null;
+                _fertExpanded = false;
+                _pestExpanded = false;
+              }),
+            ),
+            const SizedBox(height: 12),
+            _nullDropdown(
+              label: _ts({
+                'en': 'Select District',
+                'si': 'දිස්ත්‍රික්කය',
+                'ta': 'மாவட்டம்',
+              }),
+              value: _selectedDistrict,
+              items: _availableDistricts,
+              icon: Icons.location_on,
+              hint: _selectedCrop != null
+                  ? _ts({
+                      'en': 'Valid districts for $_selectedCrop',
+                      'si': '$_selectedCrop සඳහා දිස්ත්‍රික්ක',
+                      'ta': '$_selectedCrop-க்கான மாவட்டங்கள்',
+                    })
+                  : _ts({
+                      'en': 'Select a crop first',
+                      'si': 'පළමු භෝගය තෝරන්න',
+                      'ta': 'முதலில் பயிர் தேர்ந்தெடுக்கவும்',
+                    }),
+              enabled: _selectedCrop != null,
+              onChanged: (val) {
+                setState(() {
+                  _selectedDistrict = val;
+                  _weather = null;
+                  _result = null;
+                });
+                if (val != null) _loadWeather(val);
+              },
+            ),
+            const SizedBox(height: 12),
+            _seasonDropdown(),
+            const SizedBox(height: 12),
+            _irrigationDropdown(),
+          ],
         ),
-        const SizedBox(height: 12),
-        _nullDropdown(
-          label: _ts({
-            'en': 'Select District',
-            'si': 'දිස්ත්‍රික්කය',
-            'ta': 'மாவட்டம்',
-          }),
-          value: _selectedDistrict,
-          items: _availableDistricts,
-          icon: Icons.location_on,
-          hint: _selectedCrop != null
-              ? _ts({
-                  'en': 'Valid districts for $_selectedCrop',
-                  'si': '$_selectedCrop සඳහා දිස්ත්‍රික්ක',
-                  'ta': '$_selectedCrop-க்கான மாவட்டங்கள்',
-                })
-              : _ts({
-                  'en': 'Select a crop first',
-                  'si': 'පළමු භෝගය තෝරන්න',
-                  'ta': 'முதலில் பயிர் தேர்ந்தெடுக்கவும்',
-                }),
-          enabled: _selectedCrop != null,
-          onChanged: (val) {
-            setState(() {
-              _selectedDistrict = val;
-              _weather = null;
-              _result = null;
-            });
-            if (val != null) _loadWeather(val);
-          },
-        ),
-        const SizedBox(height: 12),
-        _seasonDropdown(),
-        const SizedBox(height: 12),
-        _irrigationDropdown(),
-      ],
-    ),
-  );
+      );
 
   Widget _seasonDropdown() {
     // find label+desc for selected season
@@ -2435,122 +2413,125 @@ class _YieldScreenState extends State<YieldScreen> {
   //  (ii) Area card — three manual text fields, no slider
   // ──────────────────────────────────────────────────────────────────────────
   Widget _areaCard() => _card(
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Icon(Icons.crop_square, size: 15, color: AppTheme.primary),
-            const SizedBox(width: 6),
+            Row(
+              children: [
+                const Icon(Icons.crop_square,
+                    size: 15, color: AppTheme.primary),
+                const SizedBox(width: 6),
+                Text(
+                  _ts({
+                    'en': 'Cultivated Area',
+                    'si': 'වගා කළ ප්‍රදේශය',
+                    'ta': 'பயிரிடப்பட்ட பரப்பளவு',
+                  }),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.primaryDark,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
             Text(
               _ts({
-                'en': 'Cultivated Area',
-                'si': 'වගා කළ ප්‍රදේශය',
-                'ta': 'பயிரிடப்பட்ட பரப்பளவு',
+                'en': 'Enter any one — the others update automatically.',
+                'si':
+                    'ඕනෑම එකක් ඇතුළු කරන්න — අනිත් ඒවා ස්වයංක්‍රීයව යාවත්කාලීන වේ.',
+                'ta':
+                    'ஏதேனும் ஒன்றை உள்ளிடுங்கள் — மற்றவை தானாக புதுப்பிக்கப்படும்.',
               }),
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: AppTheme.primaryDark,
-              ),
+              style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: _areaField(
+                    controller: _perchesCtrl,
+                    label: _ts({'en': 'Perches', 'si': 'පර්ච', 'ta': 'பர்ச்'}),
+                    color: AppTheme.primary,
+                    isMain: true,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _areaField(
+                    controller: _acresCtrl,
+                    label: _ts({'en': 'Acres', 'si': 'අක්කර', 'ta': 'ஏக்கர்'}),
+                    color: const Color(0xFF1565C0),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _areaField(
+                    controller: _hectCtrl,
+                    label: _ts({
+                      'en': 'Hectares',
+                      'si': 'හෙක්ටෙයාර්',
+                      'ta': 'ஹெக்டேர்',
+                    }),
+                    color: const Color(0xFF558B2F),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            _infoBox(
+              _ts({
+                'en': '1 acre = 160 perches · 1 hectare = 395 perches',
+                'si': '1 අක්කර = 160 පර්ච · 1 හෙක්ටෙයාර් = 395 පර්ච',
+                'ta': '1 ஏக்கர் = 160 பர்ச் · 1 ஹெக்டேர் = 395 பர்ச்',
+              }),
+              color: AppTheme.info,
+              icon: Icons.info_outline,
             ),
           ],
         ),
-        const SizedBox(height: 4),
-        Text(
-          _ts({
-            'en': 'Enter any one — the others update automatically.',
-            'si':
-                'ඕනෑම එකක් ඇතුළු කරන්න — අනිත් ඒවා ස්වයංක්‍රීයව යාවත්කාලීන වේ.',
-            'ta':
-                'ஏதேனும் ஒன்றை உள்ளிடுங்கள் — மற்றவை தானாக புதுப்பிக்கப்படும்.',
-          }),
-          style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
-        ),
-        const SizedBox(height: 14),
-        Row(
-          children: [
-            Expanded(
-              child: _areaField(
-                controller: _perchesCtrl,
-                label: _ts({'en': 'Perches', 'si': 'පර්ච', 'ta': 'பர்ச்'}),
-                color: AppTheme.primary,
-                isMain: true,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _areaField(
-                controller: _acresCtrl,
-                label: _ts({'en': 'Acres', 'si': 'අක්කර', 'ta': 'ஏக்கர்'}),
-                color: const Color(0xFF1565C0),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _areaField(
-                controller: _hectCtrl,
-                label: _ts({
-                  'en': 'Hectares',
-                  'si': 'හෙක්ටෙයාර්',
-                  'ta': 'ஹெக்டேர்',
-                }),
-                color: const Color(0xFF558B2F),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        _infoBox(
-          _ts({
-            'en': '1 acre = 160 perches · 1 hectare = 395 perches',
-            'si': '1 අක්කර = 160 පර්ච · 1 හෙක්ටෙයාර් = 395 පර්ච',
-            'ta': '1 ஏக்கர் = 160 பர்ச் · 1 ஹெக்டேர் = 395 பர்ச்',
-          }),
-          color: AppTheme.info,
-          icon: Icons.info_outline,
-        ),
-      ],
-    ),
-  );
+      );
 
   Widget _areaField({
     required TextEditingController controller,
     required String label,
     required Color color,
     bool isMain = false,
-  }) => TextField(
-    controller: controller,
-    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-    inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.]'))],
-    style: TextStyle(
-      fontSize: isMain ? 20 : 15,
-      fontWeight: FontWeight.bold,
-      color: color,
-    ),
-    decoration: InputDecoration(
-      labelText: label,
-      labelStyle: TextStyle(
-        fontSize: 11,
-        color: color,
-        fontWeight: FontWeight.w600,
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: BorderSide(
-          color: color.withValues(alpha: 0.3),
-          width: isMain ? 2 : 1.2,
+  }) =>
+      TextField(
+        controller: controller,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.]'))],
+        style: TextStyle(
+          fontSize: isMain ? 20 : 15,
+          fontWeight: FontWeight.bold,
+          color: color,
         ),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: BorderSide(color: color, width: 2),
-      ),
-      filled: true,
-      fillColor: color.withValues(alpha: 0.05),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-    ),
-  );
+        decoration: InputDecoration(
+          labelText: label,
+          labelStyle: TextStyle(
+            fontSize: 11,
+            color: color,
+            fontWeight: FontWeight.w600,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide(
+              color: color.withValues(alpha: 0.3),
+              width: isMain ? 2 : 1.2,
+            ),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide(color: color, width: 2),
+          ),
+          filled: true,
+          fillColor: color.withValues(alpha: 0.05),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        ),
+      );
 
   // ── Weather card ───────────────────────────────────────────────────────────
   Widget _weatherCard() {
@@ -3035,8 +3016,11 @@ class _YieldScreenState extends State<YieldScreen> {
                     'si': 'පොහොර මිශ්‍රණ මාර්ගෝපදේශය',
                     'ta': 'உர கலவை வழிகாட்டி',
                   }),
-                  badge:
-                      '${rec.fertilizers.length} ${_ts({'en': 'fertilizers', 'si': 'පොහොර', 'ta': 'உரங்கள்'})}',
+                  badge: '${rec.fertilizers.length} ${_ts({
+                        'en': 'fertilizers',
+                        'si': 'පොහොර',
+                        'ta': 'உரங்கள்'
+                      })}',
                   isOpen: _fertExpanded,
                   onToggle: () =>
                       setState(() => _fertExpanded = !_fertExpanded),
@@ -3053,8 +3037,11 @@ class _YieldScreenState extends State<YieldScreen> {
                     'si': 'පළිබෝධනාශක ස්ප්‍රේ මාර්ගෝපදේශය',
                     'ta': 'பூச்சிக்கொல்லி தெளிப்பு வழிகாட்டி',
                   }),
-                  badge:
-                      '${rec.pesticides.length} ${_ts({'en': 'products', 'si': 'නිෂ්පාදන', 'ta': 'தயாரிப்புகள்'})}',
+                  badge: '${rec.pesticides.length} ${_ts({
+                        'en': 'products',
+                        'si': 'නිෂ්පාදන',
+                        'ta': 'தயாரிப்புகள்'
+                      })}',
                   isOpen: _pestExpanded,
                   onToggle: () =>
                       setState(() => _pestExpanded = !_pestExpanded),
@@ -3078,119 +3065,184 @@ class _YieldScreenState extends State<YieldScreen> {
     required bool isOpen,
     required VoidCallback onToggle,
     required Widget child,
-  }) => Container(
-    decoration: BoxDecoration(
-      border: Border.all(color: color.withValues(alpha: 0.2)),
-      borderRadius: BorderRadius.circular(10),
-      color: color.withValues(alpha: 0.03),
-    ),
-    child: Column(
-      children: [
-        InkWell(
-          onTap: onToggle,
+  }) =>
+      Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: color.withValues(alpha: 0.2)),
           borderRadius: BorderRadius.circular(10),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-            child: Row(
+          color: color.withValues(alpha: 0.03),
+        ),
+        child: Column(
+          children: [
+            InkWell(
+              onTap: onToggle,
+              borderRadius: BorderRadius.circular(10),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 30,
+                      height: 30,
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(icon, size: 16, color: color),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: color,
+                        ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        badge,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: color,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Icon(
+                      isOpen ? Icons.expand_less : Icons.expand_more,
+                      size: 18,
+                      color: color,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (isOpen)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                child: child,
+              ),
+          ],
+        ),
+      );
+
+  Widget _chemCard(_ChemicalInstruction c) => Container(
+        margin: const EdgeInsets.only(top: 10),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: c.color.withValues(alpha: 0.04),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: c.color.withValues(alpha: 0.18)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
-                  width: 30,
-                  height: 30,
+                  width: 32,
+                  height: 32,
                   decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.12),
+                    color: c.color.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Icon(icon, size: 16, color: color),
+                  child: Icon(c.icon, size: 16, color: c.color),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: color,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        c.name,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: c.color,
+                        ),
+                      ),
+                      Text(
+                        _t(c.purpose),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: AppTheme.textSecondary,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    badge,
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color: color,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Icon(
-                  isOpen ? Icons.expand_less : Icons.expand_more,
-                  size: 18,
-                  color: color,
                 ),
               ],
             ),
-          ),
-        ),
-        if (isOpen)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-            child: child,
-          ),
-      ],
-    ),
-  );
-
-  Widget _chemCard(_ChemicalInstruction c) => Container(
-    margin: const EdgeInsets.only(top: 10),
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      color: c.color.withValues(alpha: 0.04),
-      borderRadius: BorderRadius.circular(10),
-      border: Border.all(color: c.color.withValues(alpha: 0.18)),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: c.color.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(c.icon, size: 16, color: c.color),
+            const SizedBox(height: 10),
+            _instrRow(
+              icon: Icons.straighten,
+              label: _ts({'en': 'Dose', 'si': 'ප්‍රමාණය', 'ta': 'அளவு'}),
+              value: _t(c.dose),
+              color: c.color,
+              highlight: true,
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
+            const SizedBox(height: 6),
+            _instrRow(
+              icon: Icons.water_drop_outlined,
+              label: _ts({
+                'en': 'How to mix & apply',
+                'si': 'මිශ්‍ර කර යෙදීම',
+                'ta': 'கலந்து பயன்படுத்துவது',
+              }),
+              value: _t(c.method),
+              color: c.color,
+            ),
+            const SizedBox(height: 6),
+            _instrRow(
+              icon: Icons.schedule,
+              label: _ts({
+                'en': 'When to apply',
+                'si': 'යෙදිය යුතු කාලය',
+                'ta': 'எப்போது பயன்படுத்துவது',
+              }),
+              value: _t(c.timing),
+              color: c.color,
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppTheme.error.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(8),
+                border:
+                    Border.all(color: AppTheme.error.withValues(alpha: 0.2)),
+              ),
+              child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    c.name,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                      color: c.color,
-                    ),
+                  const Icon(
+                    Icons.warning_amber_rounded,
+                    size: 14,
+                    color: AppTheme.error,
                   ),
-                  Text(
-                    _t(c.purpose),
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: AppTheme.textSecondary,
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: Text(
+                      _t(c.caution),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppTheme.error,
+                        height: 1.4,
+                      ),
                     ),
                   ),
                 ],
@@ -3198,69 +3250,7 @@ class _YieldScreenState extends State<YieldScreen> {
             ),
           ],
         ),
-        const SizedBox(height: 10),
-        _instrRow(
-          icon: Icons.straighten,
-          label: _ts({'en': 'Dose', 'si': 'ප්‍රමාණය', 'ta': 'அளவு'}),
-          value: _t(c.dose),
-          color: c.color,
-          highlight: true,
-        ),
-        const SizedBox(height: 6),
-        _instrRow(
-          icon: Icons.water_drop_outlined,
-          label: _ts({
-            'en': 'How to mix & apply',
-            'si': 'මිශ්‍ර කර යෙදීම',
-            'ta': 'கலந்து பயன்படுத்துவது',
-          }),
-          value: _t(c.method),
-          color: c.color,
-        ),
-        const SizedBox(height: 6),
-        _instrRow(
-          icon: Icons.schedule,
-          label: _ts({
-            'en': 'When to apply',
-            'si': 'යෙදිය යුතු කාලය',
-            'ta': 'எப்போது பயன்படுத்துவது',
-          }),
-          value: _t(c.timing),
-          color: c.color,
-        ),
-        const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          decoration: BoxDecoration(
-            color: AppTheme.error.withValues(alpha: 0.06),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: AppTheme.error.withValues(alpha: 0.2)),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Icon(
-                Icons.warning_amber_rounded,
-                size: 14,
-                color: AppTheme.error,
-              ),
-              const SizedBox(width: 7),
-              Expanded(
-                child: Text(
-                  _t(c.caution),
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: AppTheme.error,
-                    height: 1.4,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    ),
-  );
+      );
 
   Widget _instrRow({
     required IconData icon,
@@ -3268,41 +3258,41 @@ class _YieldScreenState extends State<YieldScreen> {
     required String value,
     required Color color,
     bool highlight = false,
-  }) => Row(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Icon(icon, size: 13, color: color),
-      const SizedBox(width: 6),
-      Expanded(
-        child: RichText(
-          text: TextSpan(
-            children: [
-              TextSpan(
-                text: '$label: ',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: color,
-                ),
+  }) =>
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 13, color: color),
+          const SizedBox(width: 6),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                children: [
+                  TextSpan(
+                    text: '$label: ',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: color,
+                    ),
+                  ),
+                  TextSpan(
+                    text: value,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: highlight ? FontWeight.w800 : FontWeight.w400,
+                      color: highlight ? color : AppTheme.textPrimary,
+                      height: 1.45,
+                      backgroundColor:
+                          highlight ? color.withValues(alpha: 0.08) : null,
+                    ),
+                  ),
+                ],
               ),
-              TextSpan(
-                text: value,
-                style: TextStyle(
-                  fontSize: 11.5,
-                  fontWeight: highlight ? FontWeight.w800 : FontWeight.w400,
-                  color: highlight ? color : AppTheme.textPrimary,
-                  height: 1.45,
-                  backgroundColor: highlight
-                      ? color.withValues(alpha: 0.08)
-                      : null,
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
-      ),
-    ],
-  );
+        ],
+      );
 
   Widget _conditionTile({
     required String label,
@@ -3311,114 +3301,124 @@ class _YieldScreenState extends State<YieldScreen> {
     required IconData icon,
     required Color color,
     required String note,
-  }) => Container(
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      color: color.withValues(alpha: 0.06),
-      borderRadius: BorderRadius.circular(10),
-      border: Border.all(color: color.withValues(alpha: 0.2)),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
+  }) =>
+      Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: color.withValues(alpha: 0.2)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, size: 13, color: color),
-            const SizedBox(width: 5),
+            Row(
+              children: [
+                Icon(icon, size: 13, color: color),
+                const SizedBox(width: 5),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: color,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
             Text(
-              label,
+              '$value $unit',
               style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
                 color: color,
               ),
             ),
+            const SizedBox(height: 6),
+            Text(
+              note,
+              style: const TextStyle(
+                fontSize: 10,
+                color: AppTheme.textSecondary,
+                height: 1.4,
+              ),
+            ),
           ],
         ),
-        const SizedBox(height: 6),
-        Text(
-          '$value $unit',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          note,
-          style: const TextStyle(
-            fontSize: 10,
-            color: AppTheme.textSecondary,
-            height: 1.4,
-          ),
-        ),
-      ],
-    ),
-  );
+      );
 
   Widget _npkBar(_SoilRec rec) => Container(
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      color: const Color(0xFFF4F9F4),
-      borderRadius: BorderRadius.circular(10),
-      border: Border.all(color: const Color(0xFFCCE3CC)),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF4F9F4),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: const Color(0xFFCCE3CC)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Icon(Icons.biotech, size: 14, color: AppTheme.textSecondary),
-            const SizedBox(width: 6),
-            Text(
-              'NPK',
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: AppTheme.textSecondary,
-              ),
+            Row(
+              children: [
+                const Icon(Icons.biotech,
+                    size: 14, color: AppTheme.textSecondary),
+                const SizedBox(width: 6),
+                Text(
+                  'NPK',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: _npkTile(
+                    'N',
+                    rec.nIndex,
+                    Colors.indigo,
+                    _ts({
+                      'en': 'Nitrogen',
+                      'si': 'නයිට්‍රජන්',
+                      'ta': 'நைட்ரஜன்'
+                    }),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _npkTile(
+                    'P',
+                    rec.pIndex,
+                    Colors.deepOrange,
+                    _ts({
+                      'en': 'Phosphorus',
+                      'si': 'පොස්පරස්',
+                      'ta': 'பாஸ்பரஸ்'
+                    }),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _npkTile(
+                    'K',
+                    rec.kIndex,
+                    Colors.amber,
+                    _ts({
+                      'en': 'Potassium',
+                      'si': 'පොටෑසියම්',
+                      'ta': 'பொட்டாசியம்',
+                    }),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: _npkTile(
-                'N',
-                rec.nIndex,
-                Colors.indigo,
-                _ts({'en': 'Nitrogen', 'si': 'නයිට්‍රජන්', 'ta': 'நைட்ரஜன்'}),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _npkTile(
-                'P',
-                rec.pIndex,
-                Colors.deepOrange,
-                _ts({'en': 'Phosphorus', 'si': 'පොස්පරස්', 'ta': 'பாஸ்பரஸ்'}),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _npkTile(
-                'K',
-                rec.kIndex,
-                Colors.amber,
-                _ts({
-                  'en': 'Potassium',
-                  'si': 'පොටෑසියම්',
-                  'ta': 'பொட்டாசியம்',
-                }),
-              ),
-            ),
-          ],
-        ),
-      ],
-    ),
-  );
+      );
 
   Widget _npkTile(String sym, double idx, Color color, String name) =>
       Container(
@@ -3544,9 +3544,8 @@ class _YieldScreenState extends State<YieldScreen> {
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
-                      color: item.$1
-                          ? AppTheme.textPrimary
-                          : AppTheme.textMuted,
+                      color:
+                          item.$1 ? AppTheme.textPrimary : AppTheme.textMuted,
                     ),
                   ),
                   if (item.$1 && item.$3.isNotEmpty) ...[
@@ -3581,71 +3580,71 @@ class _YieldScreenState extends State<YieldScreen> {
 
   // ── Sticky predict button ──────────────────────────────────────────────────
   Widget _stickyPredict() => Positioned(
-    bottom: 0,
-    left: 0,
-    right: 0,
-    child: Container(
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 12,
-            offset: const Offset(0, -3),
+        bottom: 0,
+        left: 0,
+        right: 0,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.08),
+                blurRadius: 12,
+                offset: const Offset(0, -3),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: SafeArea(
-        top: false,
-        child: SizedBox(
-          height: 52,
-          child: ElevatedButton.icon(
-            onPressed: (_isLoading || !_canPredict) ? null : _predict,
-            icon: _isLoading
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
-                : const Icon(Icons.analytics),
-            label: Text(
-              _isLoading
-                  ? _ts({
-                      'en': 'Predicting...',
-                      'si': 'පුරෝකථනය...',
-                      'ta': 'கணிக்கிறோம்...',
-                    })
-                  : _canPredict
-                  ? _ts({
-                      'en': 'Predict My Yield',
-                      'si': 'මගේ අස්වැන්න පුරෝකථනය',
-                      'ta': 'எனது விளைச்சலை கணிக்கவும்',
-                    })
-                  : _ts({
-                      'en': 'Complete 4 steps above first',
-                      'si': 'ඉහළ පියවර 4 සම්පූර්ණ කරන්න',
-                      'ta': 'மேலே 4 படிகள் முடிக்கவும்',
-                    }),
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _canPredict
-                  ? AppTheme.primaryDark
-                  : Colors.grey.shade400,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+          child: SafeArea(
+            top: false,
+            child: SizedBox(
+              height: 52,
+              child: ElevatedButton.icon(
+                onPressed: (_isLoading || !_canPredict) ? null : _predict,
+                icon: _isLoading
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.analytics),
+                label: Text(
+                  _isLoading
+                      ? _ts({
+                          'en': 'Predicting...',
+                          'si': 'පුරෝකථනය...',
+                          'ta': 'கணிக்கிறோம்...',
+                        })
+                      : _canPredict
+                          ? _ts({
+                              'en': 'Predict My Yield',
+                              'si': 'මගේ අස්වැන්න පුරෝකථනය',
+                              'ta': 'எனது விளைச்சலை கணிக்கவும்',
+                            })
+                          : _ts({
+                              'en': 'Complete 4 steps above first',
+                              'si': 'ඉහළ පියවර 4 සම්පූර්ණ කරන්න',
+                              'ta': 'மேலே 4 படிகள் முடிக்கவும்',
+                            }),
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.bold),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor:
+                      _canPredict ? AppTheme.primaryDark : Colors.grey.shade400,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
               ),
             ),
           ),
         ),
-      ),
-    ),
-  );
+      );
 
   // ──────────────────────────────────────────────────────────────────────────
   //  (iii) Result card — green ✅ if above average, red ⚠️ hazard if below
@@ -3712,14 +3711,11 @@ class _YieldScreenState extends State<YieldScreen> {
                       const SizedBox(height: 4),
                       Text(
                         _ts({
-                          'en':
-                              'Your predicted yield is below the district average. '
+                          'en': 'Your predicted yield is below the district average. '
                               'Review your soil inputs, irrigation, and crop management before planting.',
-                          'si':
-                              'ඔබේ පුරෝකථිත අස්වැන්න දිස්ත්‍රික් සාමාන්‍යයට අඩු. '
+                          'si': 'ඔබේ පුරෝකථිත අස්වැන්න දිස්ත්‍රික් සාමාන්‍යයට අඩු. '
                               'රෝපණයට පෙර පස ආදාන, ජලනය හා භෝග කළමනාකරණය සමාලෝචනය කරන්න.',
-                          'ta':
-                              'உங்கள் கணிக்கப்பட்ட விளைச்சல் மாவட்ட சராசரிக்கும் குறைவாக உள்ளது. '
+                          'ta': 'உங்கள் கணிக்கப்பட்ட விளைச்சல் மாவட்ட சராசரிக்கும் குறைவாக உள்ளது. '
                               'நடவுக்கு முன் மண் உள்ளீடுகள், நீர்ப்பாசனம் மற்றும் பயிர் மேலாண்மையை மதிப்பாய்வு செய்யுங்கள்.',
                         }),
                         style: const TextStyle(
@@ -3890,19 +3886,21 @@ class _YieldScreenState extends State<YieldScreen> {
                               'ta': 'இந்த மதிப்பீட்டில் நம்பிக்கை உள்ளது',
                             })
                           : confidence.toUpperCase() == 'MEDIUM'
-                          ? _ts({
-                              'en': 'Fairly confident — conditions may vary',
-                              'si': 'සාධාරණ විශ්වාසයකි',
-                              'ta': 'மிகவும் நம்பகமானது — நிலைமைகள் மாறலாம்',
-                            })
-                          : _ts({
-                              'en':
-                                  'Approximate estimate — verify with your local officer',
-                              'si':
-                                  'ආසන්න ඇස්තමේන්තුවකි — දේශීය නිලධාරී සමඟ සත්‍යාපනය',
-                              'ta':
-                                  'தோராயமான மதிப்பீடு — உள்ளூர் அதிகாரியுடன் சரிபாருங்கள்',
-                            }),
+                              ? _ts({
+                                  'en':
+                                      'Fairly confident — conditions may vary',
+                                  'si': 'සාධාරණ විශ්වාසයකි',
+                                  'ta':
+                                      'மிகவும் நம்பகமானது — நிலைமைகள் மாறலாம்',
+                                })
+                              : _ts({
+                                  'en':
+                                      'Approximate estimate — verify with your local officer',
+                                  'si':
+                                      'ආසන්න ඇස්තමේන්තුවකි — දේශීය නිලධාරී සමඟ සත්‍යාපනය',
+                                  'ta':
+                                      'தோராயமான மதிப்பீடு — உள்ளூர் அதிகாரியுடன் சரிபாருங்கள்',
+                                }),
                       style: TextStyle(
                         color: _confColor(confidence),
                         fontSize: 11,
@@ -3974,7 +3972,11 @@ class _YieldScreenState extends State<YieldScreen> {
                     _vDiv(),
                     _rStat(
                       _ts({'en': 'Area', 'si': 'ප්‍රදේශය', 'ta': 'பரப்பு'}),
-                      '${_areaPerches.toStringAsFixed(0)} ${_ts({'en': 'p', 'si': 'ප', 'ta': 'ப'})}',
+                      '${_areaPerches.toStringAsFixed(0)} ${_ts({
+                            'en': 'p',
+                            'si': 'ප',
+                            'ta': 'ப'
+                          })}',
                     ),
                     _vDiv(),
                     _rStat(
@@ -4094,119 +4096,120 @@ class _YieldScreenState extends State<YieldScreen> {
   }
 
   Widget _emptyResultPlaceholder() => Container(
-    padding: const EdgeInsets.all(24),
-    decoration: BoxDecoration(
-      color: const Color(0xFFF1F7F1),
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: const Color(0xFFD0E8C8)),
-    ),
-    child: Column(
-      children: [
-        SvgPicture.string(
-          _navSvg(1, const Color(0xFFB0C4B0)),
-          width: 48,
-          height: 48,
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF1F7F1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFD0E8C8)),
         ),
-        const SizedBox(height: 12),
-        Text(
-          _ts({
-            'en': 'Your yield prediction will appear here',
-            'si': 'ඔබේ අස්වැන්න පුරෝකථනය මෙතැන දිස්වේ',
-            'ta': 'உங்கள் விளைச்சல் கணிப்பு இங்கே தோன்றும்',
-          }),
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 13,
-            color: AppTheme.textMuted,
-            height: 1.5,
-          ),
+        child: Column(
+          children: [
+            SvgPicture.string(
+              _navSvg(1, const Color(0xFFB0C4B0)),
+              width: 48,
+              height: 48,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              _ts({
+                'en': 'Your yield prediction will appear here',
+                'si': 'ඔබේ අස්වැන්න පුරෝකථනය මෙතැන දිස්වේ',
+                'ta': 'உங்கள் விளைச்சல் கணிப்பு இங்கே தோன்றும்',
+              }),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 13,
+                color: AppTheme.textMuted,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _ts({
+                'en': 'Complete the form and tap Predict',
+                'si': 'ආකෘතිය සම්පූර්ණ කර Predict ඔබන්න',
+                'ta': 'படிவத்தை பூர்த்தி செய்து கணிக்கவும்',
+              }),
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
+            ),
+          ],
         ),
-        const SizedBox(height: 8),
-        Text(
-          _ts({
-            'en': 'Complete the form and tap Predict',
-            'si': 'ආකෘතිය සම්පූර්ණ කර Predict ඔබන්න',
-            'ta': 'படிவத்தை பூர்த்தி செய்து கணிக்கவும்',
-          }),
-          textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
-        ),
-      ],
-    ),
-  );
+      );
 
   Widget _errorCard() => Container(
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      color: Colors.red.withValues(alpha: 0.08),
-      borderRadius: BorderRadius.circular(10),
-      border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
-    ),
-    child: Row(
-      children: [
-        const Icon(Icons.error_outline, color: Colors.red, size: 20),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            _errorMessage!,
-            style: const TextStyle(color: Colors.red, fontSize: 13),
-          ),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.red.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
         ),
-      ],
-    ),
-  );
+        child: Row(
+          children: [
+            const Icon(Icons.error_outline, color: Colors.red, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                _errorMessage!,
+                style: const TextStyle(color: Colors.red, fontSize: 13),
+              ),
+            ),
+          ],
+        ),
+      );
 
   // ── Reusable primitives ────────────────────────────────────────────────────
   Widget _card({required Widget child}) => Container(
-    padding: const EdgeInsets.all(14),
-    decoration: BoxDecoration(
-      color: AppTheme.surfaceCard,
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: const Color(0xFFE0EBE0)),
-    ),
-    child: child,
-  );
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppTheme.surfaceCard,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE0EBE0)),
+        ),
+        child: child,
+      );
 
   Widget _sectionTitle(String title, IconData icon) => Row(
-    children: [
-      Icon(icon, size: 16, color: AppTheme.primaryDark),
-      const SizedBox(width: 6),
-      Text(
-        title,
-        style: const TextStyle(
-          fontSize: 15,
-          fontWeight: FontWeight.w700,
-          color: AppTheme.primaryDark,
-        ),
-      ),
-    ],
-  );
+        children: [
+          Icon(icon, size: 16, color: AppTheme.primaryDark),
+          const SizedBox(width: 6),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.primaryDark,
+            ),
+          ),
+        ],
+      );
 
   Widget _infoBox(
     String text, {
     required Color color,
     required IconData icon,
-  }) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-    decoration: BoxDecoration(
-      color: color.withValues(alpha: 0.07),
-      borderRadius: BorderRadius.circular(8),
-      border: Border.all(color: color.withValues(alpha: 0.2)),
-    ),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, size: 14, color: color),
-        const SizedBox(width: 7),
-        Expanded(
-          child: Text(
-            text,
-            style: TextStyle(fontSize: 11.5, color: color, height: 1.45),
-          ),
+  }) =>
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.07),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withValues(alpha: 0.2)),
         ),
-      ],
-    ),
-  );
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 14, color: color),
+            const SizedBox(width: 7),
+            Expanded(
+              child: Text(
+                text,
+                style: TextStyle(fontSize: 11.5, color: color, height: 1.45),
+              ),
+            ),
+          ],
+        ),
+      );
 
   Widget _weatherSlider(
     String label,
@@ -4216,53 +4219,56 @@ class _YieldScreenState extends State<YieldScreen> {
     String unit,
     Color color,
     ValueChanged<double> onChanged,
-  ) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 4),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
+  ) =>
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: AppTheme.textPrimary,
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: AppTheme.textPrimary,
+                    ),
+                  ),
                 ),
-              ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '${value.toStringAsFixed(1)} $unit',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: color,
+                    ),
+                  ),
+                ),
+              ],
             ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(8),
+            SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                activeTrackColor: color,
+                thumbColor: color,
+                overlayColor: color.withValues(alpha: 0.12),
+                inactiveTrackColor: color.withValues(alpha: 0.15),
+                trackHeight: 2.5,
               ),
-              child: Text(
-                '${value.toStringAsFixed(1)} $unit',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                  color: color,
-                ),
-              ),
+              child: Slider(
+                  value: value, min: min, max: max, onChanged: onChanged),
             ),
           ],
         ),
-        SliderTheme(
-          data: SliderTheme.of(context).copyWith(
-            activeTrackColor: color,
-            thumbColor: color,
-            overlayColor: color.withValues(alpha: 0.12),
-            inactiveTrackColor: color.withValues(alpha: 0.15),
-            trackHeight: 2.5,
-          ),
-          child: Slider(value: value, min: min, max: max, onChanged: onChanged),
-        ),
-      ],
-    ),
-  );
+      );
 
   Widget _nullDropdown({
     required String label,
@@ -4272,58 +4278,61 @@ class _YieldScreenState extends State<YieldScreen> {
     required ValueChanged<String?> onChanged,
     String? hint,
     bool enabled = true,
-  }) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      DropdownButtonFormField<String>(
-        initialValue: value,
-        hint: Text(label, style: const TextStyle(color: AppTheme.textMuted)),
-        decoration: InputDecoration(
-          labelText: label,
-          prefixIcon: Icon(
-            icon,
-            color: enabled ? AppTheme.primary : AppTheme.textMuted,
-            size: 20,
+  }) =>
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          DropdownButtonFormField<String>(
+            initialValue: value,
+            hint:
+                Text(label, style: const TextStyle(color: AppTheme.textMuted)),
+            decoration: InputDecoration(
+              labelText: label,
+              prefixIcon: Icon(
+                icon,
+                color: enabled ? AppTheme.primary : AppTheme.textMuted,
+                size: 20,
+              ),
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 10,
+              ),
+              fillColor: enabled ? null : Colors.grey.withValues(alpha: 0.04),
+            ),
+            items: enabled
+                ? items
+                    .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+                    .toList()
+                : [],
+            onChanged: enabled ? onChanged : null,
           ),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: 10,
-          ),
-          fillColor: enabled ? null : Colors.grey.withValues(alpha: 0.04),
-        ),
-        items: enabled
-            ? items
-                  .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                  .toList()
-            : [],
-        onChanged: enabled ? onChanged : null,
-      ),
-      if (hint != null)
-        Padding(
-          padding: const EdgeInsets.only(top: 4, left: 4),
-          child: Text(
-            hint,
-            style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
-          ),
-        ),
-    ],
-  );
+          if (hint != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4, left: 4),
+              child: Text(
+                hint,
+                style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
+              ),
+            ),
+        ],
+      );
 
   Widget _rStat(String l, String v) => Column(
-    children: [
-      Text(l, style: const TextStyle(color: Colors.white54, fontSize: 10)),
-      const SizedBox(height: 3),
-      Text(
-        v,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 12,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    ],
-  );
+        children: [
+          Text(l, style: const TextStyle(color: Colors.white54, fontSize: 10)),
+          const SizedBox(height: 3),
+          Text(
+            v,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      );
 
   Widget _vDiv() => Container(width: 1, height: 28, color: Colors.white24);
 }

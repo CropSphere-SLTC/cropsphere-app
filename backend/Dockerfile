@@ -1,5 +1,8 @@
 FROM python:3.11-slim
 
+# in your backend/Dockerfile, find the base image section and add:
+RUN apt-get update && apt-get upgrade -y && apt-get clean && rm -rf /var/lib/apt/lists/*
+
 # Security: non-root user
 RUN groupadd -r cropsphere && useradd -r -g cropsphere cropsphere
 
@@ -28,8 +31,9 @@ USER cropsphere
 
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+HEALTHCHECK --interval=60s --timeout=15s --start-period=120s --retries=3 \
     CMD python -c "import httpx; httpx.get('http://localhost:8000/api/health').raise_for_status()" \
     || exit 1
 
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 2"]
+# Railway injects PORT dynamically — use 1 worker on free tier
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1"]

@@ -268,7 +268,8 @@ class _CropBottomNav extends StatelessWidget {
   }
 
   String _navSvg(int i, Color color) {
-    final c = '#${color.value.toRadixString(16).padLeft(8, '0').substring(2)}';
+    final c =
+        '#${color.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}';
     return switch (i) {
       0 => // Home — house
         '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'

@@ -85,3 +85,7 @@ frontend/ios/Runner/GeneratedPluginRegistrant.m
 frontend/macos/Flutter/GeneratedPluginRegistrant.swift
 frontend/windows/flutter/generated_plugin_registrant.cc
 frontend/windows/flutter/generated_plugins.cmake
+backend/.env
+frontend/macos/Flutter/GeneratedPluginRegistrant.swift
+frontend/windows/flutter/generated_plugin_registrant.cc
+frontend/windows/flutter/generated_plugins.cmake

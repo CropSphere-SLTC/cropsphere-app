@@ -1,4 +1,5 @@
 """Health check endpoint — exempt from JWT auth and rate limiting."""
+
 from fastapi import APIRouter
 
 from app.config import get_settings

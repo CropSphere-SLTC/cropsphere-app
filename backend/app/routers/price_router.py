@@ -1,4 +1,5 @@
 """Price prediction router."""
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.dependencies import get_user_id
@@ -21,7 +22,9 @@ async def price_predict(
 
     Requires valid Firebase JWT.  Rate limited: 30 req/min per IP.
     """
-    audit_log(user_id=user_id, endpoint="/api/price/predict", input_data=body.model_dump())
+    audit_log(
+        user_id=user_id, endpoint="/api/price/predict", input_data=body.model_dump()
+    )
     try:
         return predict_price(body, user_id)
     except RuntimeError as exc:

@@ -1,4 +1,5 @@
 """Crop recommendation router."""
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.dependencies import get_user_id

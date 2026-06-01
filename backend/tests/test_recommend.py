@@ -1,4 +1,5 @@
 """Tests for POST /api/recommend."""
+
 from unittest.mock import patch
 
 URL = "/api/recommend"
@@ -22,6 +23,7 @@ VALID = {
 
 def _mock_recommend_response():
     from app.models.schemas import CropEnum, CropRecommendation, RecommendResponse
+
     return RecommendResponse(
         recommendations=[
             CropRecommendation(
@@ -49,7 +51,9 @@ def test_valid_input_returns_200(client, mock_valid_token, valid_auth_header):
     assert len(body["recommendations"]) >= 1
 
 
-def test_missing_required_field_returns_422(client, mock_valid_token, valid_auth_header):
+def test_missing_required_field_returns_422(
+    client, mock_valid_token, valid_auth_header
+):
     payload = {k: v for k, v in VALID.items() if k != "district"}
     resp = client.post(URL, json=payload, headers=valid_auth_header)
     assert resp.status_code == 422
@@ -70,9 +74,12 @@ def test_expired_jwt_returns_401(client, mock_expired_token, expired_auth_header
     assert resp.status_code == 401
 
 
-def test_mock_response_when_model_not_loaded(client, mock_valid_token, valid_auth_header):
-    with patch("app.models.loader.model_loader.is_loaded", return_value=False), \
-         patch("app.utils.firestore.audit_log"):
+def test_mock_response_when_model_not_loaded(
+    client, mock_valid_token, valid_auth_header
+):
+    with patch("app.models.loader.model_loader.is_loaded", return_value=False), patch(
+        "app.utils.firestore.audit_log"
+    ):
         resp = client.post(URL, json=VALID, headers=valid_auth_header)
 
     assert resp.status_code == 200

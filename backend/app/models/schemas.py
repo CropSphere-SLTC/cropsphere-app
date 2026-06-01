@@ -1,11 +1,12 @@
 """Pydantic request/response schemas with strict input validation for all endpoints."""
+
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-
 # ── Enums ────────────────────────────────────────────────────────────────────
+
 
 class CropEnum(str, Enum):
     carrot = "Carrot"
@@ -54,6 +55,7 @@ class TrendEnum(str, Enum):
 
 # ── Yield ─────────────────────────────────────────────────────────────────────
 
+
 class YieldPredictRequest(BaseModel):
     crop: CropEnum
     district: DistrictEnum
@@ -84,6 +86,7 @@ class YieldPredictRequest(BaseModel):
 
 class YieldPredictResponse(BaseModel):
     predicted_yield_kg_per_ha: float
+    average_yield_kg_per_ha: float  # model-derived baseline for this crop
     crop: CropEnum
     district: DistrictEnum
     confidence: ConfidenceEnum
@@ -92,6 +95,7 @@ class YieldPredictResponse(BaseModel):
 
 
 # ── Weather ───────────────────────────────────────────────────────────────────
+
 
 class WeatherForecastRequest(BaseModel):
     district: DistrictEnum
@@ -115,6 +119,7 @@ class WeatherForecastResponse(BaseModel):
 
 
 # ── Price ──────────────────────────────────────────────────────────────────────
+
 
 class PricePredictRequest(BaseModel):
     crop: CropEnum
@@ -144,6 +149,7 @@ class PricePredictResponse(BaseModel):
 
 # ── Demand ─────────────────────────────────────────────────────────────────────
 
+
 class DemandPredictRequest(BaseModel):
     crop: CropEnum
     season: SeasonEnum
@@ -168,6 +174,7 @@ class DemandPredictResponse(BaseModel):
 
 
 # ── Recommend ──────────────────────────────────────────────────────────────────
+
 
 class RecommendRequest(BaseModel):
     district: DistrictEnum
@@ -203,6 +210,7 @@ class RecommendResponse(BaseModel):
 
 # ── Chat ───────────────────────────────────────────────────────────────────────
 
+
 class ConversationTurn(BaseModel):
     role: str = Field(..., pattern=r"^(user|assistant)$")
     content: str = Field(..., max_length=500)
@@ -210,7 +218,9 @@ class ConversationTurn(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str = Field(..., max_length=500)
-    conversation_history: List[ConversationTurn] = Field(default_factory=list, max_length=10)
+    conversation_history: List[ConversationTurn] = Field(
+        default_factory=list, max_length=10
+    )
     user_id: str = Field(..., min_length=1, max_length=128)
     district: Optional[DistrictEnum] = None
     crop: Optional[CropEnum] = None

@@ -41,7 +41,10 @@ def test_health_endpoint_is_public(client):
 def test_missing_token_returns_401(client, mock_expired_token):
     resp = client.post(YIELD_URL, json=MINIMAL_YIELD_PAYLOAD)
     assert resp.status_code == 401
-    assert "Authorization" in resp.json()["detail"] or "missing" in resp.json()["detail"].lower()
+    assert (
+        "Authorization" in resp.json()["detail"]
+        or "missing" in resp.json()["detail"].lower()
+    )
 
 
 def test_invalid_token_returns_401(client, mock_expired_token):

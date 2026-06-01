@@ -1,4 +1,5 @@
 """Crop recommendation service — auto-chains weather → yield → price → RF ranking."""
+
 import logging
 from datetime import date
 from typing import List, Tuple
@@ -20,8 +21,14 @@ logger = logging.getLogger(__name__)
 
 _ALL_CROPS = list(CropEnum)
 _DISTRICT_IDX = {
-    "Nuwara Eliya": 0, "Badulla": 1, "Anuradhapura": 2, "Monaragala": 3,
-    "Ampara": 4, "Hambantota": 5, "Batticaloa": 6, "Jaffna": 7,
+    "Nuwara Eliya": 0,
+    "Badulla": 1,
+    "Anuradhapura": 2,
+    "Monaragala": 3,
+    "Ampara": 4,
+    "Hambantota": 5,
+    "Batticaloa": 6,
+    "Jaffna": 7,
 }
 _SEASON_IDX = {"Maha": 0, "Yala": 1, "Inter": 2}
 _IRRIGATION_IDX = {"drip": 0, "sprinkler": 1, "flood": 2, "rainfed": 3}
@@ -55,10 +62,14 @@ def get_recommendations(req: RecommendRequest, user_id: str) -> RecommendRespons
                 p_resp = predict_price_internal(p_req)
                 crop_results.append((crop, y_resp, p_resp))
             except Exception as exc:
-                logger.warning("Skipping %s in recommendation chain: %s", crop.value, exc)
+                logger.warning(
+                    "Skipping %s in recommendation chain: %s", crop.value, exc
+                )
 
         any_mock = any(y.is_mock or p.is_mock for _, y, p in crop_results)
-        return RecommendResponse(recommendations=_rank(req, crop_results), is_mock=any_mock)
+        return RecommendResponse(
+            recommendations=_rank(req, crop_results), is_mock=any_mock
+        )
     except Exception as exc:
         logger.error("Recommendation pipeline failed: %s", exc)
         raise RuntimeError("Recommendation unavailable") from exc
@@ -109,7 +120,9 @@ def _heuristic(y_resp, p_resp) -> float:
     )
 
 
-def _yield_request(req: RecommendRequest, crop: CropEnum, weather) -> YieldPredictRequest:
+def _yield_request(
+    req: RecommendRequest, crop: CropEnum, weather
+) -> YieldPredictRequest:
     rain = weather.rainfall_mm if weather else req.rainfall_mm
     t_min = weather.temp_min_c if weather else req.temp_min_c
     t_max = weather.temp_max_c if weather else req.temp_max_c

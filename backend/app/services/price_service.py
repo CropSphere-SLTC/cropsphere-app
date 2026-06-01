@@ -1,4 +1,5 @@
 """Market and farmgate price prediction service — per-crop LSTM models."""
+
 import logging
 from typing import Dict
 
@@ -56,7 +57,7 @@ def predict_price(req: PricePredictRequest, user_id: str) -> PricePredictRespons
         pred = model.predict(x, verbose=0)[0]  # shape (2,): normalized farmgate, retail
 
         if crop_scaler is not None:
-            # Inverse-transform: put predictions in positions 0 (farmgate) and 1 (retail)
+            # Inverse-transform: farmgate at pos 0, retail at pos 1
             # Scaler order: farmgate, retail, transport, fuel,
             # supply, demand, inflation, holiday, festival
             dummy = np.zeros((1, crop_scaler.n_features_in_))
@@ -66,7 +67,9 @@ def predict_price(req: PricePredictRequest, user_id: str) -> PricePredictRespons
             farmgate = max(0.0, round(float(result[0]), 2))
             retail = max(0.0, round(float(result[1]), 2))
         else:
-            logger.warning("price_scalers absent for %s — using raw model output", req.crop.value)
+            logger.warning(
+                "price_scalers absent for %s — using raw model output", req.crop.value
+            )
             farmgate = round(float(pred[0]), 2)
             retail = round(float(pred[1]) if len(pred) > 1 else farmgate * 1.25, 2)
 
@@ -94,7 +97,11 @@ def _build_sequence(req: PricePredictRequest, crop_scaler) -> np.ndarray:
     supply, demand, inflation, holiday, festival.
     Uses lag1/lag2/lag4 to approximate 8 weeks of farmgate history.
     """
-    lag1, lag2, lag4 = req.farmgate_price_lag1, req.farmgate_price_lag2, req.farmgate_price_lag4
+    lag1, lag2, lag4 = (
+        req.farmgate_price_lag1,
+        req.farmgate_price_lag2,
+        req.farmgate_price_lag4,
+    )
 
     # 8 historical steps, oldest to newest
     farmgate_hist = [lag4, lag4, lag4, lag4, lag2, lag2, lag1, lag1]

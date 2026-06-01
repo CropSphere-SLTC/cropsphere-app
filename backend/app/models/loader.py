@@ -1,4 +1,7 @@
-"""Singleton model loader — loads all ML models once on startup and serves them forever."""
+"""Singleton model loader.
+
+loads all ML models once on startup and serves them forever."""
+
 import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -8,58 +11,71 @@ logger = logging.getLogger(__name__)
 # Direct file mappings: internal name → (type, filename)
 _DIRECT_FILES: Dict[str, tuple] = {
     # M1 auxiliary
-    "yield_encoders":        ("pkl",   "M1_encoders.pkl"),
-    "yield_features":        ("pkl",   "M1_features.pkl"),
+    "yield_encoders": ("pkl", "M1_encoders.pkl"),
+    "yield_features": ("pkl", "M1_features.pkl"),
     # M2 Weather
-    "weather_lstm":          ("keras", "M2_weather_lstm.keras"),
-    "weather_scaler":        ("pkl",   "M2_weather_scaler.pkl"),
+    "weather_lstm": ("keras", "M2_weather_lstm.keras"),
+    "weather_scaler": ("pkl", "M2_weather_scaler.pkl"),
     # M3 Price — per-crop LSTM
-    "price_Carrot":          ("keras", "M3_Carrot_lstm.keras"),
-    "price_Maize":           ("keras", "M3_Maize_lstm.keras"),
-    "price_Greengram":       ("keras", "M3_Green_gram_lstm.keras"),
-    "price_Cowpea":          ("keras", "M3_Cowpea_lstm.keras"),
-    "price_Fingermillet":    ("keras", "M3_Finger_millet_lstm.keras"),
-    "price_Groundnut":       ("keras", "M3_Groundnut_lstm.keras"),
-    "price_scalers":         ("pkl",   "M3_price_scalers.pkl"),
+    "price_Carrot": ("keras", "M3_Carrot_lstm.keras"),
+    "price_Maize": ("keras", "M3_Maize_lstm.keras"),
+    "price_Greengram": ("keras", "M3_Green_gram_lstm.keras"),
+    "price_Cowpea": ("keras", "M3_Cowpea_lstm.keras"),
+    "price_Fingermillet": ("keras", "M3_Finger_millet_lstm.keras"),
+    "price_Groundnut": ("keras", "M3_Groundnut_lstm.keras"),
+    "price_scalers": ("pkl", "M3_price_scalers.pkl"),
     # M5 Recommend
-    "recommend_rf":          ("pkl",   "M5_crop_recommendation_model.pkl"),
-    "recommend_encoders":    ("pkl",   "M5_encoders.pkl"),
-    "recommend_features":    ("pkl",   "M5_features.pkl"),
-    "recommend_valid_pairs": ("pkl",   "M5_valid_pairs.pkl"),
+    "recommend_rf": ("pkl", "M5_crop_recommendation_model.pkl"),
+    "recommend_encoders": ("pkl", "M5_encoders.pkl"),
+    "recommend_features": ("pkl", "M5_features.pkl"),
+    "recommend_valid_pairs": ("pkl", "M5_valid_pairs.pkl"),
     # M6 RAG
-    "rag_artifacts":         ("pkl",   "M6_rag_artifacts.pkl"),
+    "rag_artifacts": ("pkl", "M6_rag_artifacts.pkl"),
 }
 
 # Bundled files: filename → {bundle_key → internal model name}
 _BUNDLE_FILES: Dict[str, Dict[str, str]] = {
     "M1_per_crop_models.pkl": {
-        "Carrot":        "yield_Carrot",
-        "Maize":         "yield_Maize",
-        "Green gram":    "yield_Greengram",
-        "Cowpea":        "yield_Cowpea",
+        "Carrot": "yield_Carrot",
+        "Maize": "yield_Maize",
+        "Green gram": "yield_Greengram",
+        "Cowpea": "yield_Cowpea",
         "Finger millet": "yield_Fingermillet",
-        "Groundnut":     "yield_Groundnut",
+        "Groundnut": "yield_Groundnut",
     },
     "M4_demand_xgb_models.pkl": {
-        "Carrot":        "demand_Carrot",
-        "Maize":         "demand_Maize",
-        "Green gram":    "demand_Greengram",
-        "Cowpea":        "demand_Cowpea",
+        "Carrot": "demand_Carrot",
+        "Maize": "demand_Maize",
+        "Green gram": "demand_Greengram",
+        "Cowpea": "demand_Cowpea",
         "Finger millet": "demand_Fingermillet",
-        "Groundnut":     "demand_Groundnut",
+        "Groundnut": "demand_Groundnut",
     },
 }
 
 # Keys shown in the /api/health status report
 _STATUS_KEYS = [
-    "yield_Carrot", "yield_Maize", "yield_Greengram", "yield_Cowpea",
-    "yield_Fingermillet", "yield_Groundnut",
+    "yield_Carrot",
+    "yield_Maize",
+    "yield_Greengram",
+    "yield_Cowpea",
+    "yield_Fingermillet",
+    "yield_Groundnut",
     "weather_lstm",
-    "price_Carrot", "price_Maize", "price_Greengram", "price_Cowpea",
-    "price_Fingermillet", "price_Groundnut",
-    "demand_Carrot", "demand_Maize", "demand_Greengram", "demand_Cowpea",
-    "demand_Fingermillet", "demand_Groundnut",
-    "recommend_rf", "rag_artifacts",
+    "price_Carrot",
+    "price_Maize",
+    "price_Greengram",
+    "price_Cowpea",
+    "price_Fingermillet",
+    "price_Groundnut",
+    "demand_Carrot",
+    "demand_Maize",
+    "demand_Greengram",
+    "demand_Cowpea",
+    "demand_Fingermillet",
+    "demand_Groundnut",
+    "recommend_rf",
+    "rag_artifacts",
 ]
 
 
@@ -91,7 +107,8 @@ class ModelLoader:
             if not filepath.exists():
                 logger.warning(
                     "Model file not found: %s — %s will return mock responses",
-                    filepath, name,
+                    filepath,
+                    name,
                 )
                 self._models[name] = None
                 if name in _STATUS_KEYS:
@@ -102,6 +119,7 @@ class ModelLoader:
                     self._models[name] = joblib.load(filepath)
                 elif ftype == "keras":
                     from tensorflow import keras  # type: ignore
+
                     self._models[name] = keras.models.load_model(filepath)
                 if name in _STATUS_KEYS:
                     self._status[name] = True
@@ -127,7 +145,9 @@ class ModelLoader:
                     if bundle_key in bundle:
                         self._models[internal_name] = bundle[bundle_key]
                         self._status[internal_name] = True
-                        logger.info("Loaded model: %s (from %s)", internal_name, filename)
+                        logger.info(
+                            "Loaded model: %s (from %s)", internal_name, filename
+                        )
                     else:
                         logger.warning("Key '%s' missing in %s", bundle_key, filename)
                         self._models[internal_name] = None

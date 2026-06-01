@@ -1,4 +1,5 @@
 """FastAPI dependency functions shared across routers."""
+
 from fastapi import Request
 
 

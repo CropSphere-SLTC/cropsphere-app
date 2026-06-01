@@ -1,4 +1,5 @@
 """AI chatbot router."""
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.config import get_settings

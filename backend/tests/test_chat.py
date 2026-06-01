@@ -1,4 +1,5 @@
 """Tests for POST /api/chat."""
+
 from unittest.mock import patch
 
 URL = "/api/chat"
@@ -14,6 +15,7 @@ VALID = {
 
 def _mock_chat_response():
     from app.models.schemas import ChatResponse
+
     return ChatResponse(
         reply="You should consider planting Carrot this Maha season.",
         sources_used=["crop_guide_lk.pdf"],
@@ -34,14 +36,18 @@ def test_valid_input_returns_200(client, mock_valid_token, valid_auth_header):
     assert len(body["suggested_followups"]) == 3
 
 
-def test_missing_required_field_returns_422(client, mock_valid_token, valid_auth_header):
+def test_missing_required_field_returns_422(
+    client, mock_valid_token, valid_auth_header
+):
     payload = {k: v for k, v in VALID.items() if k != "user_id"}
     resp = client.post(URL, json=payload, headers=valid_auth_header)
     assert resp.status_code == 422
 
 
 def test_out_of_range_value_returns_422(client, mock_valid_token, valid_auth_header):
-    resp = client.post(URL, json={**VALID, "message": "x" * 501}, headers=valid_auth_header)
+    resp = client.post(
+        URL, json={**VALID, "message": "x" * 501}, headers=valid_auth_header
+    )
     assert resp.status_code == 422
 
 
@@ -55,7 +61,9 @@ def test_expired_jwt_returns_401(client, mock_expired_token, expired_auth_header
     assert resp.status_code == 401
 
 
-def test_mock_response_when_model_not_loaded(client, mock_valid_token, valid_auth_header):
+def test_mock_response_when_model_not_loaded(
+    client, mock_valid_token, valid_auth_header
+):
     """Groq/RAG unavailable → service raises RuntimeError → 500."""
     with patch(
         "app.routers.chat_router.chat",

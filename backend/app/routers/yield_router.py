@@ -1,4 +1,5 @@
 """Yield prediction router."""
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.dependencies import get_user_id
@@ -23,7 +24,9 @@ async def yield_predict(
     Input validated by Pydantic before this handler executes.
     Audit record written to Firestore on every call.
     """
-    audit_log(user_id=user_id, endpoint="/api/yield/predict", input_data=body.model_dump())
+    audit_log(
+        user_id=user_id, endpoint="/api/yield/predict", input_data=body.model_dump()
+    )
     try:
         return predict_yield(body, user_id)
     except RuntimeError as exc:

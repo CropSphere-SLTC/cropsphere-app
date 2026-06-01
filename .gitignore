@@ -71,3 +71,5 @@ frontend/build/
 frontend/windows/flutter/ephemeral/
 frontend/.flutter-plugins
 frontend/.flutter-plugins-dependencies
+frontend/windows/flutter/ephemeral/
+frontend/.flutter-plugins-dependencies

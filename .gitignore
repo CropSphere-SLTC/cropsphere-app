@@ -76,3 +76,12 @@ frontend/.flutter-plugins-dependencies
 .env
 firebase-credentials.json
 frontend/build/
+frontend/android/.gradle/
+frontend/android/local.properties
+frontend/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
+frontend/android/gradlew
+frontend/build/
+frontend/ios/Runner/GeneratedPluginRegistrant.m
+frontend/macos/Flutter/GeneratedPluginRegistrant.swift
+frontend/windows/flutter/generated_plugin_registrant.cc
+frontend/windows/flutter/generated_plugins.cmake

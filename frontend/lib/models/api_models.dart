@@ -89,6 +89,7 @@ class YieldRequest {
 
 class YieldResponse {
   final double predictedYieldKgPerHa;
+  final double averageYieldKgPerHa;
   final String crop;
   final String district;
   final String confidence;
@@ -97,6 +98,7 @@ class YieldResponse {
 
   YieldResponse({
     required this.predictedYieldKgPerHa,
+    this.averageYieldKgPerHa = 0.0,
     required this.crop,
     required this.district,
     required this.confidence,
@@ -106,6 +108,8 @@ class YieldResponse {
 
   factory YieldResponse.fromJson(Map<String, dynamic> json) => YieldResponse(
     predictedYieldKgPerHa: (json['predicted_yield_kg_per_ha'] as num)
+        .toDouble(),
+    averageYieldKgPerHa: (json['average_yield_kg_per_ha'] as num? ?? 0)
         .toDouble(),
     crop: json['crop'],
     district: json['district'],

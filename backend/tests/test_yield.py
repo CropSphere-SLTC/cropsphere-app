@@ -313,7 +313,6 @@ class TestOutOfRange:
 
 
 class TestEnumValidation:
-
     @pytest.mark.parametrize(
         "field,bad_value",
         [

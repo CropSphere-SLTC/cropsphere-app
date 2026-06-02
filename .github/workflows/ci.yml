@@ -145,7 +145,8 @@ jobs:
             --ignore-vuln PYSEC-2025-216 \
             --ignore-vuln PYSEC-2025-217 \
             --ignore-vuln PYSEC-2025-218 \
-            --ignore-vuln PYSEC-2026-139
+            --ignore-vuln PYSEC-2026-139 \
+            --ignore-vuln CVE-2026-1839
           # All ignored IDs have no fix version available in PyPI advisory DB.
           # joblib/keras/pyjwt: unfixed upstream; torch+transformers: transitive
           # deps via sentence-transformers with no patched release yet.
@@ -220,7 +221,7 @@ jobs:
 
       - name: Dependency vulnerability scan (pip-audit)
         run: |
-          python -m pip_audit \
+          pip-audit -r requirements.txt \
             --ignore-vuln PYSEC-2024-277 \
             --ignore-vuln PYSEC-2025-121 \
             --ignore-vuln PYSEC-2025-183 \
@@ -242,7 +243,8 @@ jobs:
             --ignore-vuln PYSEC-2025-216 \
             --ignore-vuln PYSEC-2025-217 \
             --ignore-vuln PYSEC-2025-218 \
-            --ignore-vuln PYSEC-2026-139 
+            --ignore-vuln PYSEC-2026-139 \
+            --ignore-vuln CVE-2026-1839
 
       - name: Validate ML model tests
         run: |

@@ -16,7 +16,6 @@ from app.models.schemas import (
 
 logger = logging.getLogger(__name__)
 
-
 # Climatological averages per district:
 # (rainfall_mm, temp_min_c, temp_max_c, humidity_pct,
 #  wind_speed_kmh, solar_radiation_mj)

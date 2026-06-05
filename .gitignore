@@ -67,3 +67,10 @@ frontend/.packages
 !package.json
 !tsconfig*.json
 frontend/windows/flutter/ephemeral/
+backend/bandit_report.txt
+frontend/build/*.dill
+frontend/build/*.cache.dill.track.dill
+frontend/build/*/.filecache
+frontend/macos/Flutter/GeneratedPluginRegistrant.swift
+frontend/windows/flutter/generated_plugin_registrant.cc
+frontend/windows/flutter/generated_plugins.cmake

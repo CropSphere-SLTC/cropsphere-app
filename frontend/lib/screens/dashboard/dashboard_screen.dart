@@ -1845,7 +1845,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                 key: ValueKey(_tipIndex),
                 tween: Tween(begin: 0.0, end: 1.0),
                 duration: const Duration(seconds: 10),
-                builder: (_, v, __) => LinearProgressIndicator(
+                builder: (_, v, _) => LinearProgressIndicator(
                   value: v,
                   backgroundColor: tip.border.withValues(alpha: 0.25),
                   valueColor: AlwaysStoppedAnimation(tip.color),
@@ -1996,7 +1996,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                           : ListView.separated(
                               padding: const EdgeInsets.all(12),
                               itemCount: saved.length,
-                              separatorBuilder: (_, __) =>
+                              separatorBuilder: (_, _) =>
                                   const SizedBox(height: 8),
                               itemBuilder: (_, idx) {
                                 final tipIdx = saved[idx];

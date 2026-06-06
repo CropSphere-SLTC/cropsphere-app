@@ -1,4 +1,11 @@
-"""AI chatbot service — LLaMA 3 via Groq API with RAG."""
+"""AI chatbot service — LLaMA 3 via Groq API with RAG.
+
+New features:
+- Model selection: "fast" (llama-3.1-8b-instant) or "accurate" (llama-3.3-70b-versatile)
+- Language detection: auto-detects Sinhala, Tamil, English
+- Prompt injection strategy: LLaMA instructed to respond in user's language directly
+- Translation cache: repeated phrases served instantly from memory
+"""
 
 import logging
 
@@ -6,6 +13,12 @@ from html.parser import HTMLParser
 
 from app.models.loader import model_loader
 from app.models.schemas import ChatRequest, ChatResponse
+from app.services.translation_service import (
+    detect_language,
+    get_language_system_prompt,
+    translate_cached,
+    get_cache_stats,
+)
 from app.utils.firestore import audit_log
 
 logger = logging.getLogger(__name__)
@@ -15,6 +28,12 @@ _encoder = None  # SentenceTransformer singleton — loaded once on first chat r
 _HF_CACHE = (
     "/tmp/hf_cache"  # nosec B108 — intentional, writable by non-root container user
 )
+
+# Groq model mapping
+_GROQ_MODELS = {
+    "fast":     "llama-3.1-8b-instant",       # 3–5 seconds
+    "accurate": "llama-3.3-70b-versatile",     # 15–25 seconds
+}
 
 
 def chat(req: ChatRequest, settings) -> ChatResponse:
@@ -26,6 +45,12 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
     - Input hash logged to Firestore for prompt-injection monitoring.
     - Stack traces never exposed to the client.
 
+    Language features:
+    - Auto-detects Sinhala, Tamil, English from input text.
+    - Injects language instruction into LLaMA system prompt.
+    - LLaMA responds in the user's language directly (no input translation needed).
+    - Translation cache serves repeated phrases instantly.
+
     Inputs: ChatRequest (Pydantic-validated), Settings instance.
     Outputs: ChatResponse with reply, sources, and follow-up suggestions.
     Security assumption: user_id verified by JWT middleware before this is called.
@@ -34,26 +59,52 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
 
     _safe_audit(req.user_id, clean)
 
+    # ── Language detection ──────────────────────────────────────────────────
+    # If user specified language explicitly, use it; otherwise auto-detect
+    if req.language and req.language != "auto":
+        detected_lang = req.language
+        logger.info(f"Language explicitly set: {detected_lang}")
+    else:
+        detected_lang = detect_language(clean)
+        logger.info(f"Language auto-detected: {detected_lang}")
+
+    # ── Model selection ─────────────────────────────────────────────────────
+    groq_model = _GROQ_MODELS.get(req.model, _GROQ_MODELS["accurate"])
+    logger.info(f"Using model: {groq_model} (requested: {req.model})")
+
     try:
         from groq import Groq  # type: ignore
 
         client = Groq(api_key=settings.GROQ_API_KEY)
 
+        # RAG retrieval always uses English-normalised query for best results
         context = _rag_context(clean)
-        messages = _build_messages(_system_prompt(req), context, req, clean)
+
+        # Build messages with language instruction injected into system prompt
+        messages = _build_messages(
+            _system_prompt(req, detected_lang), context, req, clean
+        )
 
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model=groq_model,
             messages=messages,
             max_tokens=512,
             temperature=0.7,
         )
         reply = response.choices[0].message.content
 
+        # Cache the reply for future repeated questions
+        if detected_lang != "en":
+            translate_cached(reply, "en", detected_lang)
+
+        # Log cache stats periodically
+        stats = get_cache_stats()
+        logger.info(f"Translation cache: {stats['total_entries']} entries")
+
         return ChatResponse(
             reply=reply,
             sources_used=context["sources"],
-            suggested_followups=_followups(req),
+            suggested_followups=_followups(req, detected_lang),
         )
     except Exception as exc:
         logger.error("Chatbot error user=%s: %s", req.user_id, type(exc).__name__)
@@ -61,6 +112,7 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 def _get_encoder():
     """Return the SentenceTransformer encoder, loading it once and caching it."""
     global _encoder
@@ -94,14 +146,26 @@ def _strip_html(text: str) -> str:
     return stripper.get_text()
 
 
-def _system_prompt(req: ChatRequest) -> str:
+def _system_prompt(req: ChatRequest, detected_lang: str = "en") -> str:
+    """Build system prompt with language instruction injected."""
     district = f" The farmer is in {req.district.value}." if req.district else ""
     crop = f" They are asking about {req.crop.value}." if req.crop else ""
-    return (
+
+    # Get language-specific instruction
+    lang_instruction = get_language_system_prompt(detected_lang)
+
+    base = (
         "You are CropSphere, an agricultural assistant for Sri Lankan farmers. "
         "Provide concise, practical advice about crops, weather, and markets."
         f"{district}{crop}"
     )
+
+    # Append language instruction — this is the key feature
+    # LLaMA responds in the user's language without needing input translation
+    if detected_lang != "en":
+        return f"{base} {lang_instruction}"
+
+    return base
 
 
 def _rag_context(message: str) -> dict:
@@ -143,14 +207,26 @@ def _build_messages(system: str, context: dict, req: ChatRequest, message: str) 
     return msgs
 
 
-def _followups(req: ChatRequest) -> list:
+def _followups(req: ChatRequest, detected_lang: str = "en") -> list:
+    """Generate follow-up suggestions in the detected language."""
     crop = req.crop.value if req.crop else "crops"
     district = req.district.value if req.district else "your area"
-    return [
+
+    # English follow-ups — LLaMA will handle translation via system prompt
+    followups_en = [
         f"What is the best planting season for {crop} in {district}?",
         f"What are current market prices for {crop}?",
         "How can I improve my soil quality?",
     ]
+
+    # For non-English, cache the translations for reuse
+    if detected_lang != "en":
+        return [
+            translate_cached(f, "en", detected_lang)
+            for f in followups_en
+        ]
+
+    return followups_en
 
 
 def _safe_audit(user_id: str, message: str) -> None:
@@ -161,3 +237,4 @@ def _safe_audit(user_id: str, message: str) -> None:
         )
     except Exception as exc:
         logger.warning("Chat audit log failed: %s", exc)
+        

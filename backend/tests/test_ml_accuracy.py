@@ -841,16 +841,22 @@ class TestPriceModelAccuracy:
                 scalers_obj = joblib.load(scaler_path)
                 if isinstance(scalers_obj, dict):
                     scaler = scalers_obj.get(crop)
-            except Exception:
-                pass
+            except Exception as exc:
+                warnings.warn(
+                    f"Could not load scaler for {crop} from {scaler_path}: {exc}. "
+                    "Proceeding without scaler."
+                )
 
         feature_data = crop_df[PRICE_FEATURES].values.astype(float)
         if scaler is not None:
             try:
                 feature_data = scaler.transform(feature_data)
-            except Exception:
-                pass
-
+            except Exception as e:
+                # Fallback intentionally keeps unscaled features for robustness
+                warnings.warn(
+                    f"Scaler transform failed for {crop}; "
+                    f"using unscaled features. Error: {e}"
+                )
         X_seq = []
         for i in range(SEQ_LEN, len(feature_data)):
             X_seq.append(feature_data[i - SEQ_LEN : i])
@@ -871,8 +877,11 @@ class TestPriceModelAccuracy:
                     dummy = np.zeros((len(y_pred), len(PRICE_FEATURES)))
                     dummy[:, 0] = y_pred
                     y_pred = scaler.inverse_transform(dummy)[:, 0]
-                except Exception:
-                    pass
+                except Exception as e:
+                    warnings.warn(
+                        f"Inverse scaling failed for {crop}; using raw predictions: {e}"
+                    )
+
         except Exception as e:
             pytest.skip(f"Prediction failed for {crop}: {e}")
             pytest.skip(f"Prediction failed for {crop}: {e}")

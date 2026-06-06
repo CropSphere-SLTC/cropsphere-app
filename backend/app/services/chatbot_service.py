@@ -31,8 +31,8 @@ _HF_CACHE = (
 
 # Groq model mapping
 _GROQ_MODELS = {
-    "fast":     "llama-3.1-8b-instant",       # 3–5 seconds
-    "accurate": "llama-3.3-70b-versatile",     # 15–25 seconds
+    "fast": "llama-3.1-8b-instant",  # 3–5 seconds
+    "accurate": "llama-3.3-70b-versatile",  # 15–25 seconds
 }
 
 
@@ -112,6 +112,7 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _get_encoder():
     """Return the SentenceTransformer encoder, loading it once and caching it."""
@@ -221,10 +222,7 @@ def _followups(req: ChatRequest, detected_lang: str = "en") -> list:
 
     # For non-English, cache the translations for reuse
     if detected_lang != "en":
-        return [
-            translate_cached(f, "en", detected_lang)
-            for f in followups_en
-        ]
+        return [translate_cached(f, "en", detected_lang) for f in followups_en]
 
     return followups_en
 
@@ -237,4 +235,3 @@ def _safe_audit(user_id: str, message: str) -> None:
         )
     except Exception as exc:
         logger.warning("Chat audit log failed: %s", exc)
-        

@@ -40,6 +40,7 @@ def detect_language(text: str) -> str:
     """
     try:
         from langdetect import detect, LangDetectException
+
         lang = detect(text)
         # langdetect returns "si" for Sinhala, "ta" for Tamil
         if lang in ("si", "ta", "en"):
@@ -65,7 +66,7 @@ def translate_cached(text: str, source_lang: str, target_lang: str) -> str:
     """
     Translate text with in-memory caching.
     Cache key: "source:target:text"
-    
+
     Currently uses a simple character replacement for demonstration.
     In production, replace the translation logic with IndicTrans2 or
     Google Translate API.
@@ -85,7 +86,9 @@ def translate_cached(text: str, source_lang: str, target_lang: str) -> str:
         translated = _translate(text, source_lang, target_lang)
         # Store in cache
         _translation_cache[cache_key] = translated
-        logger.info(f"Translated {source_lang}→{target_lang}, cached ({len(_translation_cache)} entries)")
+        logger.info(
+            f"Translated {source_lang}→{target_lang}, cached ({len(_translation_cache)} entries)"
+        )
         return translated
     except Exception as e:
         logger.warning(f"Translation failed: {e} — returning original text")
@@ -95,10 +98,10 @@ def translate_cached(text: str, source_lang: str, target_lang: str) -> str:
 def _translate(text: str, source_lang: str, target_lang: str) -> str:
     """
     Core translation function.
-    
+
     Strategy: Use LLaMA's built-in multilingual capability via prompt injection.
     This avoids needing a separate translation model and keeps latency low.
-    
+
     For production quality, replace with IndicTrans2:
     from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
     """
@@ -120,5 +123,7 @@ def get_cache_stats() -> dict:
     """Return cache statistics for monitoring."""
     return {
         "total_entries": len(_translation_cache),
-        "languages_cached": list(set(k.split(":")[0] for k in _translation_cache.keys())),
+        "languages_cached": list(
+            set(k.split(":")[0] for k in _translation_cache.keys())
+        ),
     }

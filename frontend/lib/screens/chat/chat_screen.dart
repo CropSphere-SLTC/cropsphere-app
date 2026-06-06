@@ -26,6 +26,7 @@ class _ChatScreenState extends State<ChatScreen> {
   ];
   String? _selectedDistrict;
   String? _selectedCrop;
+  String _selectedModel = 'accurate';
 
   final List<String> _districts = [
     'Nuwara Eliya',
@@ -76,6 +77,8 @@ class _ChatScreenState extends State<ChatScreen> {
           userId: userId,
           district: _selectedDistrict,
           crop: _selectedCrop,
+          model: _selectedModel,
+          language: 'auto',
         ),
       );
 
@@ -201,27 +204,32 @@ class _ChatScreenState extends State<ChatScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       color: Colors.grey[100],
-      child: Row(
-        children: [
-          const Text(
-            'Context:',
-            style: TextStyle(fontSize: 12, color: Colors.grey),
-          ),
-          const SizedBox(width: 8),
-          _buildContextChip(
-            'District',
-            _selectedDistrict,
-            _districts,
-            (v) => setState(() => _selectedDistrict = v),
-          ),
-          const SizedBox(width: 8),
-          _buildContextChip(
-            'Crop',
-            _selectedCrop,
-            _crops,
-            (v) => setState(() => _selectedCrop = v),
-          ),
-        ],
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            const Text(
+              'Context:',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(width: 8),
+            _buildContextChip(
+              'District',
+              _selectedDistrict,
+              _districts,
+              (v) => setState(() => _selectedDistrict = v),
+            ),
+            const SizedBox(width: 8),
+            _buildContextChip(
+              'Crop',
+              _selectedCrop,
+              _crops,
+              (v) => setState(() => _selectedCrop = v),
+            ),
+            const SizedBox(width: 8),
+            _buildModelToggle(),
+          ],
+        ),
       ),
     );
   }
@@ -285,6 +293,48 @@ class _ChatScreenState extends State<ChatScreen> {
               color: selected != null ? AppTheme.primary : Colors.grey,
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModelToggle() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey[300]!),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildModelOption('fast', '⚡ Fast'),
+          _buildModelOption('accurate', '🎯 Accurate'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModelOption(String value, String label) {
+    final isSelected = _selectedModel == value;
+    return GestureDetector(
+      onTap: () => setState(() => _selectedModel = value),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppTheme.primary.withValues(alpha: 0.1)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+          border: isSelected ? Border.all(color: AppTheme.primary) : null,
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: isSelected ? AppTheme.primary : Colors.grey[600],
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+          ),
         ),
       ),
     );

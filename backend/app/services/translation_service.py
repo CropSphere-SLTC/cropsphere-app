@@ -10,7 +10,6 @@ Features:
 """
 
 import logging
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +26,8 @@ LANGUAGE_NAMES = {
 
 # System prompt instructions per language
 LANGUAGE_PROMPTS = {
-    "si": "ඔබ සිංහල භාෂාවෙන් පමණක් පිළිතුරු දිය යුතුය. කිසිදු ඉංග්‍රීසි වචනයක් භාවිතා නොකරන්න.",
-    "ta": "நீங்கள் தமிழ் மொழியில் மட்டுமே பதில் அளிக்க வேண்டும். எந்த ஆங்கில வார்த்தைகளையும் பயன்படுத்த வேண்டாம்.",
+    "si": "ඔබ සිංහල භාෂාවෙන් පමණක් පිළිතුරු දිය යුතුය. කිසිදු ඉංග්‍රීසි වචනයක් භාවිතා නොකරන්න.",  # noqa: E501
+    "ta": "நீங்கள் தமிழ் மொழியில் மட்டுமே பதில் அளிக்க வேண்டும். எந்த ஆங்கில வார்த்தைகளையும் பயன்படுத்த வேண்டாம்.",  # noqa: E501
     "en": "Respond in English.",
 }
 
@@ -39,7 +38,7 @@ def detect_language(text: str) -> str:
     Returns: "en", "si", "ta", or "en" as fallback.
     """
     try:
-        from langdetect import detect, LangDetectException
+        from langdetect import detect
 
         lang = detect(text)
         # langdetect returns "si" for Sinhala, "ta" for Tamil
@@ -87,7 +86,8 @@ def translate_cached(text: str, source_lang: str, target_lang: str) -> str:
         # Store in cache
         _translation_cache[cache_key] = translated
         logger.info(
-            f"Translated {source_lang}→{target_lang}, cached ({len(_translation_cache)} entries)"
+            f"Translated {source_lang}→{target_lang}, "
+            f"cached ({len(_translation_cache)} entries)"
         )
         return translated
     except Exception as e:

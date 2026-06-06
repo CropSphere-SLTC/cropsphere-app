@@ -35,9 +35,6 @@ jobs:
           head: ${{ github.sha }}
 
   codeql:
-    - name: Create local.properties
-      run: |
-        echo "sdk.dir=$ANDROID_HOME" > frontend/android/local.properties
     name: 🔍 CodeQL Deep SAST (Python + Dart)
     runs-on: ubuntu-latest
     needs: secret-scan

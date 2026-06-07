@@ -225,7 +225,6 @@ class ChatRequest(BaseModel):
     district: Optional[DistrictEnum] = None
     crop: Optional[CropEnum] = None
     model: str = Field(default="accurate", pattern="^(fast|accurate)$")
-    language: str = Field(default="auto", pattern="^(auto|en|si|ta)$")
 
 
 class ChatResponse(BaseModel):

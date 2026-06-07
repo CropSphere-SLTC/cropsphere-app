@@ -452,6 +452,8 @@ class ChatRequest {
   final String userId;
   final String? district;
   final String? crop;
+  final String model;
+  final String language;
 
   ChatRequest({
     required this.message,
@@ -459,6 +461,8 @@ class ChatRequest {
     required this.userId,
     this.district,
     this.crop,
+    this.model = 'accurate',
+    this.language = 'auto',
   });
 
   Map<String, dynamic> toJson() => {
@@ -467,6 +471,8 @@ class ChatRequest {
     'user_id': userId,
     if (district != null) 'district': district,
     if (crop != null) 'crop': crop,
+    'model': model,
+    'language': language,
   };
 }
 

@@ -61,12 +61,6 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
 
     # ── Language detection ──────────────────────────────────────────────────
     # If user specified language explicitly, use it; otherwise auto-detect
-    if req.language and req.language != "auto":
-        detected_lang = req.language
-        logger.info(f"Language explicitly set: {detected_lang}")
-    else:
-        detected_lang = detect_language(clean)
-        logger.info(f"Language auto-detected: {detected_lang}")
 
     # ── Model selection ─────────────────────────────────────────────────────
     groq_model = _GROQ_MODELS.get(req.model, _GROQ_MODELS["accurate"])
@@ -82,7 +76,7 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
 
         # Build messages with language instruction injected into system prompt
         messages = _build_messages(
-            _system_prompt(req, detected_lang), context, req, clean
+            _system_prompt(req), context, req, clean
         )
 
         response = client.chat.completions.create(
@@ -94,17 +88,11 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
         reply = response.choices[0].message.content
 
         # Cache the reply for future repeated questions
-        if detected_lang != "en":
-            translate_cached(reply, "en", detected_lang)
-
-        # Log cache stats periodically
-        stats = get_cache_stats()
-        logger.info(f"Translation cache: {stats['total_entries']} entries")
 
         return ChatResponse(
             reply=reply,
             sources_used=context["sources"],
-            suggested_followups=_followups(req, detected_lang),
+            suggested_followups=_followups(req),
         )
     except Exception as exc:
         logger.error("Chatbot error user=%s: %s", req.user_id, type(exc).__name__)
@@ -147,13 +135,12 @@ def _strip_html(text: str) -> str:
     return stripper.get_text()
 
 
-def _system_prompt(req: ChatRequest, detected_lang: str = "en") -> str:
+def _system_prompt(req: ChatRequest) -> str:
     """Build system prompt with language instruction injected."""
     district = f" The farmer is in {req.district.value}." if req.district else ""
     crop = f" They are asking about {req.crop.value}." if req.crop else ""
 
     # Get language-specific instruction
-    lang_instruction = get_language_system_prompt(detected_lang)
 
     base = (
         "You are CropSphere, an agricultural assistant for Sri Lankan farmers. "
@@ -162,10 +149,6 @@ def _system_prompt(req: ChatRequest, detected_lang: str = "en") -> str:
     )
 
     # Append language instruction — this is the key feature
-    # LLaMA responds in the user's language without needing input translation
-    if detected_lang != "en":
-        return f"{base} {lang_instruction}"
-
     return base
 
 
@@ -208,7 +191,7 @@ def _build_messages(system: str, context: dict, req: ChatRequest, message: str) 
     return msgs
 
 
-def _followups(req: ChatRequest, detected_lang: str = "en") -> list:
+def _followups(req: ChatRequest) -> list:
     """Generate follow-up suggestions in the detected language."""
     crop = req.crop.value if req.crop else "crops"
     district = req.district.value if req.district else "your area"
@@ -219,10 +202,6 @@ def _followups(req: ChatRequest, detected_lang: str = "en") -> list:
         f"What are current market prices for {crop}?",
         "How can I improve my soil quality?",
     ]
-
-    # For non-English, cache the translations for reuse
-    if detected_lang != "en":
-        return [translate_cached(f, "en", detected_lang) for f in followups_en]
 
     return followups_en
 

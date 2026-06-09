@@ -13,12 +13,6 @@ from html.parser import HTMLParser
 
 from app.models.loader import model_loader
 from app.models.schemas import ChatRequest, ChatResponse
-from app.services.translation_service import (
-    detect_language,
-    get_language_system_prompt,
-    translate_cached,
-    get_cache_stats,
-)
 from app.utils.firestore import audit_log
 
 logger = logging.getLogger(__name__)

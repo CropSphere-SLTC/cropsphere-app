@@ -34,8 +34,21 @@ class ApiService {
           return handler.next(options);
         },
         onError: (DioException error, ErrorInterceptorHandler handler) async {
-          // Never auto-signout on 401 — this would redirect the user to
-          // LoginScreen instead of showing the error on the prediction screen.
+          if (error.response?.statusCode == 401) {
+            final user = FirebaseAuth.instance.currentUser;
+            if (user != null) {
+              try {
+                // Token may have expired — force a refresh and retry once.
+                final newToken = await user.getIdToken(true);
+                final opts = error.requestOptions;
+                opts.headers['Authorization'] = 'Bearer $newToken';
+                final response = await _dio.fetch(opts);
+                return handler.resolve(response);
+              } catch (_) {
+                // Retry failed — fall through to original error.
+              }
+            }
+          }
           return handler.next(error);
         },
       ),

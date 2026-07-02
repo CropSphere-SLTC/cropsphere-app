@@ -4,6 +4,7 @@
 
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import '../config/app_config.dart';
 import '../models/admin_models.dart';
 
@@ -57,11 +58,40 @@ class AdminService {
   }
 
   // Gates the Admin nav item — 200 means admin/superadmin, 403 means not.
+  //
+  // /api/admin/stats is capped at 10 req/min server-side. This same endpoint
+  // is hit here (nav check) AND by the dashboard's own stats load, so a 429
+  // is a real possibility during normal use (e.g. hot-restarts in dev, or a
+  // quick nav-check-then-open-dashboard sequence) — it does NOT mean the
+  // user isn't an admin. Only a 403 is a definitive "not admin" signal;
+  // a 429 gets one retry after the server's Retry-After window.
   Future<bool> checkAdminAccess() async {
     try {
       final response = await _dio.get('/api/admin/stats');
       return response.statusCode == 200;
-    } catch (_) {
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      if (status == 429) {
+        final retryAfter = int.tryParse(
+              e.response?.headers.value('retry-after') ?? '',
+            ) ??
+            3;
+        debugPrint(
+          'AdminService.checkAdminAccess: rate limited, retrying in ${retryAfter}s',
+        );
+        await Future.delayed(Duration(seconds: retryAfter));
+        try {
+          final retryResponse = await _dio.get('/api/admin/stats');
+          return retryResponse.statusCode == 200;
+        } catch (retryError) {
+          debugPrint('AdminService.checkAdminAccess retry failed: $retryError');
+          return false;
+        }
+      }
+      debugPrint('AdminService.checkAdminAccess denied: HTTP $status');
+      return false;
+    } catch (e) {
+      debugPrint('AdminService.checkAdminAccess failed: $e');
       return false;
     }
   }

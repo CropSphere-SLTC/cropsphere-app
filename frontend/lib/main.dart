@@ -87,7 +87,7 @@ class MainShell extends StatefulWidget {
   State<MainShell> createState() => _MainShellState();
 }
 
-class _MainShellState extends State<MainShell> {
+class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   int _selectedIndex = 0;
   bool _isAdmin = false;
 
@@ -109,7 +109,27 @@ class _MainShellState extends State<MainShell> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _checkAdminAccess();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // A role change made by a superadmin elsewhere (e.g. promoting this same
+  // account to admin) never reaches an already-open session on its own —
+  // checkAdminAccess() only ran once, in initState(). Re-run it whenever the
+  // app comes back to the foreground, and whenever the user taps Home, so a
+  // freshly granted (or revoked) admin role is picked up without requiring a
+  // full app restart.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkAdminAccess();
+    }
   }
 
   Future<void> _checkAdminAccess() async {
@@ -117,7 +137,10 @@ class _MainShellState extends State<MainShell> {
     if (mounted) setState(() => _isAdmin = isAdmin);
   }
 
-  void _navigateTo(int index) => setState(() => _selectedIndex = index);
+  void _navigateTo(int index) {
+    setState(() => _selectedIndex = index);
+    if (index == 0) _checkAdminAccess();
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -15,7 +15,8 @@ class AdminDashboardScreen extends StatefulWidget {
   State<AdminDashboardScreen> createState() => _AdminDashboardScreenState();
 }
 
-class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
+class _AdminDashboardScreenState extends State<AdminDashboardScreen>
+    with SingleTickerProviderStateMixin {
   final _admin = AdminService();
 
   bool _loading = true;
@@ -23,10 +24,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   AdminStats? _stats;
   List<AdminUser> _users = [];
   List<AuditLog> _logs = [];
+  List<Map<String, dynamic>> _predictionLogs = [];
 
   String? _statsError;
   String? _usersError;
   String? _logsError;
+  String? _predictionLogsError;
+
+  late final TabController _logsTabController;
 
   // uids currently mid-action — disables their row controls
   final Set<String> _busyUids = {};
@@ -36,21 +41,42 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   @override
   void initState() {
     super.initState();
+    _logsTabController = TabController(length: 2, vsync: this)
+      ..addListener(() {
+        // Only rebuild once the tap/swipe settles on the new tab.
+        if (!_logsTabController.indexIsChanging) setState(() {});
+      });
     _loadAll();
+  }
+
+  @override
+  void dispose() {
+    _logsTabController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadAll() async {
     setState(() => _loading = true);
-    await Future.wait([_loadStats(), _loadUsers(), _loadLogs()]);
+    await Future.wait([
+      _loadStats(),
+      _loadUsers(),
+      _loadLogs(),
+      _loadPredictionLogs(),
+    ]);
     if (mounted) setState(() => _loading = false);
   }
 
-  // Header refresh button — reloads all 4 sections without blanking the
+  // Header refresh button — reloads all sections without blanking the
   // whole screen (unlike _loadAll, which drives the pull-to-refresh spinner).
   Future<void> _refreshAll() async {
     if (_headerRefreshing) return;
     setState(() => _headerRefreshing = true);
-    await Future.wait([_loadStats(), _loadUsers(), _loadLogs()]);
+    await Future.wait([
+      _loadStats(),
+      _loadUsers(),
+      _loadLogs(),
+      _loadPredictionLogs(),
+    ]);
     if (mounted) setState(() => _headerRefreshing = false);
   }
 
@@ -133,6 +159,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       }
     } catch (e) {
       if (mounted) setState(() => _logsError = _errorMessage(e));
+    }
+  }
+
+  Future<void> _loadPredictionLogs() async {
+    try {
+      final logs = await _admin.getPredictionLogs();
+      if (mounted) {
+        setState(() {
+          _predictionLogs = logs;
+          _predictionLogsError = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _predictionLogsError = _errorMessage(e));
     }
   }
 
@@ -223,6 +263,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   String _truncate(String id) => id.length <= 10 ? id : '${id.substring(0, 8)}…';
 
+  String _truncateHash(String hash) =>
+      hash.length <= 12 ? hash : hash.substring(0, 12);
+
+  String _formatDetails(Map<String, dynamic> details) {
+    if (details.isEmpty) return '—';
+    return details.entries.map((e) => '${e.key}: ${e.value}').join(', ');
+  }
+
   String _formatTimestamp(String iso) {
     final dt = DateTime.tryParse(iso);
     if (dt == null) return iso;
@@ -275,12 +323,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     else
                       _buildUsersTable(),
                     const SizedBox(height: 24),
-                    _sectionTitle('Audit Logs'),
+                    _sectionTitle('Logs'),
                     const SizedBox(height: 10),
-                    if (_logsError != null)
-                      _buildErrorCard(_logsError!)
-                    else
-                      _buildAuditLogsTable(),
+                    _buildLogsTabBar(),
+                    const SizedBox(height: 10),
+                    _logsTabController.index == 0
+                        ? (_logsError != null
+                              ? _buildErrorCard(_logsError!)
+                              : _buildAuditLogsTable())
+                        : (_predictionLogsError != null
+                              ? _buildErrorCard(_predictionLogsError!)
+                              : _buildPredictionLogsTable()),
                     const SizedBox(height: 20),
                   ],
                 ),
@@ -538,54 +591,51 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         padding: const EdgeInsets.all(8),
         child: DataTable(
           columns: const [
+            DataColumn(label: Text('No.')),
             DataColumn(label: Text('UID')),
             DataColumn(label: Text('Email')),
             DataColumn(label: Text('Role')),
-            DataColumn(label: Text('Banned')),
+            DataColumn(label: Text('Status')),
             DataColumn(label: Text('Actions')),
           ],
-          rows: _users.map((user) {
+          rows: _users.asMap().entries.map((entry) {
+            final rowNumber = entry.key + 1;
+            final user = entry.value;
             final busy = _busyUids.contains(user.uid);
             return DataRow(
               cells: [
+                DataCell(Text('$rowNumber')),
                 DataCell(
                   Tooltip(message: user.uid, child: Text(_truncate(user.uid))),
                 ),
                 DataCell(Text(user.email)),
                 DataCell(
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: _roleColor(user.role).withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      user.role,
-                      style: TextStyle(
-                        color: _roleColor(user.role),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ),
-                DataCell(
-                  Icon(
-                    user.isBanned ? Icons.block : Icons.check_circle_outline,
-                    color: user.isBanned ? AppTheme.error : AppTheme.success,
-                    size: 20,
-                  ),
-                ),
-                DataCell(
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _roleColor(user.role).withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          user.role,
+                          style: TextStyle(
+                            color: _roleColor(user.role),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
                       DropdownButton<String>(
                         value: user.role,
                         underline: const SizedBox.shrink(),
+                        isDense: true,
                         items: _roles
                             .map(
                               (r) =>
@@ -598,27 +648,48 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                 if (r != null) _changeRole(user, r);
                               },
                       ),
-                      IconButton(
-                        tooltip: user.isBanned ? 'Unban' : 'Ban',
-                        icon: Icon(
-                          user.isBanned
-                              ? Icons.lock_open
-                              : Icons.block,
-                          size: 20,
-                          color: user.isBanned
+                    ],
+                  ),
+                ),
+                DataCell(
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: user.isBanned ? AppTheme.error : AppTheme.success,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      user.isBanned ? 'Banned' : 'Active',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+                DataCell(
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextButton(
+                        onPressed: busy ? null : () => _toggleBan(user),
+                        style: TextButton.styleFrom(
+                          foregroundColor: user.isBanned
                               ? AppTheme.success
                               : AppTheme.warning,
                         ),
-                        onPressed: busy ? null : () => _toggleBan(user),
+                        child: Text(user.isBanned ? 'Unban' : 'Ban'),
                       ),
-                      IconButton(
-                        tooltip: 'Delete',
-                        icon: const Icon(
-                          Icons.delete_outline,
-                          size: 20,
-                          color: AppTheme.error,
-                        ),
+                      TextButton(
                         onPressed: busy ? null : () => _confirmDelete(user),
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppTheme.error,
+                        ),
+                        child: const Text('Delete'),
                       ),
                     ],
                   ),
@@ -631,7 +702,28 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
   }
 
-  // ── Section 4: Audit logs table ───────────────────────────────────────────
+  // ── Section 4: Logs (tabbed) ──────────────────────────────────────────────
+  Widget _buildLogsTabBar() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFE0EBE0)),
+      ),
+      child: TabBar(
+        controller: _logsTabController,
+        labelColor: AppTheme.primary,
+        unselectedLabelColor: AppTheme.textSecondary,
+        indicatorColor: AppTheme.primary,
+        tabs: const [
+          Tab(text: 'Admin Actions'),
+          Tab(text: 'Prediction Logs'),
+        ],
+      ),
+    );
+  }
+
+  // Tab 1 — admin actions, from GET /api/admin/audit-logs
   Widget _buildAuditLogsTable() {
     if (_logs.isEmpty) {
       return _buildEmptyCard('No audit logs found');
@@ -649,8 +741,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             DataColumn(label: Text('Actor Role')),
             DataColumn(label: Text('Action')),
             DataColumn(label: Text('Target UID')),
+            DataColumn(label: Text('Details')),
           ],
           rows: _logs.map((log) {
+            final detailsText = _formatDetails(log.details);
             return DataRow(
               cells: [
                 DataCell(Text(_formatTimestamp(log.timestamp))),
@@ -676,6 +770,60 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     child: Text(
                       log.targetUid.isEmpty ? '—' : _truncate(log.targetUid),
                     ),
+                  ),
+                ),
+                DataCell(
+                  Tooltip(
+                    message: detailsText,
+                    child: SizedBox(
+                      width: 180,
+                      child: Text(
+                        detailsText,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  // Tab 2 — prediction logs, from GET /api/admin/prediction-logs
+  Widget _buildPredictionLogsTable() {
+    if (_predictionLogs.isEmpty) {
+      return _buildEmptyCard('No prediction logs found');
+    }
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.all(8),
+        child: DataTable(
+          columns: const [
+            DataColumn(label: Text('Timestamp')),
+            DataColumn(label: Text('User ID')),
+            DataColumn(label: Text('Endpoint')),
+            DataColumn(label: Text('Input Hash')),
+          ],
+          rows: _predictionLogs.map((log) {
+            final timestamp = log['timestamp']?.toString() ?? '';
+            final userId = log['user_id']?.toString() ?? '';
+            final endpoint = log['endpoint']?.toString() ?? '';
+            final inputHash = log['input_hash']?.toString() ?? '';
+            return DataRow(
+              cells: [
+                DataCell(Text(_formatTimestamp(timestamp))),
+                DataCell(Text(userId)),
+                DataCell(Text(endpoint)),
+                DataCell(
+                  Tooltip(
+                    message: inputHash,
+                    child: Text(_truncateHash(inputHash)),
                   ),
                 ),
               ],

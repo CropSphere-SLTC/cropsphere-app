@@ -97,4 +97,10 @@ class AdminService {
     final logs = response.data['logs'] as List;
     return logs.map((l) => AuditLog.fromJson(l)).toList();
   }
+
+  Future<List<Map<String, dynamic>>> getPredictionLogs() async {
+    final response = await _dio.get('/api/admin/prediction-logs');
+    final logs = response.data['logs'] as List;
+    return logs.map((l) => Map<String, dynamic>.from(l)).toList();
+  }
 }

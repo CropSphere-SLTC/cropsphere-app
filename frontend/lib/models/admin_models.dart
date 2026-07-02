@@ -63,6 +63,7 @@ class AuditLog {
   final String action;
   final String targetUid;
   final String timestamp;
+  final Map<String, dynamic> details;
 
   AuditLog({
     required this.actorUid,
@@ -70,6 +71,7 @@ class AuditLog {
     required this.action,
     required this.targetUid,
     required this.timestamp,
+    required this.details,
   });
 
   factory AuditLog.fromJson(Map<String, dynamic> json) => AuditLog(
@@ -78,5 +80,6 @@ class AuditLog {
     action: json['action'] ?? '',
     targetUid: json['target_uid'] ?? '',
     timestamp: json['timestamp'] ?? '',
+    details: Map<String, dynamic>.from(json['details'] ?? {}),
   );
 }

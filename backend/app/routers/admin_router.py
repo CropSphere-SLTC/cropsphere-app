@@ -268,3 +268,29 @@ def get_audit_logs(
     except Exception as exc:
         logger.error(f"get_audit_logs failed: {exc}")
         raise HTTPException(status_code=500, detail="Failed to fetch audit logs")
+
+@router.get("/prediction-logs", dependencies=[Depends(require_admin)])
+def get_prediction_logs(
+    limit: int = 50,
+    actor: dict = Depends(get_current_role),
+):
+    """Return prediction audit logs from audit_logs collection."""
+    try:
+        from app.utils.firestore import get_db
+        db = get_db()
+        query = (
+            db.collection("audit_logs")
+            .order_by("timestamp", direction="DESCENDING")
+            .limit(limit)
+        )
+        logs = []
+        for doc in query.stream():
+            data = doc.to_dict()
+            if "timestamp" in data:
+                data["timestamp"] = data["timestamp"].isoformat()
+            logs.append(data)
+        return {"logs": logs, "total": len(logs)}
+    except Exception as exc:
+        logger.error(f"get_prediction_logs failed: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to fetch prediction logs")
+    

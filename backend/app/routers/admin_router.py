@@ -2,12 +2,12 @@
 import logging
 import psutil
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Dict
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.middleware.roles import require_admin, require_superadmin, get_current_role
+from app.middleware.roles import require_admin, get_current_role
 
 logger = logging.getLogger(__name__)
 

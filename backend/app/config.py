@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     # Superadmin — hardcoded UID, cannot be changed via Firestore
     SUPERADMIN_UID: str = ""
 
+    # Admin API — set False to disable /api/admin/* routes without a redeploy
+    ENABLE_ADMIN_API: bool = True
+
     # CORS — comma-separated list of allowed frontend origins
     ALLOWED_ORIGINS: str = "http://localhost:3000"
 

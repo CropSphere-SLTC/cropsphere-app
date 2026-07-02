@@ -13,8 +13,7 @@ from app.middleware.auth import FirebaseAuthMiddleware
 from app.middleware.rate_limit import limiter
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.models.loader import model_loader
-from app.routers import (
-    admin_router,
+from app.user.routers import (
     chat_router,
     demand_router,
     health_router,
@@ -23,6 +22,7 @@ from app.routers import (
     weather_router,
     yield_router,
 )
+from app.admin.routers import admin_router
 from app.utils.firestore import init_firestore
 from app.utils.logger import setup_logging
 
@@ -93,7 +93,8 @@ def create_app() -> FastAPI:
     app.include_router(demand_router.router)
     app.include_router(recommend_router.router)
     app.include_router(chat_router.router)
-    app.include_router(admin_router.router)
+    if settings.ENABLE_ADMIN_API:
+        app.include_router(admin_router.router)
 
     return app
 

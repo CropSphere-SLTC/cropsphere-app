@@ -31,8 +31,12 @@ def require_admin(uid: str = Depends(get_current_uid)) -> str:
     from app.utils.firestore import get_user_role
     role = get_user_role(uid)
     if role == "banned":
+        logger.warning("require_admin denied uid=%s — account banned", uid)
         raise HTTPException(status_code=403, detail="Account banned")
     if role not in ("admin", "superadmin"):
+        logger.warning(
+            "require_admin denied uid=%s — resolved role=%s", uid, role
+        )
         raise HTTPException(status_code=403, detail="Admin access required")
     return uid
 
@@ -42,6 +46,9 @@ def require_superadmin(uid: str = Depends(get_current_uid)) -> str:
     from app.utils.firestore import get_user_role
     role = get_user_role(uid)
     if role != "superadmin":
+        logger.warning(
+            "require_superadmin denied uid=%s — resolved role=%s", uid, role
+        )
         raise HTTPException(status_code=403, detail="Superadmin access required")
     return uid
 

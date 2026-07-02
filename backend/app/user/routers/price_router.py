@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from app.dependencies import get_user_id
 from app.middleware.rate_limit import limiter
 from app.models.schemas import PricePredictRequest, PricePredictResponse
-from app.services.price_service import predict_price
+from app.user.services.price_service import predict_price
 from app.utils.firestore import audit_log
 
 router = APIRouter(prefix="/api/price", tags=["price"])

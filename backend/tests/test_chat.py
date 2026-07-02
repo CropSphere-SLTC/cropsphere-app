@@ -25,7 +25,7 @@ def _mock_chat_response():
 
 def test_valid_input_returns_200(client, mock_valid_token, valid_auth_header):
     with patch(
-        "app.routers.chat_router.chat",
+        "app.user.routers.chat_router.chat",
         return_value=_mock_chat_response(),
     ):
         resp = client.post(URL, json=VALID, headers=valid_auth_header)
@@ -66,7 +66,7 @@ def test_mock_response_when_model_not_loaded(
 ):
     """Groq/RAG unavailable → service raises RuntimeError → 500."""
     with patch(
-        "app.routers.chat_router.chat",
+        "app.user.routers.chat_router.chat",
         side_effect=RuntimeError("Chatbot unavailable"),
     ):
         resp = client.post(URL, json=VALID, headers=valid_auth_header)

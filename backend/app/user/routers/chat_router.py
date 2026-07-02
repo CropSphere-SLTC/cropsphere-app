@@ -6,7 +6,7 @@ from app.config import get_settings
 from app.dependencies import get_user_id
 from app.middleware.rate_limit import limiter
 from app.models.schemas import ChatRequest, ChatResponse
-from app.services.chatbot_service import chat
+from app.user.services.chatbot_service import chat
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 

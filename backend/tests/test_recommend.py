@@ -40,7 +40,7 @@ def _mock_recommend_response():
 
 def test_valid_input_returns_200(client, mock_valid_token, valid_auth_header):
     with patch(
-        "app.services.recommend_service.get_recommendations",
+        "app.user.services.recommend_service.get_recommendations",
         return_value=_mock_recommend_response(),
     ), patch("app.utils.firestore.audit_log"):
         resp = client.post(URL, json=VALID, headers=valid_auth_header)

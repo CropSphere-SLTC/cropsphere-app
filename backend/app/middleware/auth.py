@@ -84,7 +84,15 @@ def _verify(token: str) -> Optional[str]:
             )
 
         decoded = fb_auth.verify_id_token(token)
-        return decoded.get("uid")
+        uid = decoded.get("uid")
+        email = decoded.get("email", "")
+        # Create user document in Firestore if first login
+        try:
+            from app.utils.firestore import get_or_create_user
+            get_or_create_user(uid, email)
+        except Exception:
+            pass  # Never block auth for Firestore failures
+        return uid
     except Exception as exc:
         logger.warning(
             "JWT verification failed: %s — %s",

@@ -23,6 +23,8 @@ import 'screens/weather/weather_screen.dart';
 import 'screens/demand/demand_screen.dart';
 import 'screens/recommend/recommend_screen.dart';
 import 'screens/chat/chat_screen.dart';
+import 'screens/admin/admin_dashboard_screen.dart';
+import 'services/admin_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -87,8 +89,9 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _selectedIndex = 0;
+  bool _isAdmin = false;
 
-  late final List<Widget> _screens = [
+  late final List<Widget> _baseScreens = [
     DashboardScreen(onNavigate: _navigateTo), // 0
     YieldScreen(onNavigate: _navigateTo), // 1
     const PriceScreen(), // 2
@@ -98,20 +101,40 @@ class _MainShellState extends State<MainShell> {
     const ChatScreen(), // 6
   ];
 
+  List<Widget> get _screens => [
+    ..._baseScreens,
+    if (_isAdmin) const AdminDashboardScreen(), // 7 — admin/superadmin only
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _checkAdminAccess();
+  }
+
+  Future<void> _checkAdminAccess() async {
+    final isAdmin = await AdminService().checkAdminAccess();
+    if (mounted) setState(() => _isAdmin = isAdmin);
+  }
+
   void _navigateTo(int index) => setState(() => _selectedIndex = index);
 
   @override
   Widget build(BuildContext context) {
     // Rebuild nav labels when language changes
     final lang = AppLangProvider.lang(context);
+    // Selected index may point past the Admin tab if role finishes loading
+    // after a later tab was chosen — clamp defensively.
+    final safeIndex = _selectedIndex < _screens.length ? _selectedIndex : 0;
 
     return Scaffold(
       backgroundColor: const Color(0xFFFAFFF5),
-      body: IndexedStack(index: _selectedIndex, children: _screens),
+      body: IndexedStack(index: safeIndex, children: _screens),
       bottomNavigationBar: _CropBottomNav(
-        selectedIndex: _selectedIndex,
+        selectedIndex: safeIndex,
         onTap: _navigateTo,
         lang: lang,
+        showAdmin: _isAdmin,
       ),
     );
   }
@@ -128,11 +151,13 @@ class _CropBottomNav extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onTap;
   final AppLang lang;
+  final bool showAdmin;
 
   const _CropBottomNav({
     required this.selectedIndex,
     required this.onTap,
     required this.lang,
+    this.showAdmin = false,
   });
 
   static const _labelsEn = [
@@ -143,6 +168,7 @@ class _CropBottomNav extends StatelessWidget {
     'Crop',
     'Demand',
     'Chat',
+    'Admin',
   ];
   static const _labelsSi = [
     'මුල',
@@ -152,6 +178,7 @@ class _CropBottomNav extends StatelessWidget {
     'භෝග',
     'ඉල්ලුම',
     'AI',
+    'පරිපාලක',
   ];
   static const _labelsTa = [
     'முகப்பு',
@@ -161,6 +188,7 @@ class _CropBottomNav extends StatelessWidget {
     'பயிர்',
     'தேவை',
     'AI',
+    'நிர்வாகி',
   ];
 
   static const _activeBg = [
@@ -171,6 +199,7 @@ class _CropBottomNav extends StatelessWidget {
     Color(0xFFF3E5F5), // Crop
     Color(0xFFE8EAF6), // Demand
     Color(0xFFE0F2F1), // Chat
+    Color(0xFFFFEBEE), // Admin
   ];
 
   static const _activeColor = [
@@ -181,6 +210,7 @@ class _CropBottomNav extends StatelessWidget {
     Color(0xFF6A1B9A),
     Color(0xFF283593),
     Color(0xFF004D40),
+    Color(0xFFC62828), // Admin
   ];
 
   List<String> get _labels => switch (lang) {
@@ -192,6 +222,7 @@ class _CropBottomNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final labels = _labels;
+    final itemCount = showAdmin ? 8 : 7;
     return Container(
       decoration: const BoxDecoration(
         color: Colors.white,
@@ -209,7 +240,7 @@ class _CropBottomNav extends StatelessWidget {
         child: SizedBox(
           height: 62,
           child: Row(
-            children: List.generate(7, (i) {
+            children: List.generate(itemCount, (i) {
               final active = selectedIndex == i;
               return Expanded(
                 child: InkWell(
@@ -324,6 +355,11 @@ class _CropBottomNav extends StatelessWidget {
             '<circle cx="16.5" cy="17.5" r="1.8" fill="$c" opacity="0.7"/>'
             '<path d="M10 7L12 3L14 7" stroke="$c" stroke-width="1.6" stroke-linecap="round" fill="none"/>'
             '<line x1="12" y1="3" x2="12" y2="9" stroke="$c" stroke-width="1.6" stroke-linecap="round"/>'
+            '</svg>',
+      7 => // Admin — shield with checkmark
+        '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
+            '<path d="M12 2L20 5V11C20 16 16.5 20.5 12 22C7.5 20.5 4 16 4 11V5L12 2Z" fill="$c" opacity="0.85"/>'
+            '<path d="M8.5 12L11 14.5L16 9" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>'
             '</svg>',
       _ => // AI Chat — speech bubble + star badge
         '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'

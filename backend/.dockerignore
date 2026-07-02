@@ -1,10 +1,48 @@
-.env
+# Git
 .git
+.gitignore
+
+# Python cache
 __pycache__
 *.pyc
 *.pyo
-tests/
+*.pyd
 .pytest_cache
-models/files/*.png
+.coverage
+htmlcov
+
+# Virtual environments
+venv
+.venv
+env
+
+# Environment files (secrets must never be in image)
+.env
+.env.local
+
+# IDE
+.vscode
+.idea
+*.swp
+
+# Tests
+tests/
+
+# Docs
+*.md
+README.md
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# CSV data files (not needed in production image, used for testing only)
 models/files/*.csv
-models/files/github-recovery-codes.txt

@@ -54,7 +54,7 @@ def init_firestore(credentials_json: str, project_id: str) -> None:
             cred = credentials.Certificate(credentials_json)
         firebase_admin.initialize_app(cred, {"projectId": project_id})
 
-    _db = firestore.client()
+    _db = firestore.client(database_id="cropsphere-database")
     logger.info("Firestore initialised for project: %s", project_id)
 
 

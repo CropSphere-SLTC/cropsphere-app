@@ -1,93 +1,53 @@
-from typing import Dict, Any
-from datetime import datetime, timezone
-from app.dependencies import get_db
-from app.utils.logger import logger
+"""Role-based access control dependencies for FastAPI endpoints."""
+import logging
+from fastapi import Depends, HTTPException, Request
+
+logger = logging.getLogger(__name__)
 
 
-def get_or_create_user(uid: str, email: str = "") -> Dict[str, Any]:
-    """Get user document from Firestore or create it if it doesn't exist.
-    New users get role 'user' by default.
-    Superadmin UID gets role 'superadmin' automatically.
-    """
+def get_current_uid(request: Request) -> str:
+    """Extract UID from request state (set by FirebaseAuthMiddleware)."""
+    uid = getattr(request.state, "user_id", None)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return uid
+
+
+def require_user(uid: str = Depends(get_current_uid)) -> str:
+    """Allow any authenticated non-banned user."""
+    from app.utils.firestore import is_user_banned
     try:
-        from app.config import get_settings
-        db = get_db()
-        ref = db.collection("users").document(uid)
-        doc = ref.get()
-        if doc.exists:
-            return doc.to_dict()
-        # Determine role — superadmin UID always gets superadmin role
-        settings = get_settings()
-        role = "superadmin" if uid == settings.SUPERADMIN_UID else "user"
-        user_data = {
-            "uid": uid,
-            "email": email,
-            "role": role,
-            "is_banned": False,
-            "created_at": datetime.now(timezone.utc),
-        }
-        ref.set(user_data)
-        logger.info(f"Created user document: uid={uid} role={role}")
-        return user_data
-    except Exception as exc:
-        logger.error(f"get_or_create_user failed: {exc}")
-        return {"uid": uid, "role": "user", "is_banned": False}
+        if is_user_banned(uid):
+            raise HTTPException(status_code=403, detail="Account banned")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+    return uid
 
 
-def get_user_role(uid: str) -> str:
-    """Get user role from Firestore. Returns 'user' as safe fallback."""
-    try:
-        from app.config import get_settings
-        settings = get_settings()
-        # Superadmin UID always returns superadmin regardless of Firestore
-        if uid == settings.SUPERADMIN_UID:
-            return "superadmin"
-        db = get_db()
-        doc = db.collection("users").document(uid).get()
-        if doc.exists:
-            data = doc.to_dict()
-            if data.get("is_banned"):
-                return "banned"
-            return data.get("role", "user")
-        return "user"
-    except Exception as exc:
-        logger.error(f"get_user_role failed: {exc}")
-        return "user"
+def require_admin(uid: str = Depends(get_current_uid)) -> str:
+    """Allow admin and superadmin only. Returns 403 for regular users."""
+    from app.utils.firestore import get_user_role
+    role = get_user_role(uid)
+    if role == "banned":
+        raise HTTPException(status_code=403, detail="Account banned")
+    if role not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return uid
 
 
-def is_user_banned(uid: str) -> bool:
-    """Check if user is banned."""
-    try:
-        db = get_db()
-        doc = db.collection("users").document(uid).get()
-        if doc.exists:
-            return doc.to_dict().get("is_banned", False)
-        return False
-    except Exception as exc:
-        logger.error(f"is_user_banned failed: {exc}")
-        return False
+def require_superadmin(uid: str = Depends(get_current_uid)) -> str:
+    """Allow superadmin only."""
+    from app.utils.firestore import get_user_role
+    role = get_user_role(uid)
+    if role != "superadmin":
+        raise HTTPException(status_code=403, detail="Superadmin access required")
+    return uid
 
 
-def admin_audit_log(
-    actor_uid: str,
-    actor_role: str,
-    action: str,
-    target_uid: str = "",
-    details: Dict[str, Any] = {},
-) -> None:
-    """Write admin action to Firestore audit log with actor_role field.
-    Superadmin activities are only visible to superadmin.
-    Admin activities are visible to both admin and superadmin.
-    """
-    try:
-        db = get_db()
-        db.collection("admin_audit_logs").add({
-            "actor_uid": actor_uid,
-            "actor_role": actor_role,
-            "action": action,
-            "target_uid": target_uid,
-            "details": details,
-            "timestamp": datetime.now(timezone.utc),
-        })
-    except Exception as exc:
-        logger.error(f"admin_audit_log failed: {exc}")
+def get_current_role(uid: str = Depends(get_current_uid)) -> dict:
+    """Return both uid and role for endpoints that need role-aware responses."""
+    from app.utils.firestore import get_user_role
+    role = get_user_role(uid)
+    return {"uid": uid, "role": role}

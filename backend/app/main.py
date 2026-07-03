@@ -24,6 +24,7 @@ from app.user.routers import (
     yield_router,
 )
 from app.admin.routers import admin_router
+from app.super_admin.routers import superadmin_router
 from app.utils.firestore import init_firestore
 from app.utils.logger import setup_logging
 
@@ -97,6 +98,8 @@ def create_app() -> FastAPI:
     app.include_router(profile_router.router)
     if settings.ENABLE_ADMIN_API:
         app.include_router(admin_router.router)
+        app.include_router(superadmin_router.router)
+        app.include_router(superadmin_router.legacy_router)
 
     return app
 

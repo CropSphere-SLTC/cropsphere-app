@@ -1,4 +1,8 @@
-// lib/screens/admin/admin_dashboard_screen.dart
+// lib/screens/super_admin/superadmin_dashboard_screen.dart
+//
+// Full-access counterpart to AdminDashboardScreen. Shows everything the
+// admin screen shows, unfiltered, plus session cleanup and a system
+// configuration panel. See AdminDashboardScreen for the restricted view.
 
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -6,59 +10,52 @@ import 'package:flutter/material.dart';
 import '../../models/admin_models.dart';
 import '../../services/admin_service.dart';
 import '../../services/session_service.dart';
+import '../../services/superadmin_service.dart';
 import '../../widgets/app_theme.dart';
 
-class AdminDashboardScreen extends StatefulWidget {
-  const AdminDashboardScreen({super.key});
+class SuperadminDashboardScreen extends StatefulWidget {
+  const SuperadminDashboardScreen({super.key});
 
   @override
-  State<AdminDashboardScreen> createState() => _AdminDashboardScreenState();
+  State<SuperadminDashboardScreen> createState() =>
+      _SuperadminDashboardScreenState();
 }
 
-class _AdminDashboardScreenState extends State<AdminDashboardScreen>
+class _SuperadminDashboardScreenState extends State<SuperadminDashboardScreen>
     with SingleTickerProviderStateMixin {
   final _admin = AdminService();
+  final _superadmin = SuperadminService();
 
   bool _loading = true;
   bool _headerRefreshing = false;
+  bool _cleaningUpSessions = false;
+
   AdminStats? _stats;
   List<AdminUser> _users = [];
   List<AuditLog> _logs = [];
   List<Map<String, dynamic>> _predictionLogs = [];
+  SuperadminConfig? _config;
 
   String? _statsError;
   String? _usersError;
   String? _logsError;
   String? _predictionLogsError;
+  String? _configError;
 
   late final TabController _logsTabController;
 
   // uids currently mid-action — disables their row controls
   final Set<String> _busyUids = {};
 
-  // Admin dashboard is restricted: no promoting anyone to superadmin, and
-  // (below) no visibility into admin/superadmin accounts or other actors'
-  // audit entries. The unrestricted view lives in SuperadminDashboardScreen.
-  static const _roles = ['user', 'admin'];
-
-  // Only regular users are shown/manageable here — admin and superadmin
-  // accounts are out of scope for this screen.
-  List<AdminUser> get _visibleUsers =>
-      _users.where((u) => u.role == 'user').toList();
-
-  // Only the signed-in admin's own actions — not other admins', and never
-  // superadmin's (the backend already excludes those for an admin actor).
-  List<AuditLog> get _visibleLogs {
-    final myUid = FirebaseAuth.instance.currentUser?.uid;
-    return _logs.where((log) => log.actorUid == myUid).toList();
-  }
+  // Full role range — unlike AdminDashboardScreen, superadmin is a valid
+  // target here.
+  static const _roles = ['user', 'admin', 'superadmin'];
 
   @override
   void initState() {
     super.initState();
     _logsTabController = TabController(length: 2, vsync: this)
       ..addListener(() {
-        // Only rebuild once the tap/swipe settles on the new tab.
         if (!_logsTabController.indexIsChanging) setState(() {});
       });
     _loadAll();
@@ -77,12 +74,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       _loadUsers(),
       _loadLogs(),
       _loadPredictionLogs(),
+      _loadConfig(),
     ]);
     if (mounted) setState(() => _loading = false);
   }
 
-  // Header refresh button — reloads all sections without blanking the
-  // whole screen (unlike _loadAll, which drives the pull-to-refresh spinner).
   Future<void> _refreshAll() async {
     if (_headerRefreshing) return;
     setState(() => _headerRefreshing = true);
@@ -91,13 +87,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       _loadUsers(),
       _loadLogs(),
       _loadPredictionLogs(),
+      _loadConfig(),
     ]);
     if (mounted) setState(() => _headerRefreshing = false);
   }
 
-  // Current user's role, derived from the already-loaded user list rather
-  // than a separate call — AdminService.checkAdminAccess() only returns
-  // whether the caller is an admin, not which admin tier they hold.
   String? get _myRole {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return null;
@@ -127,11 +121,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       ),
     );
     if (confirmed != true) return;
-
-    // SessionService.logout() is the app's shared sign-out path (also used
-    // for inactivity timeout) — it stops the timer and calls signOut().
-    // main.dart's root StreamBuilder listens to authStateChanges and swaps
-    // to LoginScreen automatically, so no manual navigation is needed here.
     await SessionService.logout();
   }
 
@@ -163,9 +152,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     }
   }
 
+  // Unfiltered — GET /api/superadmin/audit-logs, unlike the admin screen's
+  // GET /api/admin/audit-logs (which the backend itself filters).
   Future<void> _loadLogs() async {
     try {
-      final logs = await _admin.getAuditLogs();
+      final logs = await _superadmin.getFullAuditLogs();
       if (mounted) {
         setState(() {
           _logs = logs;
@@ -191,13 +182,27 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     }
   }
 
+  Future<void> _loadConfig() async {
+    try {
+      final config = await _superadmin.getConfig();
+      if (mounted) {
+        setState(() {
+          _config = config;
+          _configError = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _configError = _errorMessage(e));
+    }
+  }
+
   String _errorMessage(Object e) {
     if (e is DioException) {
       final detail = e.response?.data is Map
           ? e.response?.data['detail']
           : null;
       if (detail is String) return detail;
-      if (e.response?.statusCode == 403) return 'Admin access required';
+      if (e.response?.statusCode == 403) return 'Superadmin access required';
     }
     return 'Failed to load data';
   }
@@ -232,7 +237,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     setState(() => _busyUids.add(user.uid));
     try {
       await _admin.setUserBanned(user.uid, nextBanned);
-      _showSnack(nextBanned ? '${user.email} banned' : '${user.email} unbanned');
+      _showSnack(
+        nextBanned ? '${user.email} banned' : '${user.email} unbanned',
+      );
       await _loadUsers();
     } catch (e) {
       _showSnack(_errorMessage(e), isError: true);
@@ -276,7 +283,43 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     }
   }
 
-  String _truncate(String id) => id.length <= 10 ? id : '${id.substring(0, 8)}…';
+  Future<void> _confirmCleanupSessions() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Clean up old sessions?'),
+        content: const Text(
+          'This permanently deletes session records older than 30 days. '
+          'This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: AppTheme.error),
+            child: const Text('Clean Up'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => _cleaningUpSessions = true);
+    try {
+      final result = await _superadmin.cleanupOldSessions();
+      _showSnack('Deleted ${result['deleted'] ?? 0} old session(s)');
+    } catch (e) {
+      _showSnack(_errorMessage(e), isError: true);
+    } finally {
+      if (mounted) setState(() => _cleaningUpSessions = false);
+    }
+  }
+
+  String _truncate(String id) =>
+      id.length <= 10 ? id : '${id.substring(0, 8)}…';
 
   String _truncateHash(String hash) =>
       hash.length <= 12 ? hash : hash.substring(0, 12);
@@ -314,7 +357,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         color: AppTheme.primary,
         onRefresh: _loadAll,
         child: _loading
-            ? const Center(child: CircularProgressIndicator(color: AppTheme.primary))
+            ? const Center(
+                child: CircularProgressIndicator(color: AppTheme.primary),
+              )
             : SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(16),
@@ -331,7 +376,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       _buildModelGrid(),
                     ],
                     const SizedBox(height: 24),
-                    _sectionTitle('User Management (${_visibleUsers.length})'),
+                    _sectionTitle('System Configuration'),
+                    const SizedBox(height: 10),
+                    if (_configError != null)
+                      _buildErrorCard(_configError!)
+                    else
+                      _buildConfigSection(),
+                    const SizedBox(height: 24),
+                    _sectionTitle('User Management (${_users.length})'),
                     const SizedBox(height: 10),
                     if (_usersError != null)
                       _buildErrorCard(_usersError!)
@@ -362,8 +414,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
+        // Deep red gradient — visually distinct from AdminDashboardScreen's
+        // green, matching the red used for the superadmin role badge
+        // elsewhere in the app.
         gradient: const LinearGradient(
-          colors: [Color(0xFF1B5E20), Color(0xFF4CAF50)],
+          colors: [Color(0xFF7B1616), Color(0xFFC62828)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -371,7 +426,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       ),
       child: Row(
         children: [
-          const Icon(Icons.admin_panel_settings, color: Colors.white, size: 32),
+          const Icon(
+            Icons.admin_panel_settings,
+            color: Colors.white,
+            size: 32,
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -381,7 +440,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   children: [
                     const Flexible(
                       child: Text(
-                        'Admin Dashboard',
+                        'Superadmin Dashboard',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 20,
@@ -397,7 +456,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   ],
                 ),
                 const Text(
-                  'System stats, users & audit trail',
+                  'Full system access — users, logs & configuration',
                   style: TextStyle(color: Colors.white70, fontSize: 12),
                 ),
               ],
@@ -499,8 +558,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     return LayoutBuilder(
       builder: (context, constraints) {
         final perRow = constraints.maxWidth < 600 ? 2 : 4;
-        final cardWidth =
-            (constraints.maxWidth - (perRow - 1) * 12) / perRow;
+        final cardWidth = (constraints.maxWidth - (perRow - 1) * 12) / perRow;
         return Wrap(
           spacing: 12,
           runSpacing: 12,
@@ -593,10 +651,134 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     );
   }
 
-  // ── Section 3: User management table ──────────────────────────────────────
+  // ── Section: System configuration ─────────────────────────────────────────
+  Widget _buildConfigSection() {
+    final config = _config;
+    if (config == null) return const SizedBox.shrink();
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Rate Limits',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _configStat(
+                    'Admin',
+                    '${config.adminRateLimitPerMinute}/min',
+                  ),
+                ),
+                Expanded(
+                  child: _configStat(
+                    'Superadmin',
+                    '${config.superadminRateLimitPerMinute}/min',
+                  ),
+                ),
+              ],
+            ),
+            const Divider(height: 28),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Admin API',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Set via ENABLE_ADMIN_API on the server — not '
+                        'editable from here yet',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: AppTheme.textSecondary.withValues(
+                            alpha: 0.9,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Switch(
+                  value: config.enableAdminApi,
+                  activeThumbColor: AppTheme.primary,
+                  // Read-only — the backend's PATCH /api/superadmin/config
+                  // doesn't accept this field (it's env-var-backed), so
+                  // there's nothing to wire this up to yet.
+                  onChanged: null,
+                ),
+              ],
+            ),
+            const Divider(height: 28),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _cleaningUpSessions ? null : _confirmCleanupSessions,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppTheme.error,
+                  side: const BorderSide(color: AppTheme.error),
+                ),
+                icon: _cleaningUpSessions
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppTheme.error,
+                        ),
+                      )
+                    : const Icon(Icons.cleaning_services_outlined),
+                label: Text(
+                  _cleaningUpSessions
+                      ? 'Cleaning up...'
+                      : 'Clean Old Sessions',
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _configStat(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: AppTheme.textPrimary,
+          ),
+        ),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+        ),
+      ],
+    );
+  }
+
+  // ── Section: User management table (full, unfiltered) ────────────────────
   Widget _buildUsersTable() {
-    final visibleUsers = _visibleUsers;
-    if (visibleUsers.isEmpty) {
+    if (_users.isEmpty) {
       return _buildEmptyCard('No users found');
     }
     return Card(
@@ -614,7 +796,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             DataColumn(label: Text('Status')),
             DataColumn(label: Text('Actions')),
           ],
-          rows: visibleUsers.asMap().entries.map((entry) {
+          rows: _users.asMap().entries.map((entry) {
             final rowNumber = entry.key + 1;
             final user = entry.value;
             final busy = _busyUids.contains(user.uid);
@@ -718,7 +900,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     );
   }
 
-  // ── Section 4: Logs (tabbed) ──────────────────────────────────────────────
+  // ── Section: Logs (tabbed) ────────────────────────────────────────────────
   Widget _buildLogsTabBar() {
     return Container(
       decoration: BoxDecoration(
@@ -732,18 +914,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         unselectedLabelColor: AppTheme.textSecondary,
         indicatorColor: AppTheme.primary,
         tabs: const [
-          Tab(text: 'Admin Actions'),
+          Tab(text: 'All Actions'),
           Tab(text: 'Prediction Logs'),
         ],
       ),
     );
   }
 
-  // Tab 1 — admin's own actions, from GET /api/admin/audit-logs
-  // (filtered client-side to this actor — see _visibleLogs)
+  // Tab 1 — ALL admin actions, from GET /api/superadmin/audit-logs (unfiltered)
   Widget _buildAuditLogsTable() {
-    final visibleLogs = _visibleLogs;
-    if (visibleLogs.isEmpty) {
+    if (_logs.isEmpty) {
       return _buildEmptyCard('No audit logs found');
     }
     return Card(
@@ -761,7 +941,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             DataColumn(label: Text('Target UID')),
             DataColumn(label: Text('Details')),
           ],
-          rows: visibleLogs.map((log) {
+          rows: _logs.map((log) {
             final detailsText = _formatDetails(log.details);
             return DataRow(
               cells: [
@@ -795,10 +975,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     message: detailsText,
                     child: SizedBox(
                       width: 180,
-                      child: Text(
-                        detailsText,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                      child: Text(detailsText, overflow: TextOverflow.ellipsis),
                     ),
                   ),
                 ),

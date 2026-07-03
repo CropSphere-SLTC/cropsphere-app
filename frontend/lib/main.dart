@@ -24,6 +24,7 @@ import 'screens/demand/demand_screen.dart';
 import 'screens/recommend/recommend_screen.dart';
 import 'screens/chat/chat_screen.dart';
 import 'screens/admin/admin_dashboard_screen.dart';
+import 'screens/super_admin/superadmin_dashboard_screen.dart';
 import 'screens/profile/account_settings_screen.dart';
 import 'screens/profile/change_password_screen.dart';
 import 'services/admin_service.dart';
@@ -108,9 +109,16 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     const ChatScreen(), // 6
   ];
 
+  // Both roles pass the same checkAdminAccess() gate (backend's
+  // require_admin allows admin or superadmin) — the actual role from the
+  // loaded profile decides which of the two screens fills that slot.
   List<Widget> get _screens => [
     ..._baseScreens,
-    if (_isAdmin) const AdminDashboardScreen(), // 7 — admin/superadmin only
+    if (_isAdmin)
+      if (_profile?.role == 'superadmin')
+        const SuperadminDashboardScreen()
+      else
+        const AdminDashboardScreen(), // 7 — admin/superadmin only
   ];
 
   @override
@@ -137,15 +145,16 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   }
 
   // A role change made by a superadmin elsewhere (e.g. promoting this same
-  // account to admin) never reaches an already-open session on its own —
-  // checkAdminAccess() only ran once, in initState(). Re-run it whenever the
-  // app comes back to the foreground, and whenever the user taps Home, so a
-  // freshly granted (or revoked) admin role is picked up without requiring a
-  // full app restart.
+  // account to admin, or admin to superadmin) never reaches an already-open
+  // session on its own — checkAdminAccess()/loadProfile() only ran once, in
+  // initState(). Re-run both whenever the app comes back to the foreground,
+  // and whenever the user taps Home, so a freshly granted (or revoked, or
+  // changed-tier) role is picked up without requiring a full app restart.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _checkAdminAccess();
+      _loadProfile();
     }
   }
 
@@ -156,7 +165,10 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
   void _navigateTo(int index) {
     setState(() => _selectedIndex = index);
-    if (index == 0) _checkAdminAccess();
+    if (index == 0) {
+      _checkAdminAccess();
+      _loadProfile();
+    }
   }
 
   Future<void> _showProfilePopup() async {

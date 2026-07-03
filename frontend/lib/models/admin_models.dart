@@ -83,3 +83,23 @@ class AuditLog {
     details: Map<String, dynamic>.from(json['details'] ?? {}),
   );
 }
+
+class SuperadminConfig {
+  final int adminRateLimitPerMinute;
+  final int superadminRateLimitPerMinute;
+  final bool enableAdminApi;
+
+  SuperadminConfig({
+    required this.adminRateLimitPerMinute,
+    required this.superadminRateLimitPerMinute,
+    required this.enableAdminApi,
+  });
+
+  factory SuperadminConfig.fromJson(Map<String, dynamic> json) =>
+      SuperadminConfig(
+        adminRateLimitPerMinute: json['admin_rate_limit_per_minute'] ?? 10,
+        superadminRateLimitPerMinute:
+            json['superadmin_rate_limit_per_minute'] ?? 10,
+        enableAdminApi: json['enable_admin_api'] ?? true,
+      );
+}

@@ -206,20 +206,37 @@ class _ProfilePopupState extends State<ProfilePopup> {
   Widget _buildAvatar() {
     final photoUrl = widget.profile.photoUrl;
     final hasPhoto = photoUrl != null && photoUrl.isNotEmpty;
+    const diameter = 52.0;
+
     return CircleAvatar(
-      radius: 26,
+      radius: diameter / 2,
       backgroundColor: AppTheme.primary.withValues(alpha: 0.15),
-      backgroundImage: hasPhoto ? NetworkImage(photoUrl) : null,
+      // NetworkImage (via Image.network) rather than CircleAvatar's own
+      // backgroundImage — that's the only way to get an errorBuilder, since
+      // ImageProvider has no error-handling hook of its own.
       child: hasPhoto
-          ? null
-          : Text(
-              _initials,
-              style: const TextStyle(
-                color: AppTheme.primary,
-                fontWeight: FontWeight.w700,
-                fontSize: 16,
+          ? ClipOval(
+              child: Image.network(
+                photoUrl,
+                width: diameter,
+                height: diameter,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) =>
+                    _buildInitialsText(),
               ),
-            ),
+            )
+          : _buildInitialsText(),
+    );
+  }
+
+  Widget _buildInitialsText() {
+    return Text(
+      _initials,
+      style: const TextStyle(
+        color: AppTheme.primary,
+        fontWeight: FontWeight.w700,
+        fontSize: 16,
+      ),
     );
   }
 

@@ -23,7 +23,7 @@ class UserProfile {
     // future rename on either side of the API doesn't silently break this.
     name: json['name'] ?? json['display_name'] ?? '',
     email: json['email'] ?? '',
-    photoUrl: json['photo_url'],
+    photoUrl: json['photo_url'] as String?,
     role: json['role'] ?? 'user',
     lastLogin: json['last_login'],
     activeSessions: json['active_sessions'] ?? 0,

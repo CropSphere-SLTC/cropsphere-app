@@ -112,10 +112,11 @@ def _verify(token: str) -> Optional[str]:
         decoded = fb_auth.verify_id_token(token)
         uid = decoded.get("uid")
         email = decoded.get("email", "")
+        photo_url = decoded.get("picture", "")
         # Create user document in Firestore if first login
         try:
             from app.utils.firestore import get_or_create_user
-            get_or_create_user(uid, email)
+            get_or_create_user(uid, email, photo_url)
         except Exception:
             pass  # Never block auth for Firestore failures
         return uid

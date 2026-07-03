@@ -65,7 +65,7 @@ def get_db():
     return _db
 
 
-def get_or_create_user(uid: str, email: str = "") -> Dict[str, Any]:
+def get_or_create_user(uid: str, email: str = "", photo_url: str = "") -> Dict[str, Any]:
     """Get user document from Firestore or create it if it doesn't exist.
     New users get role 'user' by default.
     Superadmin UID gets role 'superadmin' automatically.
@@ -76,6 +76,9 @@ def get_or_create_user(uid: str, email: str = "") -> Dict[str, Any]:
         ref = db.collection("users").document(uid)
         doc = ref.get()
         if doc.exists:
+            # Update photo_url if it changed (Google OAuth photo can change)
+            if photo_url:
+                ref.update({"photo_url": photo_url})
             return doc.to_dict()
         # Determine role — superadmin UID always gets superadmin role
         settings = get_settings()
@@ -84,6 +87,7 @@ def get_or_create_user(uid: str, email: str = "") -> Dict[str, Any]:
         user_data = {
             "uid": uid,
             "email": email,
+            "photo_url": photo_url,
             "role": role,
             "is_banned": False,
             "created_at": datetime.now(timezone.utc),

@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from app.admin.services import admin_service
 from app.middleware.rate_limit import limiter
-from app.middleware.roles import require_admin, get_current_role
+from app.middleware.roles import require_admin, require_superadmin, get_current_role
 
 logger = logging.getLogger(__name__)
 
@@ -110,3 +110,19 @@ def get_prediction_logs(
 ):
     """Return prediction audit logs from audit_logs collection."""
     return admin_service.get_prediction_logs(limit)
+
+
+# Clean Old Sessions
+@router.delete("/sessions/cleanup-old", dependencies=[Depends(require_superadmin)])
+def cleanup_old_sessions():
+    """Delete session documents older than 30 days. Superadmin only."""
+    from datetime import datetime, timezone, timedelta
+    from app.utils.firestore import get_db
+    db = get_db()
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    docs = list(db.collection("sessions")
+                .where("last_active", "<", cutoff)
+                .stream())
+    for doc in docs:
+        doc.reference.delete()
+    return {"deleted": len(docs), "cutoff": cutoff.isoformat()}

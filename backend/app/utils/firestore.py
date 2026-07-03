@@ -79,7 +79,8 @@ def get_or_create_user(uid: str, email: str = "") -> Dict[str, Any]:
             return doc.to_dict()
         # Determine role — superadmin UID always gets superadmin role
         settings = get_settings()
-        role = "superadmin" if uid == settings.SUPERADMIN_UID else "user"
+        superadmin_uids = [u.strip() for u in settings.SUPERADMIN_UID.split(",")]
+        role = "superadmin" if uid in superadmin_uids else "user"
         user_data = {
             "uid": uid,
             "email": email,
@@ -101,7 +102,8 @@ def get_user_role(uid: str) -> str:
         from app.config import get_settings
         settings = get_settings()
         # Superadmin UID always returns superadmin regardless of Firestore
-        if uid == settings.SUPERADMIN_UID:
+        superadmin_uids = [u.strip() for u in settings.SUPERADMIN_UID.split(",")]
+        if uid in superadmin_uids:
             return "superadmin"
         db = get_db()
         doc = db.collection("users").document(uid).get()

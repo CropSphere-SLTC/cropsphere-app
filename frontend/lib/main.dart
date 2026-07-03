@@ -127,6 +127,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _checkAdminAccess();
     _loadProfile();
+    _loadLanguagePreference();
   }
 
   Future<void> _loadProfile() async {
@@ -135,6 +136,23 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       if (mounted) setState(() => _profile = profile);
     } catch (e) {
       debugPrint('Failed to load profile: $e');
+    }
+  }
+
+  // The saved language preference otherwise only takes effect once the user
+  // re-visits Account Settings and saves again in that session — apply it
+  // to the shared AppLangNotifier as soon as the app boots.
+  Future<void> _loadLanguagePreference() async {
+    try {
+      final prefs = await ProfileService().getPreferences();
+      if (!mounted) return;
+      final lang = AppLang.values.firstWhere(
+        (l) => l.name == prefs.language,
+        orElse: () => AppLang.en,
+      );
+      AppLangProvider.of(context).setLang(lang);
+    } catch (e) {
+      debugPrint('Failed to load language preference: $e');
     }
   }
 

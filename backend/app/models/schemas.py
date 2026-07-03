@@ -232,3 +232,35 @@ class ChatResponse(BaseModel):
     sources_used: List[str]
     suggested_followups: List[str]
     is_mock: bool = False
+
+
+# ── User profile & preferences ──────────────────────────────────────────────
+
+
+class UserProfileResponse(BaseModel):
+    name: str
+    email: str
+    photo_url: Optional[str] = None
+    role: str
+    last_login: Optional[str] = None
+    active_sessions: int = 0
+
+
+class UpdateProfileRequest(BaseModel):
+    display_name: str = Field(..., min_length=1, max_length=100)
+
+
+class NotificationPreferences(BaseModel):
+    price_alerts: bool = True
+    weather_alerts: bool = True
+    yield_recommendations: bool = True
+
+
+class UserPreferencesResponse(BaseModel):
+    language: str = Field(default="en", pattern="^(en|si|ta)$")
+    notifications: NotificationPreferences
+
+
+class UpdatePreferencesRequest(BaseModel):
+    language: str = Field(..., pattern="^(en|si|ta)$")
+    notifications: NotificationPreferences

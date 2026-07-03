@@ -24,7 +24,13 @@ import 'screens/demand/demand_screen.dart';
 import 'screens/recommend/recommend_screen.dart';
 import 'screens/chat/chat_screen.dart';
 import 'screens/admin/admin_dashboard_screen.dart';
+import 'screens/profile/account_settings_screen.dart';
+import 'screens/profile/change_password_screen.dart';
 import 'services/admin_service.dart';
+import 'services/profile_service.dart';
+import 'services/session_service.dart';
+import 'models/profile_models.dart';
+import 'widgets/profile_popup.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -90,6 +96,7 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   int _selectedIndex = 0;
   bool _isAdmin = false;
+  UserProfile? _profile;
 
   late final List<Widget> _baseScreens = [
     DashboardScreen(onNavigate: _navigateTo), // 0
@@ -111,6 +118,16 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _checkAdminAccess();
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    try {
+      final profile = await ProfileService().getProfile();
+      if (mounted) setState(() => _profile = profile);
+    } catch (e) {
+      debugPrint('Failed to load profile: $e');
+    }
   }
 
   @override
@@ -142,6 +159,58 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     if (index == 0) _checkAdminAccess();
   }
 
+  Future<void> _showProfilePopup() async {
+    final profile = _profile;
+    if (profile == null) return;
+
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Profile',
+      barrierColor: Colors.black.withValues(alpha: 0.05),
+      transitionDuration: const Duration(milliseconds: 150),
+      pageBuilder: (dialogContext, _, _) {
+        return SafeArea(
+          child: Align(
+            alignment: Alignment.topRight,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 8, right: 12),
+              child: Material(
+                color: Colors.transparent,
+                child: ProfilePopup(
+                  profile: profile,
+                  onProfileUpdated: (updated) {
+                    if (mounted) setState(() => _profile = updated);
+                  },
+                  onOpenSettings: () {
+                    Navigator.of(dialogContext).pop();
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const AccountSettingsScreen(),
+                      ),
+                    );
+                  },
+                  onOpenChangePassword: () {
+                    Navigator.of(dialogContext).pop();
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const ChangePasswordScreen(),
+                      ),
+                    );
+                  },
+                  onLogout: () async {
+                    Navigator.of(dialogContext).pop();
+                    await SessionService.logout();
+                  },
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // Rebuild nav labels when language changes
@@ -149,9 +218,35 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     // Selected index may point past the Admin tab if role finishes loading
     // after a later tab was chosen — clamp defensively.
     final safeIndex = _selectedIndex < _screens.length ? _selectedIndex : 0;
+    final photoUrl = _profile?.photoUrl;
+    final hasPhoto = photoUrl != null && photoUrl.isNotEmpty;
 
     return Scaffold(
       backgroundColor: const Color(0xFFFAFFF5),
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(52),
+        child: AppBar(
+          backgroundColor: AppTheme.primary,
+          elevation: 0,
+          automaticallyImplyLeading: false,
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: GestureDetector(
+                onTap: _profile == null ? null : _showProfilePopup,
+                child: CircleAvatar(
+                  radius: 18,
+                  backgroundColor: Colors.white24,
+                  backgroundImage: hasPhoto ? NetworkImage(photoUrl) : null,
+                  child: hasPhoto
+                      ? null
+                      : const Icon(Icons.person, color: Colors.white),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
       body: IndexedStack(index: safeIndex, children: _screens),
       bottomNavigationBar: _CropBottomNav(
         selectedIndex: safeIndex,

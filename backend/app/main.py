@@ -18,6 +18,7 @@ from app.user.routers import (
     demand_router,
     health_router,
     price_router,
+    profile_router,
     recommend_router,
     weather_router,
     yield_router,
@@ -93,6 +94,7 @@ def create_app() -> FastAPI:
     app.include_router(demand_router.router)
     app.include_router(recommend_router.router)
     app.include_router(chat_router.router)
+    app.include_router(profile_router.router)
     if settings.ENABLE_ADMIN_API:
         app.include_router(admin_router.router)
 

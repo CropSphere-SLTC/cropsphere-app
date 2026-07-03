@@ -5,7 +5,7 @@ import hmac
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
@@ -127,6 +127,106 @@ def is_user_banned(uid: str) -> bool:
     except Exception as exc:
         logger.error(f"is_user_banned failed: {exc}")
         return False
+
+
+# ── User profile & sessions ────────────────────────────────────────────────────
+
+
+def get_user_profile(uid: str) -> Dict[str, Any]:
+    """Return the raw user document — profile fields plus preferences.
+
+    Raises RuntimeError if the document doesn't exist (shouldn't happen for
+    an authenticated caller — get_or_create_user runs on every login).
+    """
+    db = get_db()
+    doc = db.collection("users").document(uid).get()
+    if not doc.exists:
+        raise RuntimeError(f"User document not found for uid={uid}")
+    return doc.to_dict()
+
+
+def update_user_profile(uid: str, display_name: str) -> None:
+    """Update display_name on a user's Firestore document."""
+    db = get_db()
+    db.collection("users").document(uid).update({"display_name": display_name})
+
+
+def get_user_preferences(uid: str) -> Dict[str, Any]:
+    """Return the preferences dict from a user's Firestore document.
+
+    Returns {} if the user has never saved preferences — callers apply
+    their own defaults.
+    """
+    db = get_db()
+    doc = db.collection("users").document(uid).get()
+    if not doc.exists:
+        return {}
+    return doc.to_dict().get("preferences", {})
+
+
+def update_user_preferences(uid: str, preferences: Dict[str, Any]) -> None:
+    """Save preferences to a user's Firestore document."""
+    db = get_db()
+    db.collection("users").document(uid).update({"preferences": preferences})
+
+
+def update_last_login(uid: str) -> None:
+    """Update last_login timestamp on a user's Firestore document.
+
+    Called from the auth middleware on every verified request — failures
+    are logged but never allowed to block authentication.
+    """
+    try:
+        db = get_db()
+        db.collection("users").document(uid).update(
+            {"last_login": datetime.now(timezone.utc)}
+        )
+    except Exception as exc:
+        logger.error(f"update_last_login failed: {exc}")
+
+
+def get_active_sessions(uid: str) -> int:
+    """Count sessions for uid with last_active within the past 24 hours.
+
+    Note: this equality + range query needs a composite Firestore index on
+    (uid ASC, last_active ASC) — Firestore's error message links directly
+    to the console page to create it if missing.
+    """
+    try:
+        from google.cloud.firestore_v1.base_query import FieldFilter
+
+        db = get_db()
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+        docs = (
+            db.collection("sessions")
+            .where(filter=FieldFilter("uid", "==", uid))
+            .where(filter=FieldFilter("last_active", ">=", cutoff))
+            .stream()
+        )
+        return sum(1 for _ in docs)
+    except Exception as exc:
+        logger.error(f"get_active_sessions failed: {exc}")
+        return 0
+
+
+def create_session(uid: str, device_info: str) -> None:
+    """Record a session document — called from the auth middleware on every
+    verified request. Failures are logged but never allowed to block
+    authentication.
+    """
+    try:
+        db = get_db()
+        now = datetime.now(timezone.utc)
+        db.collection("sessions").add(
+            {
+                "uid": uid,
+                "device_info": device_info,
+                "created_at": now,
+                "last_active": now,
+            }
+        )
+    except Exception as exc:
+        logger.error(f"create_session failed: {exc}")
 
 
 def admin_audit_log(

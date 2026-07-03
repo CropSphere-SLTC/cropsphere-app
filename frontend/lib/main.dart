@@ -211,6 +211,51 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     );
   }
 
+  // Single-letter fallback shown in the app-bar avatar when there's no
+  // photo (or it fails to load) — ProfilePopup uses a bigger two-letter
+  // version of its own since its avatar is larger.
+  String get _avatarInitial {
+    final name = _profile?.name.trim() ?? '';
+    return name.isNotEmpty ? name[0].toUpperCase() : '?';
+  }
+
+  Widget _buildAppBarAvatar() {
+    final photoUrl = _profile?.photoUrl;
+    final hasPhoto = photoUrl != null && photoUrl.isNotEmpty;
+    const diameter = 36.0;
+
+    final initial = Text(
+      _avatarInitial,
+      style: const TextStyle(
+        color: Colors.white,
+        fontWeight: FontWeight.w700,
+        fontSize: 15,
+      ),
+    );
+
+    return GestureDetector(
+      onTap: _profile == null ? null : _showProfilePopup,
+      child: CircleAvatar(
+        radius: diameter / 2,
+        backgroundColor: Colors.white24,
+        // Image.network (not CircleAvatar's own backgroundImage) — same
+        // pattern as ProfilePopup._buildAvatar, since errorBuilder only
+        // exists on the Image widget, not on ImageProvider.
+        child: hasPhoto
+            ? ClipOval(
+                child: Image.network(
+                  photoUrl,
+                  width: diameter,
+                  height: diameter,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => initial,
+                ),
+              )
+            : initial,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // Rebuild nav labels when language changes
@@ -218,8 +263,6 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     // Selected index may point past the Admin tab if role finishes loading
     // after a later tab was chosen — clamp defensively.
     final safeIndex = _selectedIndex < _screens.length ? _selectedIndex : 0;
-    final photoUrl = _profile?.photoUrl;
-    final hasPhoto = photoUrl != null && photoUrl.isNotEmpty;
 
     return Scaffold(
       backgroundColor: const Color(0xFFFAFFF5),
@@ -232,17 +275,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
           actions: [
             Padding(
               padding: const EdgeInsets.only(right: 12),
-              child: GestureDetector(
-                onTap: _profile == null ? null : _showProfilePopup,
-                child: CircleAvatar(
-                  radius: 18,
-                  backgroundColor: Colors.white24,
-                  backgroundImage: hasPhoto ? NetworkImage(photoUrl) : null,
-                  child: hasPhoto
-                      ? null
-                      : const Icon(Icons.person, color: Colors.white),
-                ),
-              ),
+              child: _buildAppBarAvatar(),
             ),
           ],
         ),

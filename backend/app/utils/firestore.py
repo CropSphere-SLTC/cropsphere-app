@@ -235,6 +235,116 @@ def create_session(uid: str, device_info: str) -> None:
         logger.error(f"create_session failed: {exc}")
 
 
+# ── Chat conversation history ─────────────────────────────────────────────────
+
+MAX_MESSAGES_PER_CONVERSATION = 50
+
+
+def list_conversations(uid: str, limit: int = 50) -> list:
+    """List a user's chat conversations, newest first.
+
+    Returns summaries only (id, title, updated_at, message_count) — never the
+    embedded messages array. Needs a composite index on (uid ASC,
+    updated_at DESC); Firestore's error links to the console page if missing.
+    """
+    from google.cloud.firestore_v1.base_query import FieldFilter
+    from google.cloud import firestore as gcf
+
+    db = get_db()
+    docs = (
+        db.collection("chat_conversations")
+        .where(filter=FieldFilter("uid", "==", uid))
+        .order_by("updated_at", direction=gcf.Query.DESCENDING)
+        .limit(limit)
+        .stream()
+    )
+    out = []
+    for doc in docs:
+        data = doc.to_dict()
+        out.append(
+            {
+                "id": doc.id,
+                "title": data.get("title", ""),
+                "updated_at": data.get("updated_at"),
+                "message_count": data.get("message_count", 0),
+            }
+        )
+    return out
+
+
+def get_conversation(conversation_id: str):
+    """Return the full conversation dict (including messages) or None.
+
+    Caller is responsible for checking ownership (uid field) before
+    returning data to a client.
+    """
+    db = get_db()
+    doc = db.collection("chat_conversations").document(conversation_id).get()
+    if not doc.exists:
+        return None
+    data = doc.to_dict()
+    data["id"] = doc.id
+    return data
+
+
+def create_conversation(uid: str, title: str) -> str:
+    """Create an empty conversation document and return its id."""
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    _, ref = db.collection("chat_conversations").add(
+        {
+            "uid": uid,
+            "title": title,
+            "created_at": now,
+            "updated_at": now,
+            "message_count": 0,
+            "messages": [],
+        }
+    )
+    return ref.id
+
+
+def append_messages(conversation_id: str, user_msg: str, assistant_msg: str) -> None:
+    """Append a user/assistant message pair to a conversation.
+
+    Raises ValueError if the conversation would exceed
+    MAX_MESSAGES_PER_CONVERSATION messages, or if it doesn't exist.
+    """
+    db = get_db()
+    ref = db.collection("chat_conversations").document(conversation_id)
+    doc = ref.get()
+    if not doc.exists:
+        raise ValueError(f"Conversation not found: {conversation_id}")
+    data = doc.to_dict()
+    messages = data.get("messages", [])
+    if len(messages) + 2 > MAX_MESSAGES_PER_CONVERSATION:
+        raise ValueError("Conversation message limit reached")
+    now = datetime.now(timezone.utc)
+    messages.append({"role": "user", "content": user_msg, "timestamp": now})
+    messages.append({"role": "assistant", "content": assistant_msg, "timestamp": now})
+    ref.update(
+        {
+            "messages": messages,
+            "message_count": len(messages),
+            "updated_at": now,
+        }
+    )
+
+
+def rename_conversation(conversation_id: str, title: str) -> None:
+    """Rename a conversation. Ownership must be checked by the caller."""
+    db = get_db()
+    db.collection("chat_conversations").document(conversation_id).update(
+        {"title": title, "updated_at": datetime.now(timezone.utc)}
+    )
+
+
+def delete_conversation(conversation_id: str) -> None:
+    """Delete a conversation. Ownership must be checked by the caller."""
+    db = get_db()
+    db.collection("chat_conversations").document(conversation_id).delete()
+
+
 def admin_audit_log(
     actor_uid: str,
     actor_role: str,

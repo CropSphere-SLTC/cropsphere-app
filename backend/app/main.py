@@ -14,6 +14,7 @@ from app.middleware.rate_limit import limiter
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.models.loader import model_loader
 from app.user.routers import (
+    chat_history_router,
     chat_router,
     demand_router,
     health_router,
@@ -94,6 +95,7 @@ def create_app() -> FastAPI:
     app.include_router(price_router.router)
     app.include_router(demand_router.router)
     app.include_router(recommend_router.router)
+    app.include_router(chat_history_router.router)
     app.include_router(chat_router.router)
     app.include_router(profile_router.router)
     if settings.ENABLE_ADMIN_API:

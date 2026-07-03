@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../config/app_config.dart';
 import '../../services/service_factory.dart';
+import '../../services/chat_history_service.dart';
 import '../../models/api_models.dart';
+import '../../models/chat_history_models.dart';
 import '../../widgets/app_theme.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -14,16 +16,26 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  final TextEditingController _controller = TextEditingController();
-  final ScrollController _scrollController = ScrollController();
-  final List<ChatMessage> _history = [];
-  final List<Map<String, dynamic>> _displayMessages = [];
-  bool _isLoading = false;
-  List<String> _suggestedFollowups = [
+  static const double _wideBreakpoint = 900;
+  static const _defaultFollowups = [
     'What should I plant this Maha season?',
     'What is the expected yield for Carrot?',
     'Which district has best prices?',
   ];
+
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  final TextEditingController _controller = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+  final _historyService = ChatHistoryService();
+  final List<ChatMessage> _history = [];
+  final List<Map<String, dynamic>> _displayMessages = [];
+  bool _isLoading = false;
+
+  // ── Conversation history state ──────────────────────────────────────────
+  String? _conversationId; // null = new chat
+  List<ConversationSummary> _conversations = [];
+  bool _conversationsLoading = false;
+  List<String> _suggestedFollowups = List.of(_defaultFollowups);
   String? _selectedDistrict;
   String? _selectedCrop;
   String _selectedModel = 'accurate';
@@ -46,6 +58,144 @@ class _ChatScreenState extends State<ChatScreen> {
     'Finger millet',
     'Groundnut',
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    if (!AppConfig.useMockServices) _loadConversations();
+  }
+
+  Future<void> _loadConversations() async {
+    setState(() => _conversationsLoading = true);
+    try {
+      final conversations = await _historyService.listConversations();
+      if (mounted) setState(() => _conversations = conversations);
+    } catch (e) {
+      debugPrint('Failed to load conversations: $e');
+    } finally {
+      if (mounted) setState(() => _conversationsLoading = false);
+    }
+  }
+
+  Future<void> _openConversation(ConversationSummary summary) async {
+    // Close the drawer on mobile before loading.
+    if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
+      Navigator.of(context).pop();
+    }
+    try {
+      final detail = await _historyService.getConversation(summary.id);
+      if (!mounted) return;
+      setState(() {
+        _conversationId = detail.id;
+        _displayMessages
+          ..clear()
+          ..addAll(
+            detail.messages.map(
+              (m) => {'role': m.role, 'content': m.content},
+            ),
+          );
+        _history
+          ..clear()
+          ..addAll(
+            detail.messages.map(
+              (m) => ChatMessage(role: m.role, content: m.content),
+            ),
+          );
+        _suggestedFollowups = [];
+      });
+      _scrollToBottom();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to load conversation')),
+        );
+      }
+    }
+  }
+
+  void _startNewChat() {
+    if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
+      Navigator.of(context).pop();
+    }
+    setState(() {
+      _conversationId = null;
+      _displayMessages.clear();
+      _history.clear();
+      _suggestedFollowups = List.of(_defaultFollowups);
+    });
+  }
+
+  Future<void> _renameConversation(ConversationSummary summary) async {
+    final controller = TextEditingController(text: summary.title);
+    final newTitle = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rename conversation'),
+        content: TextField(
+          controller: controller,
+          maxLength: 100,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Title'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Rename'),
+          ),
+        ],
+      ),
+    );
+    if (newTitle == null || newTitle.isEmpty || newTitle == summary.title) {
+      return;
+    }
+    try {
+      await _historyService.renameConversation(summary.id, newTitle);
+      _loadConversations();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to rename conversation')),
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteConversation(ConversationSummary summary) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete conversation?'),
+        content: Text('"${summary.title}" will be permanently deleted.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await _historyService.deleteConversation(summary.id);
+      if (summary.id == _conversationId) _startNewChat();
+      _loadConversations();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to delete conversation')),
+        );
+      }
+    }
+  }
 
   Future<void> _sendMessage(String message) async {
     if (message.trim().isEmpty) return;
@@ -79,8 +229,20 @@ class _ChatScreenState extends State<ChatScreen> {
           crop: _selectedCrop,
           model: _selectedModel,
           language: 'auto',
+          conversationId: _conversationId,
         ),
       );
+
+      // A new chat gets its conversation id from the first reply — refresh
+      // the sidebar so the new conversation appears immediately.
+      final isNewConversation =
+          _conversationId == null && response.conversationId.isNotEmpty;
+      if (response.conversationId.isNotEmpty) {
+        _conversationId = response.conversationId;
+      }
+      if (isNewConversation && !AppConfig.useMockServices) {
+        _loadConversations();
+      }
 
       setState(() {
         _displayMessages.add({
@@ -130,21 +292,185 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isWide = MediaQuery.of(context).size.width >= _wideBreakpoint;
+    final chatArea = Column(
+      children: [
+        _buildHeader(isWide),
+        _buildContextBar(),
+        Expanded(child: _buildMessageList()),
+        if (_suggestedFollowups.isNotEmpty) _buildSuggestions(),
+        _buildInputBar(),
+      ],
+    );
+
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: AppTheme.background,
-      body: Column(
-        children: [
-          _buildHeader(),
-          _buildContextBar(),
-          Expanded(child: _buildMessageList()),
-          if (_suggestedFollowups.isNotEmpty) _buildSuggestions(),
-          _buildInputBar(),
+      drawer: isWide ? null : Drawer(child: SafeArea(child: _buildSidebar())),
+      body: isWide
+          ? Row(
+              children: [
+                SizedBox(
+                  width: 280,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border(
+                        right: BorderSide(color: Colors.grey[300]!),
+                      ),
+                    ),
+                    child: _buildSidebar(),
+                  ),
+                ),
+                Expanded(child: chatArea),
+              ],
+            )
+          : chatArea,
+    );
+  }
+
+  // ── Sidebar ───────────────────────────────────────────────────────────────
+
+  Widget _buildSidebar() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: ElevatedButton.icon(
+            onPressed: _startNewChat,
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text('New Chat'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primary,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+            ),
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: _conversationsLoading
+              ? const Center(
+                  child: CircularProgressIndicator(color: AppTheme.primary),
+                )
+              : _conversations.isEmpty
+              ? Center(
+                  child: Text(
+                    AppConfig.useMockServices
+                        ? 'History unavailable in mock mode'
+                        : 'No conversations yet',
+                    style: TextStyle(color: Colors.grey[500], fontSize: 13),
+                  ),
+                )
+              : ListView.builder(
+                  itemCount: _conversations.length,
+                  itemBuilder: (ctx, i) =>
+                      _buildConversationTile(_conversations[i]),
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildConversationTile(ConversationSummary summary) {
+    final isActive = summary.id == _conversationId;
+    return ListTile(
+      dense: true,
+      selected: isActive,
+      selectedTileColor: AppTheme.primary.withValues(alpha: 0.08),
+      leading: Icon(
+        Icons.chat_bubble_outline,
+        size: 18,
+        color: isActive ? AppTheme.primary : Colors.grey[500],
+      ),
+      title: Text(
+        summary.title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
+          color: isActive ? AppTheme.primaryDark : Colors.black87,
+        ),
+      ),
+      subtitle: Text(
+        _relativeTime(summary.updatedAt),
+        style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+      ),
+      // Hover menu on web/desktop, long-press menu on mobile.
+      trailing: PopupMenuButton<String>(
+        icon: Icon(Icons.more_vert, size: 16, color: Colors.grey[500]),
+        onSelected: (action) => action == 'rename'
+            ? _renameConversation(summary)
+            : _deleteConversation(summary),
+        itemBuilder: (ctx) => const [
+          PopupMenuItem(
+            value: 'rename',
+            child: ListTile(
+              dense: true,
+              leading: Icon(Icons.edit_outlined, size: 18),
+              title: Text('Rename'),
+            ),
+          ),
+          PopupMenuItem(
+            value: 'delete',
+            child: ListTile(
+              dense: true,
+              leading: Icon(Icons.delete_outline, size: 18),
+              title: Text('Delete'),
+            ),
+          ),
         ],
+      ),
+      onTap: () => _openConversation(summary),
+      onLongPress: () => _showConversationActions(summary),
+    );
+  }
+
+  void _showConversationActions(ConversationSummary summary) {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('Rename'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _renameConversation(summary);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: AppTheme.error),
+              title: const Text(
+                'Delete',
+                style: TextStyle(color: AppTheme.error),
+              ),
+              onTap: () {
+                Navigator.pop(ctx);
+                _deleteConversation(summary);
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildHeader() {
+  String _relativeTime(DateTime? time) {
+    if (time == null) return '';
+    final diff = DateTime.now().difference(time.toLocal());
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    return '${time.toLocal().day}/${time.toLocal().month}/${time.toLocal().year}';
+  }
+
+  Widget _buildHeader(bool isWide) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -156,6 +482,13 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       child: Row(
         children: [
+          if (!isWide)
+            IconButton(
+              icon: const Icon(Icons.menu, color: Colors.white),
+              tooltip: 'Conversations',
+              padding: EdgeInsets.zero,
+              onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+            ),
           const Icon(Icons.chat, color: Colors.white, size: 28),
           const SizedBox(width: 12),
           Column(
@@ -185,15 +518,7 @@ class _ChatScreenState extends State<ChatScreen> {
             IconButton(
               icon: const Icon(Icons.delete_outline, color: Colors.white70),
               tooltip: 'Clear chat',
-              onPressed: () => setState(() {
-                _displayMessages.clear();
-                _history.clear();
-                _suggestedFollowups = [
-                  'What should I plant this Maha season?',
-                  'What is the expected yield for Carrot?',
-                  'Which district has best prices?',
-                ];
-              }),
+              onPressed: _startNewChat,
             ),
         ],
       ),

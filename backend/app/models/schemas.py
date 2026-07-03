@@ -225,13 +225,44 @@ class ChatRequest(BaseModel):
     district: Optional[DistrictEnum] = None
     crop: Optional[CropEnum] = None
     model: str = Field(default="accurate", pattern="^(fast|accurate)$")
+    conversation_id: Optional[str] = Field(default=None, max_length=128)
 
 
 class ChatResponse(BaseModel):
     reply: str
     sources_used: List[str]
     suggested_followups: List[str]
+    conversation_id: str = ""
     is_mock: bool = False
+
+
+# ── Chat conversation history ─────────────────────────────────────────────────
+
+
+class ConversationSummary(BaseModel):
+    id: str
+    title: str
+    updated_at: Optional[str] = None
+    message_count: int = 0
+
+
+class ConversationMessage(BaseModel):
+    role: str = Field(..., pattern=r"^(user|assistant)$")
+    content: str
+    timestamp: Optional[str] = None
+
+
+class ConversationDetail(BaseModel):
+    id: str
+    title: str
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    message_count: int = 0
+    messages: List[ConversationMessage] = Field(default_factory=list)
+
+
+class RenameConversationRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=100)
 
 
 # ── User profile & preferences ──────────────────────────────────────────────

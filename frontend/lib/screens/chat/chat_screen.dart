@@ -30,6 +30,19 @@ class _ChatScreenState extends State<ChatScreen> {
   final List<ChatMessage> _history = [];
   final List<Map<String, dynamic>> _displayMessages = [];
   bool _isLoading = false;
+  bool _isStreaming = false;
+
+  /// User-friendly messages for streaming failures, keyed by the error
+  /// codes shared with the backend SSE contract. No technical detail.
+  static const _streamErrorMessages = <String, String>{
+    'network': "Couldn't reach the server. Check your connection and try again.",
+    'rate_limit':
+        'The AI service is busy right now. Please wait a moment and try again.',
+    'server_error': 'The AI service is temporarily unavailable. Try again shortly.',
+    'stream_interrupted': 'Response was interrupted.',
+    'empty_response': 'No response received. Try rephrasing your question.',
+    'auth_error': 'Your session may have expired. Please sign in again.',
+  };
 
   // ── Conversation history state ──────────────────────────────────────────
   String? _conversationId; // null = new chat
@@ -198,6 +211,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _sendMessage(String message) async {
+    if (_isLoading || _isStreaming) return; // never two concurrent requests
     if (message.trim().isEmpty) return;
     if (message.length > 500) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -207,7 +221,16 @@ class _ChatScreenState extends State<ChatScreen> {
       );
       return;
     }
+    if (AppConfig.useStreamingChat) {
+      await _sendMessageStreaming(message);
+    } else {
+      await _sendMessageNonStreaming(message);
+    }
+  }
 
+  /// Non-streaming fallback — the original POST /api/chat flow, kept
+  /// intact and selected via AppConfig.useStreamingChat = false.
+  Future<void> _sendMessageNonStreaming(String message) async {
     _controller.clear();
     setState(() {
       _displayMessages.add({'role': 'user', 'content': message});
@@ -271,6 +294,124 @@ class _ChatScreenState extends State<ChatScreen> {
       setState(() => _isLoading = false);
       _scrollToBottom();
     }
+  }
+
+  /// Streaming send path: adds an empty assistant bubble immediately, then
+  /// appends SSE text deltas as they arrive. Metadata (confidence, sources,
+  /// followups, conversation id) lands at the end of the stream. On failure
+  /// the bubble keeps any partial text and gains an inline error + retry.
+  ///
+  /// [isRetry] skips re-adding the user bubble/history entry — the original
+  /// send already added them, and _buildValidHistory() excludes the trailing
+  /// user message, so the retried message is never duplicated in context.
+  Future<void> _sendMessageStreaming(
+    String message, {
+    bool isRetry = false,
+  }) async {
+    if (_isStreaming) return; // guard: never two concurrent streams
+    _controller.clear();
+    final bubble = <String, dynamic>{
+      'role': 'assistant',
+      'content': '',
+      'streaming': true,
+      'retryFor': message,
+    };
+    // _isStreaming is set synchronously, before any await, so the input
+    // field is disabled for the whole stream — initial send and retry alike.
+    setState(() {
+      _isStreaming = true;
+      if (!isRetry) {
+        _displayMessages.add({'role': 'user', 'content': message});
+        _history.add(ChatMessage(role: 'user', content: message));
+      }
+      _displayMessages.add(bubble);
+      _suggestedFollowups = [];
+    });
+    _scrollToBottom();
+
+    final userId = FirebaseAuth.instance.currentUser?.uid ?? 'anonymous';
+    final request = ChatRequest(
+      message: message,
+      conversationHistory: _buildValidHistory(),
+      userId: userId,
+      district: _selectedDistrict,
+      crop: _selectedCrop,
+      model: _selectedModel,
+      language: 'auto',
+      conversationId: _conversationId,
+    );
+
+    var completed = false;
+    try {
+      await for (final event
+          in ServiceFactory.getService().sendChatStream(request)) {
+        switch (event['type']) {
+          case 'text':
+            setState(() {
+              bubble['content'] =
+                  (bubble['content'] as String) +
+                  (event['content'] as String? ?? '');
+            });
+            _scrollToBottom();
+          case 'metadata':
+            final convId = event['conversation_id'] as String? ?? '';
+            final isNewConversation =
+                _conversationId == null && convId.isNotEmpty;
+            if (convId.isNotEmpty) _conversationId = convId;
+            if (isNewConversation && !AppConfig.useMockServices) {
+              _loadConversations();
+            }
+            setState(() {
+              bubble['confidence'] = event['confidence'] as String? ?? '';
+              bubble['sources'] = List<String>.from(event['sources'] ?? []);
+              _suggestedFollowups = List<String>.from(
+                event['suggested_followups'] ?? [],
+              );
+            });
+          case 'error':
+            setState(() {
+              bubble['errorCode'] = event['code'] as String? ?? 'server_error';
+            });
+          case 'done':
+            completed = true;
+        }
+      }
+    } catch (_) {
+      setState(() {
+        bubble['errorCode'] ??= 'stream_interrupted';
+      });
+    } finally {
+      setState(() {
+        bubble['streaming'] = false;
+        if (!completed && bubble['errorCode'] == null) {
+          // Stream ended without [DONE] or an explicit error event.
+          bubble['errorCode'] = 'stream_interrupted';
+        }
+        if (completed && bubble['errorCode'] == null) {
+          _history.add(
+            ChatMessage(role: 'assistant', content: bubble['content'] as String),
+          );
+          // Keep last 10 turns
+          if (_history.length > 20) {
+            _history.removeRange(0, 2);
+            _displayMessages.removeRange(0, 2);
+          }
+        }
+        _isStreaming = false;
+      });
+      _scrollToBottom();
+    }
+  }
+
+  /// Removes a failed streamed bubble and resends its user message.
+  /// _sendMessageStreaming sets _isStreaming synchronously, so the input
+  /// stays disabled and a second concurrent stream is impossible.
+  Future<void> _retryStream(Map<String, dynamic> bubble) async {
+    if (_isStreaming || _isLoading) return;
+    final retryFor = bubble['retryFor'] as String?;
+    if (retryFor == null) return;
+    setState(() => _displayMessages.remove(bubble));
+    await _sendMessageStreaming(retryFor, isRetry: true);
   }
 
   void _scrollToBottom() {
@@ -709,11 +850,18 @@ class _ChatScreenState extends State<ChatScreen> {
     // Messages loaded from saved history have no 'confidence'/'sources' keys
     // and gracefully render without badge/footer.
     final isBot = !isUser && !isError;
+    final isStreamingMsg = isBot && (msg['streaming'] as bool? ?? false);
+    // Streamed bubbles get a fade-in on badge/footer when metadata lands;
+    // regular history bubbles render statically (no re-fade on scroll).
+    final wasStreamed = isBot && msg.containsKey('streaming');
+    final errorCode = isBot ? msg['errorCode'] as String? : null;
     final confidence = isBot ? (msg['confidence'] as String? ?? '') : '';
     final sources = isBot
         ? ((msg['sources'] as List?)?.cast<String>() ?? const <String>[])
         : const <String>[];
-    final parsed = isBot
+    // While text is still streaming, show it raw — the reasoning line is
+    // split into the footer only once the stream completes ([DONE]).
+    final parsed = isBot && !isStreamingMsg
         ? _parseReply(msg['content'] as String)
         : _ParsedReply('', msg['content'] as String);
     // Backend's Low-confidence label carries an advisory after the em dash
@@ -767,14 +915,20 @@ class _ChatScreenState extends State<ChatScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // TOP — XAI confidence badge (bot messages only)
+                  // TOP — XAI confidence badge (bot messages only); fades in
+                  // when metadata arrives at the end of a stream
                   if (confidence.isNotEmpty) ...[
-                    _confidenceBadge(confidence),
+                    wasStreamed
+                        ? _fadeIn(_confidenceBadge(confidence))
+                        : _confidenceBadge(confidence),
                     const SizedBox(height: 6),
                   ],
-                  // MIDDLE — answer text (reasoning split out for bot replies)
+                  // MIDDLE — answer text (reasoning split out for bot replies);
+                  // "..." placeholder while the stream is starting (Phase 1)
                   Text(
-                    parsed.answer,
+                    isStreamingMsg && parsed.answer.isEmpty
+                        ? '...'
+                        : parsed.answer,
                     style: TextStyle(
                       color: isUser
                           ? Colors.white
@@ -785,19 +939,49 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                   ),
                   // BOTTOM — muted XAI footer; hidden when empty (out-of-scope)
-                  if (hasFooter) ...[
+                  if (hasFooter)
+                    wasStreamed
+                        ? _fadeIn(_xaiFooter(parsed, sources, advisory))
+                        : _xaiFooter(parsed, sources, advisory),
+                  // Inline stream-error state: keeps any partial text above,
+                  // adds a muted warning + optional retry inside the bubble.
+                  if (errorCode != null) ...[
                     const SizedBox(height: 8),
-                    Container(height: 1, color: Colors.grey[200]),
-                    const SizedBox(height: 6),
-                    if (parsed.reasoning.isNotEmpty)
-                      _xaiFooterLine(Icons.lightbulb_outline, parsed.reasoning),
-                    if (sources.isNotEmpty)
-                      _xaiFooterLine(
-                        Icons.description_outlined,
-                        sources.join(', '),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.warning_amber_outlined,
+                          size: 14,
+                          color: Colors.orange[800],
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            _streamErrorMessages[errorCode] ??
+                                _streamErrorMessages['server_error']!,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.orange[800],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    // Auth errors need a fresh sign-in, not a retry.
+                    if (errorCode != 'auth_error')
+                      TextButton.icon(
+                        onPressed: () => _retryStream(msg),
+                        icon: const Icon(Icons.refresh, size: 14),
+                        label: const Text('Tap to retry'),
+                        style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          minimumSize: const Size(0, 28),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          foregroundColor: AppTheme.primaryDark,
+                          textStyle: const TextStyle(fontSize: 12),
+                        ),
                       ),
-                    if (advisory.isNotEmpty)
-                      _xaiFooterLine(Icons.info_outline, advisory),
                   ],
                   if (isMock)
                     Padding(
@@ -869,6 +1053,34 @@ class _ChatScreenState extends State<ChatScreen> {
           color: fg,
         ),
       ),
+    );
+  }
+
+  /// The bubble's muted XAI footer: divider + reasoning/sources/advisory.
+  Widget _xaiFooter(_ParsedReply parsed, List<String> sources, String advisory) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 8),
+        Container(height: 1, color: Colors.grey[200]),
+        const SizedBox(height: 6),
+        if (parsed.reasoning.isNotEmpty)
+          _xaiFooterLine(Icons.lightbulb_outline, parsed.reasoning),
+        if (sources.isNotEmpty)
+          _xaiFooterLine(Icons.description_outlined, sources.join(', ')),
+        if (advisory.isNotEmpty) _xaiFooterLine(Icons.info_outline, advisory),
+      ],
+    );
+  }
+
+  /// Fades a widget in on first build — used so the confidence badge and
+  /// XAI footer appear smoothly when stream metadata arrives, not jarringly.
+  Widget _fadeIn(Widget child) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 300),
+      builder: (context, opacity, c) => Opacity(opacity: opacity, child: c),
+      child: child,
     );
   }
 
@@ -1017,15 +1229,19 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           const SizedBox(width: 8),
           GestureDetector(
-            onTap: _isLoading ? null : () => _sendMessage(_controller.text),
+            onTap: (_isLoading || _isStreaming)
+                ? null
+                : () => _sendMessage(_controller.text),
             child: Container(
               width: 44,
               height: 44,
               decoration: BoxDecoration(
-                color: _isLoading ? Colors.grey : AppTheme.primaryDark,
+                color: (_isLoading || _isStreaming)
+                    ? Colors.grey
+                    : AppTheme.primaryDark,
                 shape: BoxShape.circle,
               ),
-              child: _isLoading
+              child: (_isLoading || _isStreaming)
                   ? const Padding(
                       padding: EdgeInsets.all(10),
                       child: CircularProgressIndicator(

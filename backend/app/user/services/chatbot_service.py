@@ -18,6 +18,21 @@ from app.utils.firestore import audit_log
 logger = logging.getLogger(__name__)
 
 _MAX_LEN = 500
+# Cosine-similarity floor for a chunk to count as "relevant".
+# Empirically calibrated (2026-07-05, all-MiniLM-L6-v2, 69 chunks):
+#   in-scope English questions score 0.68-0.85; the app's own suggested
+#   follow-up "How can I improve my soil quality?" scores 0.29; junk/uncovered
+#   queries ("weather on Mars" 0.22, "weather in Galle" 0.24) cluster below.
+# 0.26 passes every legitimate English query while still blocking junk.
+# KNOWN LIMIT: Sinhala/Tamil in-scope queries score 0.10-0.25 with this
+# English-only encoder — no threshold can rescue them; needs a multilingual
+# encoder + chunk re-embedding (tracked separately).
+_MIN_RELEVANCE = 0.26
+_OUT_OF_SCOPE_REPLY = (
+    "I don't have relevant agricultural data to answer that question. I can help "
+    "with Sri Lankan crop recommendations, weather patterns, yield predictions, "
+    "and market prices."
+)
 _encoder = None  # SentenceTransformer singleton — loaded once on first chat request
 _HF_CACHE = (
     "/tmp/hf_cache"  # nosec B108 — intentional, writable by non-root container user
@@ -61,12 +76,25 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
     logger.info(f"Using model: {groq_model} (requested: {req.model})")
 
     try:
+        # RAG retrieval always uses English-normalised query for best results
+        context = _rag_context(clean)
+        confidence = _confidence_label(context)
+
+        # Grounding guard (primary defence): if nothing in our agricultural
+        # dataset matched above the relevance floor, refuse deterministically.
+        # The query never reaches the LLM, so it cannot answer from its own
+        # general knowledge (e.g. "what's the weather on Mars").
+        if not context["text"]:
+            return ChatResponse(
+                reply=_OUT_OF_SCOPE_REPLY,
+                sources_used=[],
+                suggested_followups=_followups(req),
+                confidence=confidence,
+            )
+
         from groq import Groq  # type: ignore
 
         client = Groq(api_key=settings.GROQ_API_KEY)
-
-        # RAG retrieval always uses English-normalised query for best results
-        context = _rag_context(clean)
 
         # Build messages with language instruction injected into system prompt
         messages = _build_messages(
@@ -87,6 +115,7 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
             reply=reply,
             sources_used=context["sources"],
             suggested_followups=_followups(req),
+            confidence=confidence,
         )
     except Exception as exc:
         logger.error("Chatbot error user=%s: %s", req.user_id, type(exc).__name__)
@@ -137,9 +166,18 @@ def _system_prompt(req: ChatRequest) -> str:
     # Get language-specific instruction
 
     base = (
-        "You are CropSphere, an agricultural assistant for Sri Lankan farmers. "
-        "Provide concise, practical advice about crops, weather, and markets."
-        f"{district}{crop}"
+        "You are CropSphere, an agricultural assistant for Sri Lankan farmers."
+        f"{district}{crop} "
+        "You must answer ONLY using the information in the 'Relevant context' "
+        "provided to you. Do not use your own general knowledge, and do not "
+        "guess. "
+        "If no 'Relevant context' is provided, reply with exactly: "
+        f'"{_OUT_OF_SCOPE_REPLY}" '
+        "When you do have relevant context, first write one short sentence "
+        "starting with 'Reasoning: ' that names the SPECIFIC data you used "
+        "(e.g. the source document, district, season, or crop) — never vague "
+        'phrases like "based on similar regions". Then give your final answer '
+        "on a new line."
     )
 
     # Append language instruction — this is the key feature
@@ -147,10 +185,15 @@ def _system_prompt(req: ChatRequest) -> str:
 
 
 def _rag_context(message: str) -> dict:
-    """Retrieve the most relevant RAG chunk for the query."""
+    """Retrieve the most relevant RAG chunk for the query, with its similarity score.
+
+    Returns a dict with "text", "sources", and "score" (top chunk's cosine
+    similarity, 0.0-1.0, used downstream to derive an explainability confidence
+    label — 0.0 if no chunk could be retrieved).
+    """
     rag = model_loader.get_model("rag_artifacts")
     if rag is None:
-        return {"text": "", "sources": []}
+        return {"text": "", "sources": [], "score": 0.0}
     try:
         from sentence_transformers import util  # type: ignore
 
@@ -159,18 +202,78 @@ def _rag_context(message: str) -> dict:
         embeddings = rag.get("chunk_embeddings")
 
         if not chunks or embeddings is None:
-            return {"text": "", "sources": []}
+            return {"text": "", "sources": [], "score": 0.0}
 
         encoder = _get_encoder()
         q_emb = encoder.encode(message, convert_to_tensor=True)
-        idx = int(util.cos_sim(q_emb, embeddings)[0].argmax())
-        source = (
-            metadata[idx].get("source", "") if metadata and idx < len(metadata) else ""
-        )
-        return {"text": chunks[idx], "sources": [source] if source else []}
+        sims = util.cos_sim(q_emb, embeddings)[0]
+        idx = int(sims.argmax())
+        score = float(sims[idx])
+
+        # TEMP DEBUG — remove after threshold is tuned. Prints the query and
+        # the top cosine similarity BEFORE the threshold check.
+        logger.info(f"[RAG DEBUG] query='{message[:60]}' top_score={score:.4f}")
+
+        # Grounding floor: if even the best chunk is a weak match, treat the
+        # query as out-of-scope for our agricultural dataset. Empty context
+        # (text/sources) signals the caller to refuse; the real score is still
+        # returned so the confidence label can distinguish out-of-scope cases.
+        if score < _MIN_RELEVANCE:
+            return {"text": "", "sources": [], "score": score}
+
+        # chunk_metadata carries {crop, district, season, type} but no 'source'
+        # key — synthesize a human-readable source label so the XAI
+        # sources_used field reflects the actual chunk retrieved.
+        meta = metadata[idx] if metadata and idx < len(metadata) else {}
+        source = meta.get("source") or _source_label(meta)
+        return {
+            "text": chunks[idx],
+            "sources": [source],
+            "score": score,
+        }
     except Exception as exc:
         logger.warning("RAG retrieval failed: %s", exc)
-        return {"text": "", "sources": []}
+        return {"text": "", "sources": [], "score": 0.0}
+
+
+def _source_label(meta: dict) -> str:
+    """Build a human-readable source name from RAG chunk metadata.
+
+    Inputs: meta (dict with optional crop/district/season/type keys).
+    Outputs: non-empty source label string for the XAI sources_used field.
+    Security assumption: metadata comes from the trusted rag_artifacts file,
+    not from user input, so no sanitisation is required here.
+    """
+    parts = " — ".join(
+        str(p)
+        for p in (meta.get("crop"), meta.get("district"), meta.get("season"))
+        if p
+    )
+    kind = meta.get("type", "data")
+    if parts:
+        return f"CropSphere dataset: {parts} ({kind})"
+    return "CropSphere agricultural dataset"
+
+
+def _confidence_label(context: dict) -> str:
+    """Map RAG retrieval output to an explainability confidence label.
+
+    Inputs: context (dict from _rag_context with "text" and "score").
+    Outputs: human-readable confidence label for the chat response.
+    Security assumption: values are computed server-side, not user input, so
+    no sanitisation is required here.
+
+    An empty "text" means retrieval found nothing above the relevance floor —
+    the query is out of scope for our agricultural dataset.
+    """
+    if not context["text"]:
+        return "Out of scope"
+    score = context["score"]
+    if score > 0.8:
+        return "High confidence"
+    if score >= 0.5:
+        return "Moderate confidence"
+    return "Low confidence — please verify with an agricultural officer"
 
 
 def _build_messages(system: str, context: dict, req: ChatRequest, message: str) -> list:

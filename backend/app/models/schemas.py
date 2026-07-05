@@ -234,6 +234,7 @@ class ChatResponse(BaseModel):
     suggested_followups: List[str]
     conversation_id: str = ""
     is_mock: bool = False
+    confidence: str = ""
 
 
 # ── Chat conversation history ─────────────────────────────────────────────────

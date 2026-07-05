@@ -485,6 +485,7 @@ class ChatResponse {
   final List<String> suggestedFollowups;
   final String conversationId;
   final bool isMock;
+  final String confidence; // XAI label: High/Moderate/Low confidence, Out of scope
 
   ChatResponse({
     required this.reply,
@@ -492,6 +493,7 @@ class ChatResponse {
     required this.suggestedFollowups,
     this.conversationId = '',
     this.isMock = false,
+    this.confidence = '',
   });
 
   factory ChatResponse.fromJson(Map<String, dynamic> json) => ChatResponse(
@@ -500,6 +502,7 @@ class ChatResponse {
     suggestedFollowups: List<String>.from(json['suggested_followups'] ?? []),
     conversationId: json['conversation_id'] ?? '',
     isMock: json['is_mock'] ?? false,
+    confidence: json['confidence'] ?? '',
   );
 }
 

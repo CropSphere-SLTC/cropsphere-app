@@ -249,6 +249,8 @@ class _ChatScreenState extends State<ChatScreen> {
           'role': 'assistant',
           'content': response.reply,
           'isMock': response.isMock,
+          'confidence': response.confidence,
+          'sources': response.sourcesUsed,
         });
         _history.add(ChatMessage(role: 'assistant', content: response.reply));
         _suggestedFollowups = response.suggestedFollowups;
@@ -703,6 +705,26 @@ class _ChatScreenState extends State<ChatScreen> {
     final isError = msg['role'] == 'error';
     final isMock = msg['isMock'] as bool? ?? false;
 
+    // XAI data — bot replies only; user and error bubbles are unchanged.
+    // Messages loaded from saved history have no 'confidence'/'sources' keys
+    // and gracefully render without badge/footer.
+    final isBot = !isUser && !isError;
+    final confidence = isBot ? (msg['confidence'] as String? ?? '') : '';
+    final sources = isBot
+        ? ((msg['sources'] as List?)?.cast<String>() ?? const <String>[])
+        : const <String>[];
+    final parsed = isBot
+        ? _parseReply(msg['content'] as String)
+        : _ParsedReply('', msg['content'] as String);
+    // Backend's Low-confidence label carries an advisory after the em dash
+    // ("please verify with an agricultural officer") — badge shows the short
+    // label, the advisory moves to the muted footer.
+    final advisory = confidence.contains('—')
+        ? confidence.split('—').last.trim()
+        : '';
+    final hasFooter =
+        parsed.reasoning.isNotEmpty || sources.isNotEmpty || advisory.isNotEmpty;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
@@ -745,8 +767,14 @@ class _ChatScreenState extends State<ChatScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // TOP — XAI confidence badge (bot messages only)
+                  if (confidence.isNotEmpty) ...[
+                    _confidenceBadge(confidence),
+                    const SizedBox(height: 6),
+                  ],
+                  // MIDDLE — answer text (reasoning split out for bot replies)
                   Text(
-                    msg['content'],
+                    parsed.answer,
                     style: TextStyle(
                       color: isUser
                           ? Colors.white
@@ -756,6 +784,21 @@ class _ChatScreenState extends State<ChatScreen> {
                       fontSize: 14,
                     ),
                   ),
+                  // BOTTOM — muted XAI footer; hidden when empty (out-of-scope)
+                  if (hasFooter) ...[
+                    const SizedBox(height: 8),
+                    Container(height: 1, color: Colors.grey[200]),
+                    const SizedBox(height: 6),
+                    if (parsed.reasoning.isNotEmpty)
+                      _xaiFooterLine(Icons.lightbulb_outline, parsed.reasoning),
+                    if (sources.isNotEmpty)
+                      _xaiFooterLine(
+                        Icons.description_outlined,
+                        sources.join(', '),
+                      ),
+                    if (advisory.isNotEmpty)
+                      _xaiFooterLine(Icons.info_outline, advisory),
+                  ],
                   if (isMock)
                     Padding(
                       padding: const EdgeInsets.only(top: 6),
@@ -779,6 +822,75 @@ class _ChatScreenState extends State<ChatScreen> {
               child: const Icon(Icons.person, color: Colors.white, size: 16),
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  /// Splits a bot reply into (reasoning, answer). The backend instructs the
+  /// model to lead with one "Reasoning: ..." sentence, then the answer on a
+  /// new line. Splits on the first blank line, falling back to the first
+  /// newline (the model often emits a single \n). No "Reasoning:" prefix →
+  /// the whole reply is the answer.
+  _ParsedReply _parseReply(String reply) {
+    final trimmed = reply.trimLeft();
+    if (!trimmed.startsWith('Reasoning:')) return _ParsedReply('', reply);
+    var cut = trimmed.indexOf('\n\n');
+    if (cut == -1) cut = trimmed.indexOf('\n');
+    if (cut == -1) return _ParsedReply('', reply); // one-liner: don't hide it
+    return _ParsedReply(
+      trimmed.substring('Reasoning:'.length, cut).trim(),
+      trimmed.substring(cut).trim(),
+    );
+  }
+
+  /// Small colored chip showing the XAI confidence label. Long backend labels
+  /// ("Low confidence — please verify...") are truncated at the em dash; the
+  /// advisory tail is rendered in the bubble footer instead.
+  Widget _confidenceBadge(String confidence) {
+    final label = confidence.split('—').first.trim();
+    final (bg, fg) = switch (label) {
+      'High confidence' => (Colors.green[600]!, Colors.white),
+      'Moderate confidence' => (Colors.amber[400]!, Colors.black87),
+      'Low confidence' => (Colors.orange[700]!, Colors.white),
+      _ => (Colors.grey[600]!, Colors.white), // Out of scope + unknown
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+          color: fg,
+        ),
+      ),
+    );
+  }
+
+  /// One muted line in the XAI footer (reasoning / sources / advisory).
+  Widget _xaiFooterLine(IconData icon, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 12, color: Colors.grey[500]),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.grey[600],
+                height: 1.3,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -957,4 +1069,11 @@ class _ChatScreenState extends State<ChatScreen> {
         )
         .toList();
   }
+}
+
+/// Bot reply split into its XAI reasoning sentence and the main answer.
+class _ParsedReply {
+  final String reasoning;
+  final String answer;
+  _ParsedReply(this.reasoning, this.answer);
 }

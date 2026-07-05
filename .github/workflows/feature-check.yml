@@ -62,7 +62,10 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install flake8 pip-audit pytest pytest-cov 
+          # CPU-only torch first (matches Dockerfile pin) — pre-satisfying the
+          # resolver stops requirements.txt deps from pulling multi-GB CUDA torch
+          pip install torch==2.12.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install flake8 pip-audit pytest pytest-cov
           pip install -r requirements.txt
 
       - name: Lint with Flake8

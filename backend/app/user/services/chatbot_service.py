@@ -28,6 +28,11 @@ _MAX_LEN = 500
 # English-only encoder — no threshold can rescue them; needs a multilingual
 # encoder + chunk re-embedding (tracked separately).
 _MIN_RELEVANCE = 0.26
+_TOP_K = 3  # number of chunks retrieved per query
+# Ranking bonus per matching UI filter. District match = +0.15, crop match
+# = +0.15, both = +0.30. Ranking signal ONLY — never affects the relevance
+# floor or the confidence label, which use raw cosine scores.
+_METADATA_BOOST = 0.15
 _OUT_OF_SCOPE_REPLY = (
     "I don't have relevant agricultural data to answer that question. I can help "
     "with Sri Lankan crop recommendations, weather patterns, yield predictions, "
@@ -76,15 +81,21 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
     logger.info(f"Using model: {groq_model} (requested: {req.model})")
 
     try:
-        # RAG retrieval always uses English-normalised query for best results
-        context = _rag_context(clean)
+        # RAG retrieval always uses English-normalised query for best results.
+        # The UI's optional district/crop filters boost matching chunks in
+        # the ranking (never in the relevance floor or confidence label).
+        context = _rag_context(
+            clean,
+            district=req.district.value if req.district else "",
+            crop=req.crop.value if req.crop else "",
+        )
         confidence = _confidence_label(context)
 
         # Grounding guard (primary defence): if nothing in our agricultural
         # dataset matched above the relevance floor, refuse deterministically.
         # The query never reaches the LLM, so it cannot answer from its own
         # general knowledge (e.g. "what's the weather on Mars").
-        if not context["text"]:
+        if not context["chunks"]:
             return ChatResponse(
                 reply=_OUT_OF_SCOPE_REPLY,
                 sources_used=[],
@@ -184,16 +195,29 @@ def _system_prompt(req: ChatRequest) -> str:
     return base
 
 
-def _rag_context(message: str) -> dict:
-    """Retrieve the most relevant RAG chunk for the query, with its similarity score.
+def _rag_context(message: str, district: str = "", crop: str = "") -> dict:
+    """Retrieve the top-k most relevant RAG chunks for the query.
 
-    Returns a dict with "text", "sources", and "score" (top chunk's cosine
-    similarity, 0.0-1.0, used downstream to derive an explainability confidence
-    label — 0.0 if no chunk could be retrieved).
+    Inputs: message (sanitised user query); optional district/crop from the
+    UI dropdown filters.
+    Scoring model:
+      raw     — cosine similarity; the ONLY quality signal. Gates the
+                _MIN_RELEVANCE floor and drives the confidence label.
+      boosted — raw + _METADATA_BOOST per matching filter (district, crop;
+                both matching doubles it). Ranking priority ONLY.
+    Outputs: dict with
+      "chunks":  list of {"text", "source", "score"} — score is the RAW
+                 cosine similarity; ordered by boosted rank, max _TOP_K,
+                 all raw >= _MIN_RELEVANCE (empty = out of scope)
+      "sources": ordered unique source labels of returned chunks
+      "score":   highest RAW score among returned chunks (best-match score
+                 overall when nothing passes — for logging/diagnostics)
+    Security assumption: district/crop are enum values validated by Pydantic.
     """
+    empty = {"chunks": [], "sources": [], "score": 0.0}
     rag = model_loader.get_model("rag_artifacts")
     if rag is None:
-        return {"text": "", "sources": [], "score": 0.0}
+        return empty
     try:
         from sentence_transformers import util  # type: ignore
 
@@ -202,38 +226,48 @@ def _rag_context(message: str) -> dict:
         embeddings = rag.get("chunk_embeddings")
 
         if not chunks or embeddings is None:
-            return {"text": "", "sources": [], "score": 0.0}
+            return empty
 
         encoder = _get_encoder()
         q_emb = encoder.encode(message, convert_to_tensor=True)
-        sims = util.cos_sim(q_emb, embeddings)[0]
-        idx = int(sims.argmax())
-        score = float(sims[idx])
+        sims = util.cos_sim(q_emb, embeddings)[0].tolist()
 
-        # TEMP DEBUG — remove after threshold is tuned. Prints the query and
-        # the top cosine similarity BEFORE the threshold check.
-        logger.info(f"[RAG DEBUG] query='{message[:60]}' top_score={score:.4f}")
+        # Graduated metadata boost: +_METADATA_BOOST per matching filter.
+        scored = []  # (boosted, raw, index, meta)
+        for i, raw in enumerate(sims):
+            meta = metadata[i] if i < len(metadata) else {}
+            matches = 0
+            if district and meta.get("district") == district:
+                matches += 1
+            if crop and meta.get("crop") == crop:
+                matches += 1
+            scored.append((raw + _METADATA_BOOST * matches, raw, i, meta))
 
-        # Grounding floor: if even the best chunk is a weak match, treat the
-        # query as out-of-scope for our agricultural dataset. Empty context
-        # (text/sources) signals the caller to refuse; the real score is still
-        # returned so the confidence label can distinguish out-of-scope cases.
-        if score < _MIN_RELEVANCE:
-            return {"text": "", "sources": [], "score": score}
+        # Filter on RAW score — junk stays junk regardless of metadata
+        # match — then rank on BOOSTED score so filter matches jump the
+        # queue. Chunks below the floor never reach the LLM.
+        eligible = [t for t in scored if t[1] >= _MIN_RELEVANCE]
+        eligible.sort(key=lambda t: t[0], reverse=True)
+        top = eligible[:_TOP_K]
+        if not top:
+            best_raw = max(t[1] for t in scored)
+            return {"chunks": [], "sources": [], "score": best_raw}
 
-        # chunk_metadata carries {crop, district, season, type} but no 'source'
-        # key — synthesize a human-readable source label so the XAI
-        # sources_used field reflects the actual chunk retrieved.
-        meta = metadata[idx] if metadata and idx < len(metadata) else {}
-        source = meta.get("source") or _source_label(meta)
-        return {
-            "text": chunks[idx],
-            "sources": [source],
-            "score": score,
-        }
+        # chunk_metadata carries {crop, district, season, type} but no
+        # 'source' key — synthesize a human-readable source label so the
+        # XAI sources_used field reflects the actual chunks retrieved.
+        out: list = []
+        sources: list = []
+        for _boosted, raw, i, meta in top:
+            source = meta.get("source") or _source_label(meta)
+            out.append({"text": chunks[i], "source": source, "score": raw})
+            if source not in sources:
+                sources.append(source)
+        top_raw = max(c["score"] for c in out)
+        return {"chunks": out, "sources": sources, "score": top_raw}
     except Exception as exc:
         logger.warning("RAG retrieval failed: %s", exc)
-        return {"text": "", "sources": [], "score": 0.0}
+        return empty
 
 
 def _source_label(meta: dict) -> str:
@@ -263,10 +297,12 @@ def _confidence_label(context: dict) -> str:
     Security assumption: values are computed server-side, not user input, so
     no sanitisation is required here.
 
-    An empty "text" means retrieval found nothing above the relevance floor —
-    the query is out of scope for our agricultural dataset.
+    An empty "chunks" list means retrieval found nothing above the relevance
+    floor — the query is out of scope for our agricultural dataset. The label
+    is derived from the highest RAW cosine score among returned chunks; the
+    metadata ranking boost never inflates confidence.
     """
-    if not context["text"]:
+    if not context["chunks"]:
         return "Out of scope"
     score = context["score"]
     if score > 0.8:
@@ -278,9 +314,14 @@ def _confidence_label(context: dict) -> str:
 
 def _build_messages(system: str, context: dict, req: ChatRequest, message: str) -> list:
     msgs = [{"role": "system", "content": system}]
-    if context["text"]:
+    if context["chunks"]:
+        parts = [
+            f"--- Source {i}: {ch['source']} (relevance {ch['score']:.2f}) ---\n"
+            f"{ch['text']}"
+            for i, ch in enumerate(context["chunks"], 1)
+        ]
         msgs.append(
-            {"role": "system", "content": f"Relevant context: {context['text']}"}
+            {"role": "system", "content": "Relevant context:\n" + "\n".join(parts)}
         )
     for turn in req.conversation_history[-10:]:
         msgs.append({"role": turn.role, "content": turn.content})

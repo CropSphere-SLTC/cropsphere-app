@@ -14,18 +14,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip==26.1.2
 
+# Force CPU-only torch across ALL pip layers below: the PyTorch CPU wheel
+# index is consulted on every install, and the constraint pins torch to the
+# exact CPU build. This stops sentence-transformers / requirements.txt from
+# pulling the multi-GB CUDA torch + nvidia-* wheels as transitive deps
+# (which previously exhausted builder disk), and guarantees ONE consistent
+# torch version in the final image.
+RUN echo "torch==2.12.1+cpu" > /tmp/pip-constraints.txt
+ENV PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu \
+    PIP_CONSTRAINT=/tmp/pip-constraints.txt
+
 # Layer 1 — torch (CPU-only, cached across builds)
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --timeout 600 --retries 10 --prefix=/install \
-    torch==2.1.0 --index-url https://download.pytorch.org/whl/cpu
+    torch==2.12.1 --index-url https://download.pytorch.org/whl/cpu
 
-# Layer 2 — tensorflow (cached across builds)
+# Layer 2 — tensorflow CPU-only (no CUDA bloat)
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --timeout 600 --retries 10 --prefix=/install \
-    tensorflow==2.21.0 || \
-    pip install --timeout 600 --retries 10 --prefix=/install \
-    tensorflow-cpu==2.21.0 || \
-    echo "TensorFlow install skipped"
+    tensorflow-cpu==2.21.0
 
 # Layer 3 — heavy ML deps (cached across builds)
 RUN --mount=type=cache,target=/root/.cache/pip \
@@ -42,16 +49,17 @@ COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --timeout 600 --retries 10 --prefix=/install -r requirements.txt
 
-# Re-force CPU-only torch — MUST be the last pip step. Both sentence-transformers
-# and requirements.txt can pull in the CUDA build of torch as a transitive
-# dependency; this guarantees the CPU build wins regardless of install order.
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --timeout 600 --retries 10 --force-reinstall --no-deps --prefix=/install \
-    torch==2.1.0 --index-url https://download.pytorch.org/whl/cpu
+# NOTE: the old "re-force CPU torch" step that lived here was the root cause
+# of a corrupted install (torch 2.1.0+cpu files under torch 2.12.1 metadata,
+# which silently killed RAG at runtime). The PIP_CONSTRAINT above makes every
+# layer resolve the same CPU torch, so no force-reinstall is needed.
 
-# Verify torch is CPU-only — build fails loudly here instead of segfaulting at runtime
+# Verify torch is CPU-only AND the ML import chain is consistent — build fails
+# loudly here instead of RAG dying silently at runtime (shift-left)
 RUN PYTHONPATH=/install/lib/python3.11/site-packages python -c \
-    "import torch; assert '+cu' not in torch.__version__, f'CUDA torch detected: {torch.__version__}'; print(f'torch OK: {torch.__version__}')"
+    "import torch; assert '+cu' not in torch.__version__, f'CUDA torch detected: {torch.__version__}'; \
+import sentence_transformers, transformers, numpy; \
+print(f'OK: torch {torch.__version__}, transformers {transformers.__version__}, ST {sentence_transformers.__version__}, numpy {numpy.__version__}')"
 
 # ──────────────────────────────────────────────────────────
 # STAGE 2 — Runtime (clean, no gcc, no build tools — smaller final image)

@@ -38,6 +38,16 @@ _OUT_OF_SCOPE_REPLY = (
     "with Sri Lankan crop recommendations, weather patterns, yield predictions, "
     "and market prices."
 )
+# Client-safe error messages for streaming failures. Technical detail
+# (status codes, exception types) is logged server-side only.
+_STREAM_ERROR_MESSAGES = {
+    "rate_limit": (
+        "The AI service is busy right now. Please wait a moment and try again."
+    ),
+    "server_error": "The AI service is temporarily unavailable. Try again shortly.",
+    "stream_interrupted": "Response was interrupted.",
+    "empty_response": "No response received. Try rephrasing your question.",
+}
 _encoder = None  # SentenceTransformer singleton — loaded once on first chat request
 _HF_CACHE = (
     "/tmp/hf_cache"  # nosec B108 — intentional, writable by non-root container user
@@ -131,6 +141,143 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
     except Exception as exc:
         logger.error("Chatbot error user=%s: %s", req.user_id, type(exc).__name__)
         raise RuntimeError("Chatbot unavailable") from exc
+
+
+def chat_stream(req: ChatRequest, settings, verified_uid: str):
+    """Generator: stream a chat reply as typed events for SSE delivery.
+
+    Reuses chat()'s exact pipeline (sanitise -> audit -> RAG retrieval with
+    district/crop filters and metadata boost -> grounding guard -> Groq),
+    but calls Groq with stream=True. Yields event dicts:
+      {"type": "text", "content": str}   — reply deltas as they arrive
+      {"type": "metadata", "confidence", "sources", "suggested_followups",
+       "conversation_id"}                — after the stream completes
+      {"type": "error", "code", "message"} — client-safe failure marker
+    Confidence and sources come from retrieval, so they are computed before
+    streaming starts. The full assembled reply is persisted to Firestore
+    chat history only AFTER the stream completes; interrupted replies are
+    never persisted. This generator never raises — all failures become
+    error events.
+
+    Inputs: ChatRequest (Pydantic-validated), Settings, verified_uid.
+    Outputs: iterator of event dicts (see above).
+    Security assumption: verified_uid is the JWT-verified user id supplied
+    by the router; it keys history persistence exactly as the non-streaming
+    endpoint does. Technical error detail is logged server-side only.
+    """
+    clean = _strip_html(req.message)[:_MAX_LEN]
+    _safe_audit(req.user_id, clean)
+    groq_model = _GROQ_MODELS.get(req.model, _GROQ_MODELS["accurate"])
+
+    context = _rag_context(
+        clean,
+        district=req.district.value if req.district else "",
+        crop=req.crop.value if req.crop else "",
+    )
+    confidence = _confidence_label(context)
+    followups = _followups(req)
+
+    def _persist(full_reply: str) -> str:
+        """Save the completed turn; failure logs but never breaks the stream."""
+        try:
+            from app.user.services.chat_history_service import persist_chat_turn
+
+            return persist_chat_turn(
+                verified_uid, req.conversation_id, req.message, full_reply
+            )
+        except Exception as exc:
+            logger.warning(
+                "Stream persistence failed uid=%s: %s", verified_uid, exc
+            )
+            return ""
+
+    def _metadata(conv_id: str) -> dict:
+        return {
+            "type": "metadata",
+            "confidence": confidence,
+            "sources": context["sources"],
+            "suggested_followups": followups,
+            "conversation_id": conv_id,
+        }
+
+    # Grounding guard — same deterministic refusal as chat(), no Groq call.
+    if not context["chunks"]:
+        yield {"type": "text", "content": _OUT_OF_SCOPE_REPLY}
+        conv_id = _persist(_OUT_OF_SCOPE_REPLY)
+        logger.info(
+            "[STREAM COMPLETE] conv=%s len=%d", conv_id, len(_OUT_OF_SCOPE_REPLY)
+        )
+        yield _metadata(conv_id)
+        return
+
+    parts: list = []
+    try:
+        from groq import Groq  # type: ignore
+
+        client = Groq(api_key=settings.GROQ_API_KEY)
+        messages = _build_messages(_system_prompt(req), context, req, clean)
+        stream = client.chat.completions.create(
+            model=groq_model,
+            messages=messages,
+            max_tokens=512,
+            temperature=0.7,
+            stream=True,
+        )
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content if chunk.choices else None
+            if delta:
+                parts.append(delta)
+                yield {"type": "text", "content": delta}
+    except Exception as exc:
+        code = _stream_error_code(exc, has_partial=bool(parts))
+        logger.error(
+            "Chat stream error user=%s code=%s: %s",
+            req.user_id,
+            code,
+            type(exc).__name__,
+        )
+        yield {
+            "type": "error",
+            "code": code,
+            "message": _STREAM_ERROR_MESSAGES[code],
+        }
+        return
+
+    full = "".join(parts)
+    if not full.strip():
+        yield {
+            "type": "error",
+            "code": "empty_response",
+            "message": _STREAM_ERROR_MESSAGES["empty_response"],
+        }
+        return
+
+    conv_id = _persist(full)
+    logger.info("[STREAM COMPLETE] conv=%s len=%d", conv_id, len(full))
+    yield _metadata(conv_id)
+
+
+def _stream_error_code(exc: Exception, has_partial: bool) -> str:
+    """Map a Groq/streaming exception to a client-safe error code.
+
+    Inputs: exc (the caught exception), has_partial (True when reply text
+    already streamed before the failure).
+    Outputs: one of "stream_interrupted", "rate_limit", "server_error".
+    Security assumption: the returned code is safe to expose to clients;
+    exception detail must be logged separately, never returned.
+    """
+    if has_partial:
+        return "stream_interrupted"
+    try:
+        from groq import RateLimitError  # type: ignore
+
+        if isinstance(exc, RateLimitError):
+            return "rate_limit"
+    except ImportError:
+        pass
+    # Groq 5xx / auth / connection problems are all server-side issues
+    # from the farmer's perspective.
+    return "server_error"
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

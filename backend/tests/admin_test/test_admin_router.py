@@ -204,9 +204,9 @@ class TestAdminRateLimiting:
             ]
 
         status_codes = [r.status_code for r in responses]
-        assert 429 in status_codes, (
-            f"Expected at least one 429 in 11 requests, got: {set(status_codes)}"
-        )
+        assert (
+            429 in status_codes
+        ), f"Expected at least one 429 in 11 requests, got: {set(status_codes)}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

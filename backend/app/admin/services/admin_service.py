@@ -3,6 +3,7 @@
 Extracted from app.admin.routers.admin_router so the router stays a thin
 HTTP layer; all Firestore/psutil access and role-permission rules live here.
 """
+
 import logging
 from datetime import datetime, timezone
 from typing import Dict
@@ -20,6 +21,7 @@ def list_users(actor: dict) -> dict:
     """List all users. Admins see users and admins. Superadmin sees everyone."""
     try:
         from app.utils.firestore import get_db
+
         db = get_db()
         docs = db.collection("users").stream()
         users = []
@@ -179,8 +181,13 @@ def get_system_stats() -> dict:
         models_loaded = {
             name: model_loader.get_model(name) is not None
             for name in [
-                "yield_Carrot", "yield_Maize", "weather_lstm",
-                "price_Carrot", "demand_Carrot", "recommend_rf", "rag_artifacts"
+                "yield_Carrot",
+                "yield_Maize",
+                "weather_lstm",
+                "price_Carrot",
+                "demand_Carrot",
+                "recommend_rf",
+                "rag_artifacts",
             ]
         }
 
@@ -220,6 +227,7 @@ def get_audit_logs(limit: int, actor: dict) -> dict:
     """
     try:
         from app.utils.firestore import get_db
+
         db = get_db()
         query = (
             db.collection("admin_audit_logs")
@@ -230,10 +238,7 @@ def get_audit_logs(limit: int, actor: dict) -> dict:
         for doc in query.stream():
             data = doc.to_dict()
             # Hide superadmin actions from admins
-            if (
-                actor["role"] == "admin"
-                and data.get("actor_role") == "superadmin"
-            ):
+            if actor["role"] == "admin" and data.get("actor_role") == "superadmin":
                 continue
             # Convert timestamp to string
             if "timestamp" in data:
@@ -249,6 +254,7 @@ def get_prediction_logs(limit: int) -> dict:
     """Return prediction audit logs from audit_logs collection."""
     try:
         from app.utils.firestore import get_db
+
         db = get_db()
         query = (
             db.collection("audit_logs")

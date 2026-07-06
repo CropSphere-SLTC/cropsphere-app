@@ -71,13 +71,13 @@ _STREAM_ERROR_MESSAGES = {
 # steers the next question's retrieval. MUST stay in sync with the templates
 # in _build_refusal() and _capability_reply().
 _NON_TOPIC_SIGNATURES = (
-    _OUT_OF_SCOPE_MARKER,             # canned LLM-side refusal
-    "but not for that district",      # near-miss refusal: crop covered
-    "but not that crop",              # near-miss refusal: district covered
-    "outside my dataset",             # generic refusal template 1
+    _OUT_OF_SCOPE_MARKER,  # canned LLM-side refusal
+    "but not for that district",  # near-miss refusal: crop covered
+    "but not that crop",  # near-miss refusal: district covered
+    "outside my dataset",  # generic refusal template 1
     "I don't have data on that yet",  # generic refusal template 2
-    "beyond my data for now",         # generic refusal template 3
-    "I currently have data on",       # capability summary
+    "beyond my data for now",  # generic refusal template 3
+    "I currently have data on",  # capability summary
 )
 # Case-insensitive patterns that route a message to the capability summary
 # (no retrieval, no Groq). Deliberately NOT the bare "what can you" — that
@@ -98,15 +98,45 @@ _capabilities_cache: dict | None = None
 # districts). Finite by design — unlisted unknowns still fall through to the
 # normal retrieval/grounding path. Matched by whole-word token, never
 # substring ("rice" must not hit inside "price"; "tea" not inside "instead").
-_UNCOVERED_DISTRICTS = frozenset({
-    "colombo", "gampaha", "kalutara", "kandy", "matale", "galle", "matara",
-    "kurunegala", "puttalam", "kegalle", "ratnapura", "trincomalee",
-    "polonnaruwa", "vavuniya", "mannar", "mullaitivu", "kilinochchi",
-})
-_UNCOVERED_CROPS = frozenset({
-    "rice", "paddy", "tea", "rubber", "coconut", "banana", "mango",
-    "onion", "potato", "cabbage", "tomato", "chili", "chilli", "pepper",
-})
+_UNCOVERED_DISTRICTS = frozenset(
+    {
+        "colombo",
+        "gampaha",
+        "kalutara",
+        "kandy",
+        "matale",
+        "galle",
+        "matara",
+        "kurunegala",
+        "puttalam",
+        "kegalle",
+        "ratnapura",
+        "trincomalee",
+        "polonnaruwa",
+        "vavuniya",
+        "mannar",
+        "mullaitivu",
+        "kilinochchi",
+    }
+)
+_UNCOVERED_CROPS = frozenset(
+    {
+        "rice",
+        "paddy",
+        "tea",
+        "rubber",
+        "coconut",
+        "banana",
+        "mango",
+        "onion",
+        "potato",
+        "cabbage",
+        "tomato",
+        "chili",
+        "chilli",
+        "pepper",
+    }
+)
 _encoder = None  # SentenceTransformer singleton — loaded once on first chat request
 # Baked into the image at build time (see Dockerfile); loaded fully offline so
 # no HuggingFace download ever happens in the request path. Overridable via env.
@@ -205,9 +235,7 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
         client = Groq(api_key=settings.GROQ_API_KEY)
 
         # Build messages with language instruction injected into system prompt
-        messages = _build_messages(
-            _system_prompt(req), context, req, clean
-        )
+        messages = _build_messages(_system_prompt(req), context, req, clean)
 
         response = client.chat.completions.create(
             model=groq_model,
@@ -274,9 +302,7 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
                 verified_uid, req.conversation_id, req.message, full_reply
             )
         except Exception as exc:
-            logger.warning(
-                "Stream persistence failed uid=%s: %s", verified_uid, exc
-            )
+            logger.warning("Stream persistence failed uid=%s: %s", verified_uid, exc)
             return ""
 
     # Capability question — same short-circuit as chat(); no retrieval, no
@@ -733,7 +759,7 @@ def _explicit_miss(message: str) -> tuple | None:
     crops_hit = [c for c in caps["crops"] if c.lower() in msg]
     districts_hit = [d for d in caps["districts"] if d.lower() in msg]
     if bad_district and crops_hit:
-        return ("crop_match", crops_hit[0])       # have crop, not that district
+        return ("crop_match", crops_hit[0])  # have crop, not that district
     if bad_crop and districts_hit:
         return ("district_match", districts_hit[0])  # have district, not that crop
     return ("generic", "")

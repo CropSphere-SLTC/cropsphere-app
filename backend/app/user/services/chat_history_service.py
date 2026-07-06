@@ -135,9 +135,7 @@ def persist_chat_turn(
             # rather than leaking existence or failing the chat.
             conversation_id = None
         elif data.get("message_count", 0) + 2 > MAX_MESSAGES_PER_CONVERSATION:
-            logger.warning(
-                "Conversation %s full — turn not persisted", conversation_id
-            )
+            logger.warning("Conversation %s full — turn not persisted", conversation_id)
             return conversation_id
 
     if not conversation_id:

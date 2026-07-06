@@ -3,6 +3,7 @@
 Thin HTTP layer: request validation, auth dependencies, and rate limiting
 only. All business logic lives in app.admin.services.admin_service.
 """
+
 import logging
 
 from fastapi import APIRouter, Depends, Request
@@ -19,6 +20,7 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
+
 class RoleUpdate(BaseModel):
     role: str  # "user", "admin", "superadmin"
 
@@ -28,6 +30,7 @@ class BanUpdate(BaseModel):
 
 
 # ── User management ───────────────────────────────────────────────────────────
+
 
 @router.get("/users", dependencies=[Depends(require_admin)])
 @limiter.limit("10/minute")
@@ -78,6 +81,7 @@ def delete_user(request: Request, uid: str, actor: dict = Depends(get_current_ro
 
 # ── System stats ──────────────────────────────────────────────────────────────
 
+
 @router.get("/stats", dependencies=[Depends(require_admin)])
 @limiter.limit("10/minute")
 def system_stats(request: Request):
@@ -86,6 +90,7 @@ def system_stats(request: Request):
 
 
 # ── Audit logs ────────────────────────────────────────────────────────────────
+
 
 @router.get("/audit-logs", dependencies=[Depends(require_admin)])
 @limiter.limit("10/minute")

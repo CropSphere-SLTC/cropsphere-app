@@ -74,6 +74,7 @@ def get_or_create_user(
     """
     try:
         from app.config import get_settings
+
         db = get_db()
         ref = db.collection("users").document(uid)
         doc = ref.get()
@@ -106,6 +107,7 @@ def get_user_role(uid: str) -> str:
     """Get user role from Firestore. Returns 'user' as safe fallback."""
     try:
         from app.config import get_settings
+
         settings = get_settings()
         # Superadmin UID always returns superadmin regardless of Firestore
         superadmin_uids = [u.strip() for u in settings.SUPERADMIN_UID.split(",")]
@@ -360,14 +362,16 @@ def admin_audit_log(
     """
     try:
         db = get_db()
-        db.collection("admin_audit_logs").add({
-            "actor_uid": actor_uid,
-            "actor_role": actor_role,
-            "action": action,
-            "target_uid": target_uid,
-            "details": details,
-            "timestamp": datetime.now(timezone.utc),
-        })
+        db.collection("admin_audit_logs").add(
+            {
+                "actor_uid": actor_uid,
+                "actor_role": actor_role,
+                "action": action,
+                "target_uid": target_uid,
+                "details": details,
+                "timestamp": datetime.now(timezone.utc),
+            }
+        )
     except Exception as exc:
         logger.error(f"admin_audit_log failed: {exc}")
 

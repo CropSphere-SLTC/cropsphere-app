@@ -79,6 +79,7 @@ def _track_session(uid: str, request: Request) -> None:
     _session_cache.add(uid)
     try:
         from app.utils.firestore import create_session, update_last_login
+
         device_info = request.headers.get("User-Agent", "unknown")
         update_last_login(uid)
         create_session(uid, device_info)
@@ -116,6 +117,7 @@ def _verify(token: str) -> Optional[str]:
         # Create user document in Firestore if first login
         try:
             from app.utils.firestore import get_or_create_user
+
             get_or_create_user(uid, email, photo_url)
         except Exception:
             pass  # Never block auth for Firestore failures

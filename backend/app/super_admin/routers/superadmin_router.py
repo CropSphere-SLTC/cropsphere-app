@@ -3,6 +3,7 @@
 Thin HTTP layer: request validation, auth dependencies, and rate limiting
 only. All business logic lives in app.super_admin.services.superadmin_service.
 """
+
 import logging
 from typing import Optional
 
@@ -26,12 +27,14 @@ legacy_router = APIRouter(prefix="/api/admin", tags=["superadmin"])
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
+
 class ConfigUpdate(BaseModel):
     admin_rate_limit_per_minute: Optional[int] = Field(None, ge=1, le=1000)
     superadmin_rate_limit_per_minute: Optional[int] = Field(None, ge=1, le=1000)
 
 
 # ── Runtime config ───────────────────────────────────────────────────────────
+
 
 @router.get("/config", dependencies=[Depends(require_superadmin)])
 @limiter.limit("10/minute")
@@ -52,6 +55,7 @@ def update_config(request: Request, body: ConfigUpdate):
 
 # ── Audit logs (unfiltered) ──────────────────────────────────────────────────
 
+
 @router.get("/audit-logs", dependencies=[Depends(require_superadmin)])
 @limiter.limit("10/minute")
 def get_audit_logs(request: Request, limit: int = 50):
@@ -60,6 +64,7 @@ def get_audit_logs(request: Request, limit: int = 50):
 
 
 # ── Session maintenance ───────────────────────────────────────────────────────
+
 
 @legacy_router.delete(
     "/sessions/cleanup-old", dependencies=[Depends(require_superadmin)]

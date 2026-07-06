@@ -70,15 +70,12 @@ async def chat_stream_endpoint(
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as exc:
             # Belt-and-braces: the generator must never 500 mid-stream.
-            logger.error(
-                "SSE wrapper error uid=%s: %s", user_id, type(exc).__name__
-            )
+            logger.error("SSE wrapper error uid=%s: %s", user_id, type(exc).__name__)
             err = {
                 "type": "error",
                 "code": "server_error",
                 "message": (
-                    "The AI service is temporarily unavailable. "
-                    "Try again shortly."
+                    "The AI service is temporarily unavailable. " "Try again shortly."
                 ),
             }
             yield f"data: {json.dumps(err)}\n\n"

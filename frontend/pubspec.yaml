@@ -40,6 +40,10 @@ dependencies:
   cloud_firestore: ^6.4.1
   flutter_secure_storage: ^10.2.0
   fl_chart: ^1.2.0
+  flutter_svg: ^2.0.10+1
+  google_sign_in: ^6.2.2
+  geolocator: ^13.0.4
+  http: ^1.2.2
 
 dev_dependencies:
   flutter_test:

@@ -89,6 +89,7 @@ class YieldRequest {
 
 class YieldResponse {
   final double predictedYieldKgPerHa;
+  final double averageYieldKgPerHa;
   final String crop;
   final String district;
   final String confidence;
@@ -97,6 +98,7 @@ class YieldResponse {
 
   YieldResponse({
     required this.predictedYieldKgPerHa,
+    this.averageYieldKgPerHa = 0.0,
     required this.crop,
     required this.district,
     required this.confidence,
@@ -106,6 +108,8 @@ class YieldResponse {
 
   factory YieldResponse.fromJson(Map<String, dynamic> json) => YieldResponse(
     predictedYieldKgPerHa: (json['predicted_yield_kg_per_ha'] as num)
+        .toDouble(),
+    averageYieldKgPerHa: (json['average_yield_kg_per_ha'] as num? ?? 0)
         .toDouble(),
     crop: json['crop'],
     district: json['district'],
@@ -448,6 +452,9 @@ class ChatRequest {
   final String userId;
   final String? district;
   final String? crop;
+  final String model;
+  final String language;
+  final String? conversationId;
 
   ChatRequest({
     required this.message,
@@ -455,6 +462,9 @@ class ChatRequest {
     required this.userId,
     this.district,
     this.crop,
+    this.model = 'accurate',
+    this.language = 'auto',
+    this.conversationId,
   });
 
   Map<String, dynamic> toJson() => {
@@ -463,6 +473,9 @@ class ChatRequest {
     'user_id': userId,
     if (district != null) 'district': district,
     if (crop != null) 'crop': crop,
+    'model': model,
+    'language': language,
+    if (conversationId != null) 'conversation_id': conversationId,
   };
 }
 
@@ -470,20 +483,26 @@ class ChatResponse {
   final String reply;
   final List<String> sourcesUsed;
   final List<String> suggestedFollowups;
+  final String conversationId;
   final bool isMock;
+  final String confidence; // XAI label: High/Moderate/Low confidence, Out of scope
 
   ChatResponse({
     required this.reply,
     required this.sourcesUsed,
     required this.suggestedFollowups,
+    this.conversationId = '',
     this.isMock = false,
+    this.confidence = '',
   });
 
   factory ChatResponse.fromJson(Map<String, dynamic> json) => ChatResponse(
     reply: json['reply'],
     sourcesUsed: List<String>.from(json['sources_used'] ?? []),
     suggestedFollowups: List<String>.from(json['suggested_followups'] ?? []),
+    conversationId: json['conversation_id'] ?? '',
     isMock: json['is_mock'] ?? false,
+    confidence: json['confidence'] ?? '',
   );
 }
 

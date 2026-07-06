@@ -13,15 +13,19 @@ from app.middleware.auth import FirebaseAuthMiddleware
 from app.middleware.rate_limit import limiter
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.models.loader import model_loader
-from app.routers import (
+from app.user.routers import (
+    chat_history_router,
     chat_router,
     demand_router,
     health_router,
     price_router,
+    profile_router,
     recommend_router,
     weather_router,
     yield_router,
 )
+from app.admin.routers import admin_router
+from app.super_admin.routers import superadmin_router
 from app.utils.firestore import init_firestore
 from app.utils.logger import setup_logging
 
@@ -55,7 +59,7 @@ def create_app() -> FastAPI:
         # This moves the (previously per-request, network-bound) load to boot,
         # so a bad cache surfaces here instead of hanging the first chat request.
         try:
-            from app.services.chatbot_service import _get_encoder
+            from app.user.services.chatbot_service import _get_encoder
 
             _get_encoder()
             logger.info("RAG sentence-encoder preloaded")
@@ -72,9 +76,14 @@ def create_app() -> FastAPI:
     )
 
     # ── Middleware ────────────────────────────────────────────────────────────
-    # Middleware execution order = reverse of add_middleware call order.
-    # CORS outermost — wraps every response including auth errors.
-    # FirebaseAuth innermost — runs last.
+    # Starlette wraps middleware in reverse add_middleware order: the LAST call
+    # added becomes the OUTERMOST wrapper (first to see requests, last to see
+    # responses). Add FirebaseAuth first (innermost) and CORS last (outermost)
+    # so CORS headers are present on every response — including 401 rejections —
+    # which browsers require before they will show the response to JS clients.
+    app.add_middleware(FirebaseAuthMiddleware)  # innermost — runs last on request
+    app.add_middleware(SlowAPIMiddleware)
+    app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.allowed_origins_list,
@@ -84,25 +93,11 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
-    )
-    app.add_middleware(SecurityHeadersMiddleware)
-    app.add_middleware(SlowAPIMiddleware)
-    app.add_middleware(FirebaseAuthMiddleware)  # innermost — runs last
+    )  # outermost — injects CORS headers on every response
 
     # ── Rate limiter ──────────────────────────────────────────────────────────
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-    # ── CORS outermost — wraps every response including auth errors ──────────
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.allowed_origins_list,
-        allow_origin_regex=(
-            r"http://localhost(:\d+)?" if settings.APP_ENV == "development" else None
-        ),
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
 
     # ── Routers ───────────────────────────────────────────────────────────────
     app.include_router(health_router.router)
@@ -111,7 +106,13 @@ def create_app() -> FastAPI:
     app.include_router(price_router.router)
     app.include_router(demand_router.router)
     app.include_router(recommend_router.router)
+    app.include_router(chat_history_router.router)
     app.include_router(chat_router.router)
+    app.include_router(profile_router.router)
+    if settings.ENABLE_ADMIN_API:
+        app.include_router(admin_router.router)
+        app.include_router(superadmin_router.router)
+        app.include_router(superadmin_router.legacy_router)
 
     return app
 

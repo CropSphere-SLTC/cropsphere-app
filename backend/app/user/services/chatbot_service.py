@@ -33,11 +33,25 @@ _TOP_K = 3  # number of chunks retrieved per query
 # = +0.15, both = +0.30. Ranking signal ONLY — never affects the relevance
 # floor or the confidence label, which use raw cosine scores.
 _METADATA_BOOST = 0.15
+# Sliding window: only the last N history messages are sent to Groq
+# (3 user + 3 assistant turns). System prompt and RAG context are outside
+# the window and never trimmed. The Pydantic schema still caps incoming
+# history at 10; this trims further at the Groq boundary.
+_MAX_HISTORY_MESSAGES = 6
+# Weight of the current message vs. recent-history context in the blended
+# retrieval embedding. Higher = topic switches win; lower = follow-ups
+# inherit more context. 0.7 verified against both scenarios (2026-07-06).
+_QUERY_WEIGHT = 0.7
 _OUT_OF_SCOPE_REPLY = (
     "I don't have relevant agricultural data to answer that question. I can help "
     "with Sri Lankan crop recommendations, weather patterns, yield predictions, "
     "and market prices."
 )
+# Substring that identifies an LLM-level refusal in a generated reply. Must
+# stay in sync with _OUT_OF_SCOPE_REPLY above and the refusal instruction in
+# _system_prompt() — the model is told to emit exactly that text when the
+# provided context can't answer the question.
+_OUT_OF_SCOPE_MARKER = "I don't have relevant agricultural data"
 # Client-safe error messages for streaming failures. Technical detail
 # (status codes, exception types) is logged server-side only.
 _STREAM_ERROR_MESSAGES = {
@@ -98,6 +112,7 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
             clean,
             district=req.district.value if req.district else "",
             crop=req.crop.value if req.crop else "",
+            history=req.conversation_history[-3:],
         )
         confidence = _confidence_label(context)
 
@@ -129,6 +144,15 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
             temperature=0.7,
         )
         reply = response.choices[0].message.content
+
+        # LLM-level refusal: retrieval cleared the relevance floor but the
+        # chunks didn't actually answer the question (e.g. rice query,
+        # carrot chunks), so the model used the canned refusal. Override
+        # the retrieval-derived confidence and drop the unhelpful sources
+        # so the XAI badge and chips stay truthful.
+        if reply and _OUT_OF_SCOPE_MARKER in reply:
+            confidence = "Out of scope"
+            context["sources"] = []
 
         # Cache the reply for future repeated questions
 
@@ -173,6 +197,7 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
         clean,
         district=req.district.value if req.district else "",
         crop=req.crop.value if req.crop else "",
+        history=req.conversation_history[-3:],
     )
     confidence = _confidence_label(context)
     followups = _followups(req)
@@ -251,6 +276,13 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
             "message": _STREAM_ERROR_MESSAGES["empty_response"],
         }
         return
+
+    # LLM-level refusal — same override as chat(); see comment there. The
+    # metadata event is emitted after the text, so the corrected label and
+    # emptied sources are what the frontend renders.
+    if _OUT_OF_SCOPE_MARKER in full:
+        confidence = "Out of scope"
+        context["sources"] = []
 
     conv_id = _persist(full)
     logger.info("[STREAM COMPLETE] conv=%s len=%d", conv_id, len(full))
@@ -342,11 +374,19 @@ def _system_prompt(req: ChatRequest) -> str:
     return base
 
 
-def _rag_context(message: str, district: str = "", crop: str = "") -> dict:
+def _rag_context(
+    message: str,
+    district: str = "",
+    crop: str = "",
+    history: list | None = None,
+) -> dict:
     """Retrieve the top-k most relevant RAG chunks for the query.
 
     Inputs: message (sanitised user query); optional district/crop from the
-    UI dropdown filters.
+    UI dropdown filters; history (recent ConversationTurn list — its USER
+    messages enrich the retrieval embedding so follow-up questions inherit
+    context like a previously-mentioned district; assistant turns are
+    ignored as embedding noise).
     Scoring model:
       raw     — cosine similarity; the ONLY quality signal. Gates the
                 _MIN_RELEVANCE floor and drives the confidence label.
@@ -376,7 +416,22 @@ def _rag_context(message: str, district: str = "", crop: str = "") -> dict:
             return empty
 
         encoder = _get_encoder()
-        q_emb = encoder.encode(message, convert_to_tensor=True)
+        # Context-enriched retrieval: recent USER messages nudge the query
+        # embedding so follow-ups inherit context ("carrot in jaffna" ->
+        # "how much can I earn" still retrieves Jaffna chunks). Enrichment
+        # affects ONLY the embedding — the message sent to Groq is unchanged.
+        recent_users = [t.content for t in (history or []) if t.role == "user"]
+        if recent_users:
+            # Weighted embedding blend: the current message dominates so an
+            # explicit topic switch is never hijacked by stale context, while
+            # a vague follow-up still inherits district/crop signal.
+            e_msg = encoder.encode(message, convert_to_tensor=True)
+            e_ctx = encoder.encode(
+                " ".join(recent_users), convert_to_tensor=True
+            )
+            q_emb = _QUERY_WEIGHT * e_msg + (1 - _QUERY_WEIGHT) * e_ctx
+        else:
+            q_emb = encoder.encode(message, convert_to_tensor=True)
         sims = util.cos_sim(q_emb, embeddings)[0].tolist()
 
         # Graduated metadata boost: +_METADATA_BOOST per matching filter.
@@ -460,6 +515,20 @@ def _confidence_label(context: dict) -> str:
 
 
 def _build_messages(system: str, context: dict, req: ChatRequest, message: str) -> list:
+    """Assemble the Groq message list: system prompt, RAG context, history,
+    current message.
+
+    Inputs: system (prompt string), context (dict from _rag_context), req
+    (ChatRequest carrying conversation_history), message (sanitised user
+    text).
+    Outputs: list of {"role", "content"} dicts in Groq chat format. History
+    is trimmed to the last _MAX_HISTORY_MESSAGES entries (sliding window);
+    the system prompt and RAG context sit outside the window and are always
+    included. Used identically by chat() and chat_stream().
+    Security assumption: message was already HTML-stripped and truncated by
+    the caller; history turns were validated by Pydantic (role pattern,
+    max_length).
+    """
     msgs = [{"role": "system", "content": system}]
     if context["chunks"]:
         parts = [
@@ -470,7 +539,16 @@ def _build_messages(system: str, context: dict, req: ChatRequest, message: str) 
         msgs.append(
             {"role": "system", "content": "Relevant context:\n" + "\n".join(parts)}
         )
-    for turn in req.conversation_history[-10:]:
+    # Sliding window — only the most recent turns reach Groq; the system
+    # prompt and RAG context above are never part of the window.
+    history = req.conversation_history
+    if len(history) > _MAX_HISTORY_MESSAGES:
+        logger.info(
+            f"[HISTORY] trimmed {len(history)} messages "
+            f"to last {_MAX_HISTORY_MESSAGES}"
+        )
+        history = history[-_MAX_HISTORY_MESSAGES:]
+    for turn in history:
         msgs.append({"role": turn.role, "content": turn.content})
     msgs.append({"role": "user", "content": message})
     return msgs

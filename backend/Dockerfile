@@ -73,6 +73,38 @@ WORKDIR /app
 # Copy only the installed packages from builder — gcc/python3-dev never enter this image
 COPY --from=builder /install /usr/local
 
+# ── Security: strip stale, vulnerable build-tool copies ──────────────────
+# Merging the builder's /install onto python:3.11-slim's own /usr/local leaves
+# BOTH patched and older copies of pip build tools side-by-side (their
+# version-named .dist-info dirs don't overwrite each other). The running app
+# never imports these; remove the vulnerable duplicates so they don't ship —
+# the patched versions already present are kept:
+#   • wheel 0.45.1         → CVE-2026-24049  (patched wheel 0.46.x kept)
+#   • jaraco.context 5.3.0 → CVE-2026-23949  (patched jaraco_context 6.1.x kept)
+#     vendored inside setuptools
+# Re-verify these paths if the base image bumps its build-tool versions.
+RUN cd /usr/local/lib/python3.11/site-packages \
+    && rm -rf wheel-0.45.1.dist-info \
+              setuptools/_vendor/wheel-0.45.1.dist-info \
+              setuptools/_vendor/jaraco.context-5.3.0.dist-info
+
+# Bake the RAG sentence-encoder into the image so it NEVER downloads at
+# runtime. The first chat request otherwise fetched all-MiniLM-L6-v2 from
+# HuggingFace inside the request path, where the Xet backend (hf_xet) fails
+# with "Permission denied" under the non-root user — hanging the single
+# uvicorn worker so every endpoint timed out. Download here at build time with
+# Xet disabled (plain HTTPS, reliable) and force offline below so the model
+# loads from local disk with no network in the request path.
+ENV SENTENCE_TRANSFORMERS_HOME=/app/hf_cache
+RUN HF_HUB_DISABLE_XET=1 python -c \
+    "from sentence_transformers import SentenceTransformer; \
+SentenceTransformer('all-MiniLM-L6-v2', cache_folder='/app/hf_cache')"
+
+# Runtime: never reach out to HuggingFace — load the baked model offline so a
+# missing/corrupt cache fails fast instead of hanging on a network fetch.
+ENV HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1
+
 # Copy application code and ML model files
 COPY app/ ./app/
 COPY models/ ./models/

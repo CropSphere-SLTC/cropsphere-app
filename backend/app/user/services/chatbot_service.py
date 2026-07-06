@@ -8,6 +8,8 @@ New features:
 """
 
 import logging
+import random
+import re
 
 from html.parser import HTMLParser
 
@@ -62,6 +64,48 @@ _STREAM_ERROR_MESSAGES = {
     "stream_interrupted": "Response was interrupted.",
     "empty_response": "No response received. Try rephrasing your question.",
 }
+# Substrings identifying assistant replies that carry no crop/district topic
+# (refusals in any template shape, and capability summaries). Consumed by the
+# retrieval-context history filter so a refused/administrative turn never
+# steers the next question's retrieval. MUST stay in sync with the templates
+# in _build_refusal() and _capability_reply().
+_NON_TOPIC_SIGNATURES = (
+    _OUT_OF_SCOPE_MARKER,             # canned LLM-side refusal
+    "but not for that district",      # near-miss refusal: crop covered
+    "but not that crop",              # near-miss refusal: district covered
+    "outside my dataset",             # generic refusal template 1
+    "I don't have data on that yet",  # generic refusal template 2
+    "beyond my data for now",         # generic refusal template 3
+    "I currently have data on",       # capability summary
+)
+# Case-insensitive patterns that route a message to the capability summary
+# (no retrieval, no Groq). Deliberately NOT the bare "what can you" — that
+# would hijack real questions like "what can you tell me about carrots".
+_CAPABILITY_PATTERNS = (
+    "what crops",
+    "which crops",
+    "what districts",
+    "which districts",
+    "what can you do",
+    "what can you help",
+    "what do you cover",
+)
+_capabilities_cache: dict | None = None
+# Common Sri Lankan crops/districts NOT in our dataset. Lets a near-miss be
+# caught proactively even when retrieval finds semantically-similar covered
+# chunks (e.g. "carrot price in Galle" retrieves carrot chunks for other
+# districts). Finite by design — unlisted unknowns still fall through to the
+# normal retrieval/grounding path. Matched by whole-word token, never
+# substring ("rice" must not hit inside "price"; "tea" not inside "instead").
+_UNCOVERED_DISTRICTS = frozenset({
+    "colombo", "gampaha", "kalutara", "kandy", "matale", "galle", "matara",
+    "kurunegala", "puttalam", "kegalle", "ratnapura", "trincomalee",
+    "polonnaruwa", "vavuniya", "mannar", "mullaitivu", "kilinochchi",
+})
+_UNCOVERED_CROPS = frozenset({
+    "rice", "paddy", "tea", "rubber", "coconut", "banana", "mango",
+    "onion", "potato", "cabbage", "tomato", "chili", "chilli", "pepper",
+})
 _encoder = None  # SentenceTransformer singleton — loaded once on first chat request
 _HF_CACHE = (
     "/tmp/hf_cache"  # nosec B108 — intentional, writable by non-root container user
@@ -105,6 +149,32 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
     logger.info(f"Using model: {groq_model} (requested: {req.model})")
 
     try:
+        # Capability question ("what crops do you cover?") — answered from
+        # our own dataset metadata. No retrieval, no Groq; deterministic and
+        # always in scope. Runs after audit (so it is logged) but before
+        # retrieval, so it never pollutes the retrieval path.
+        if _is_capability_question(clean):
+            reply, followups = _capability_reply()
+            return ChatResponse(
+                reply=reply,
+                sources_used=[],
+                suggested_followups=followups,
+                confidence="High confidence",
+            )
+
+        # Explicit near-miss: the user named a crop/district we don't cover
+        # (gazetteer match). Refuse with a friendly pointer before retrieval
+        # or Groq — retrieval would otherwise surface semantically-similar
+        # chunks for the wrong location and answer from them.
+        miss = _explicit_miss(clean)
+        if miss:
+            return ChatResponse(
+                reply=_build_refusal(clean, near=miss),
+                sources_used=[],
+                suggested_followups=_refusal_followups(clean, near=miss),
+                confidence="Out of scope",
+            )
+
         # RAG retrieval always uses English-normalised query for best results.
         # The UI's optional district/crop filters boost matching chunks in
         # the ranking (never in the relevance floor or confidence label).
@@ -117,14 +187,15 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
         confidence = _confidence_label(context)
 
         # Grounding guard (primary defence): if nothing in our agricultural
-        # dataset matched above the relevance floor, refuse deterministically.
-        # The query never reaches the LLM, so it cannot answer from its own
-        # general knowledge (e.g. "what's the weather on Mars").
+        # dataset matched above the relevance floor, refuse deterministically
+        # with a friendly, dataset-aware message. The query never reaches the
+        # LLM, so it cannot answer from its own general knowledge (e.g.
+        # "what's the weather on Mars").
         if not context["chunks"]:
             return ChatResponse(
-                reply=_OUT_OF_SCOPE_REPLY,
+                reply=_build_refusal(clean),
                 sources_used=[],
-                suggested_followups=_followups(req),
+                suggested_followups=_refusal_followups(clean),
                 confidence=confidence,
             )
 
@@ -193,15 +264,6 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
     _safe_audit(req.user_id, clean)
     groq_model = _GROQ_MODELS.get(req.model, _GROQ_MODELS["accurate"])
 
-    context = _rag_context(
-        clean,
-        district=req.district.value if req.district else "",
-        crop=req.crop.value if req.crop else "",
-        history=req.conversation_history,
-    )
-    confidence = _confidence_label(context)
-    followups = _followups(req)
-
     def _persist(full_reply: str) -> str:
         """Save the completed turn; failure logs but never breaks the stream."""
         try:
@@ -216,6 +278,49 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
             )
             return ""
 
+    # Capability question — same short-circuit as chat(); no retrieval, no
+    # Groq. Runs after audit (logged) but before retrieval. It is persisted
+    # to history and later filtered out of retrieval context by
+    # _is_non_topic_reply (its text contains "I currently have data on").
+    if _is_capability_question(clean):
+        reply, cap_followups = _capability_reply()
+        yield {"type": "text", "content": reply}
+        conv_id = _persist(reply)
+        logger.info("[STREAM COMPLETE] conv=%s len=%d", conv_id, len(reply))
+        yield {
+            "type": "metadata",
+            "confidence": "High confidence",
+            "sources": [],
+            "suggested_followups": cap_followups,
+            "conversation_id": conv_id,
+        }
+        return
+
+    # Explicit near-miss — same short-circuit as chat(); no retrieval, no Groq.
+    miss = _explicit_miss(clean)
+    if miss:
+        reply = _build_refusal(clean, near=miss)
+        yield {"type": "text", "content": reply}
+        conv_id = _persist(reply)
+        logger.info("[STREAM COMPLETE] conv=%s len=%d", conv_id, len(reply))
+        yield {
+            "type": "metadata",
+            "confidence": "Out of scope",
+            "sources": [],
+            "suggested_followups": _refusal_followups(clean, near=miss),
+            "conversation_id": conv_id,
+        }
+        return
+
+    context = _rag_context(
+        clean,
+        district=req.district.value if req.district else "",
+        crop=req.crop.value if req.crop else "",
+        history=req.conversation_history,
+    )
+    confidence = _confidence_label(context)
+    followups = _followups(req)
+
     def _metadata(conv_id: str) -> dict:
         return {
             "type": "metadata",
@@ -225,13 +330,15 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
             "conversation_id": conv_id,
         }
 
-    # Grounding guard — same deterministic refusal as chat(), no Groq call.
+    # Grounding guard — same friendly, dataset-aware refusal as chat(), no
+    # Groq call. Reassigning followups here is picked up by the _metadata
+    # closure below.
     if not context["chunks"]:
-        yield {"type": "text", "content": _OUT_OF_SCOPE_REPLY}
-        conv_id = _persist(_OUT_OF_SCOPE_REPLY)
-        logger.info(
-            "[STREAM COMPLETE] conv=%s len=%d", conv_id, len(_OUT_OF_SCOPE_REPLY)
-        )
+        reply = _build_refusal(clean)
+        followups = _refusal_followups(clean)
+        yield {"type": "text", "content": reply}
+        conv_id = _persist(reply)
+        logger.info("[STREAM COMPLETE] conv=%s len=%d", conv_id, len(reply))
         yield _metadata(conv_id)
         return
 
@@ -439,8 +546,8 @@ def _rag_context(
             if turn.role != "user":
                 continue
             next_turn = turns[i + 1] if i + 1 < len(turns) else None
-            if next_turn and _OUT_OF_SCOPE_MARKER in next_turn.content:
-                continue  # refused topic — skip from context
+            if next_turn and _is_non_topic_reply(next_turn.content):
+                continue  # refused / capability topic — skip from context
             recent_users.append(turn.content)
         recent_users = recent_users[-3:]
         if recent_users:
@@ -516,6 +623,234 @@ def _source_label(meta: dict) -> str:
     if parts:
         return f"CropSphere dataset: {parts} ({kind})"
     return "CropSphere agricultural dataset"
+
+
+def _dataset_capabilities() -> dict:
+    """Return crops/districts covered by the loaded RAG dataset (cached).
+
+    Reads chunk_metadata from rag_artifacts ONCE and caches for the process
+    lifetime (models load once at startup). Placeholder "all" values are
+    excluded. Falls back to the API enums when artifacts are unavailable so
+    templates never render empty lists.
+
+    Outputs: {"crops", "districts", "crop_districts", "district_crops"} — the
+    two maps power near-miss suggestions ("I cover Carrot in ...").
+    Security assumption: metadata comes from the trusted rag_artifacts file.
+    """
+    global _capabilities_cache
+    if _capabilities_cache is not None:
+        return _capabilities_cache
+
+    crops: set = set()
+    districts: set = set()
+    crop_districts: dict = {}
+    district_crops: dict = {}
+
+    rag = model_loader.get_model("rag_artifacts")
+    metadata = rag.get("chunk_metadata", []) if rag else []
+    for meta in metadata:
+        crop = meta.get("crop")
+        district = meta.get("district")
+        real_crop = crop and crop.lower() != "all"
+        real_district = district and district.lower() != "all"
+        if real_crop:
+            crops.add(crop)
+        if real_district:
+            districts.add(district)
+        if real_crop and real_district:
+            crop_districts.setdefault(crop, set()).add(district)
+            district_crops.setdefault(district, set()).add(crop)
+
+    if not crops or not districts:
+        # Artifacts unavailable (dev/mock) — fall back to the API enums.
+        from app.models.schemas import CropEnum, DistrictEnum
+
+        crops = {c.value for c in CropEnum}
+        districts = {d.value for d in DistrictEnum}
+        crop_districts = {}
+        district_crops = {}
+
+    _capabilities_cache = {
+        "crops": sorted(crops),
+        "districts": sorted(districts),
+        "crop_districts": {c: sorted(d) for c, d in crop_districts.items()},
+        "district_crops": {d: sorted(c) for d, c in district_crops.items()},
+    }
+    return _capabilities_cache
+
+
+def _near_miss(message: str, capabilities: dict) -> tuple | None:
+    """Detect partially-supported questions for a friendlier refusal.
+
+    Outputs: ("crop_match", crop) when a covered crop is mentioned with no
+    covered district; ("district_match", district) for the reverse; None when
+    neither side matches — or both do (both-match questions are the normal
+    retrieval path's job).
+    Security assumption: pure substring matching on already-sanitised text.
+    """
+    msg = message.lower()
+    crops_hit = [c for c in capabilities["crops"] if c.lower() in msg]
+    districts_hit = [d for d in capabilities["districts"] if d.lower() in msg]
+    if crops_hit and not districts_hit:
+        return ("crop_match", crops_hit[0])
+    if districts_hit and not crops_hit:
+        return ("district_match", districts_hit[0])
+    return None
+
+
+def _explicit_miss(message: str) -> tuple | None:
+    """Detect a query that explicitly names an uncovered crop or district.
+
+    Unlike _near_miss (which keys off COVERED terms in the message), this
+    checks the uncovered-term gazetteers by whole-word token, so a near-miss
+    is caught even when retrieval would return semantically-similar covered
+    chunks. Returns a tuple shaped for _build_refusal/_refusal_followups:
+      ("crop_match", crop)      covered crop named + uncovered district named
+      ("district_match", dist)  covered district named + uncovered crop named
+      ("generic", "")           uncovered term named, nothing covered to point to
+      None                      no uncovered term named -> normal path
+    Security assumption: pure token matching on already-sanitised text.
+    """
+    tokens = set(re.findall(r"[a-z]+", message.lower()))
+    bad_district = bool(tokens & _UNCOVERED_DISTRICTS)
+    bad_crop = bool(tokens & _UNCOVERED_CROPS)
+    if not (bad_district or bad_crop):
+        return None
+    caps = _dataset_capabilities()
+    msg = message.lower()
+    crops_hit = [c for c in caps["crops"] if c.lower() in msg]
+    districts_hit = [d for d in caps["districts"] if d.lower() in msg]
+    if bad_district and crops_hit:
+        return ("crop_match", crops_hit[0])       # have crop, not that district
+    if bad_crop and districts_hit:
+        return ("district_match", districts_hit[0])  # have district, not that crop
+    return ("generic", "")
+
+
+def _build_refusal(message: str, near: tuple | None = None) -> str:
+    """Build a friendly, dataset-aware refusal message. Never calls Groq.
+
+    Near-misses get a specific pointer (covered crop -> its districts,
+    covered district -> its crops); everything else rotates through three
+    generic templates naming real coverage (max 4 crops, 3 districts).
+    Inputs: message (sanitised user query); near (precomputed near-miss from
+    _explicit_miss; falls back to _near_miss when None).
+    Outputs: a short (<= 2 sentence) refusal string.
+    """
+    caps = _dataset_capabilities()
+    if near is None:
+        near = _near_miss(message, caps)
+    if near:
+        kind, name = near
+        if kind == "crop_match":
+            districts = caps["crop_districts"].get(name) or caps["districts"]
+            shown = ", ".join(districts[:4])
+            return (
+                f"I have data on {name}, but not for that district. "
+                f"I cover {name} in {shown}. Want to try one of those?"
+            )
+        if kind == "district_match":
+            crops = caps["district_crops"].get(name) or caps["crops"]
+            shown = ", ".join(crops[:4])
+            return (
+                f"I have data for {name}, but not that crop. "
+                f"In {name} I can help with {shown}. Try one of those?"
+            )
+        # ("generic", "") — fall through to the generic templates below.
+
+    top_crops = ", ".join(caps["crops"][:4])
+    top_districts = ", ".join(caps["districts"][:3])
+    templates = [
+        (
+            "Hmm, that's outside my dataset. I currently cover crops like "
+            f"{top_crops} across districts like {top_districts}. "
+            "Ask me about any of those!"
+        ),
+        (
+            "I don't have data on that yet. I'm best at questions about "
+            f"{top_crops} in Sri Lankan districts like {top_districts}."
+        ),
+        (
+            "That one's beyond my data for now. Try asking about "
+            f"{top_crops} — yields, prices, or best seasons!"
+        ),
+    ]
+    return random.choice(templates)  # nosec B311 — UX variety, not crypto
+
+
+def _refusal_followups(message: str, near: tuple | None = None) -> list:
+    """Suggest 3 askable questions after a refusal, built from real coverage.
+
+    Near-miss crop match -> that crop in two covered districts; near-miss
+    district match -> covered crops in that district; otherwise generic
+    capability questions. Always ends with "What crops do you cover?".
+    Inputs: message (sanitised user query); near (precomputed near-miss;
+    falls back to _near_miss when None).
+    """
+    caps = _dataset_capabilities()
+    if near is None:
+        near = _near_miss(message, caps)
+    if near and near[0] == "crop_match":
+        crop = near[1]
+        districts = caps["crop_districts"].get(crop) or caps["districts"]
+        d2 = districts[1] if len(districts) > 1 else districts[0]
+        return [
+            f"{crop} yield in {districts[0]}",
+            f"{crop} price in {d2}",
+            "What crops do you cover?",
+        ]
+    if near and near[0] == "district_match":
+        district = near[1]
+        crops = caps["district_crops"].get(district) or caps["crops"]
+        c2 = crops[1] if len(crops) > 1 else crops[0]
+        return [
+            f"{crops[0]} yield in {district}",
+            f"Best season for {c2} in {district}",
+            "What crops do you cover?",
+        ]
+    crops, districts = caps["crops"], caps["districts"]
+    return [
+        f"Best season for {crops[0]} in {districts[0]}",
+        f"{crops[1 % len(crops)]} yield in {districts[1 % len(districts)]}",
+        "What crops do you cover?",
+    ]
+
+
+def _is_capability_question(message: str) -> bool:
+    """True when the user asks what the bot covers (crops/districts/skills)."""
+    msg = message.lower()
+    return any(p in msg for p in _CAPABILITY_PATTERNS)
+
+
+def _capability_reply() -> tuple:
+    """Capability summary + 3 example follow-ups, from real metadata.
+
+    No Groq, no retrieval. Caller sets confidence "High confidence" (we are
+    describing our own dataset) and sources []. Its text contains the phrase
+    "I currently have data on", which _is_non_topic_reply matches so the turn
+    is excluded from future retrieval context.
+    Outputs: (reply, [3 follow-ups]).
+    """
+    caps = _dataset_capabilities()
+    crops, districts = caps["crops"], caps["districts"]
+    reply = (
+        f"I currently have data on: {', '.join(crops)} across "
+        f"{', '.join(districts)} — covering yields, prices, and growing "
+        "seasons. Ask me anything about those!"
+    )
+    followups = [
+        f"Best season for {crops[0]} in {districts[0]}",
+        f"{crops[1 % len(crops)]} price in {districts[1 % len(districts)]}",
+        f"{crops[2 % len(crops)]} yield in {districts[2 % len(districts)]}",
+    ]
+    return reply, followups
+
+
+def _is_non_topic_reply(text: str) -> bool:
+    """True when an assistant reply carries no crop/district topic — any
+    refusal template or the capability summary. Used by the retrieval context
+    filter in _rag_context so these turns never steer the next question."""
+    return any(sig in text for sig in _NON_TOPIC_SIGNATURES)
 
 
 def _confidence_label(context: dict) -> str:

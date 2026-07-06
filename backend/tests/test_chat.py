@@ -133,3 +133,85 @@ def test_stream_error_event_still_terminates(
 def test_stream_no_jwt_returns_401(client, mock_expired_token):
     resp = client.post(STREAM_URL, json=VALID)
     assert resp.status_code == 401
+
+
+# ── Friendly refusal / capability helpers (no Groq) ───────────────────────────
+
+_CAPS = {
+    "crops": ["Carrot", "Maize"],
+    "districts": ["Badulla", "Nuwara Eliya"],
+    "crop_districts": {"Carrot": ["Badulla", "Nuwara Eliya"]},
+    "district_crops": {"Badulla": ["Carrot", "Maize"]},
+}
+
+
+def test_near_miss_crop_district_none():
+    from app.user.services.chatbot_service import _near_miss
+
+    # Covered crop, uncovered district → crop_match
+    assert _near_miss("carrot price in galle", _CAPS) == ("crop_match", "Carrot")
+    # Covered district, uncovered crop → district_match
+    assert _near_miss("rice yield in badulla", _CAPS) == (
+        "district_match",
+        "Badulla",
+    )
+    # Neither → None
+    assert _near_miss("weather on mars", _CAPS) is None
+    # Both covered → None (that's the retrieval path's job)
+    assert _near_miss("carrot in badulla", _CAPS) is None
+
+
+def test_capability_question_detection():
+    from app.user.services.chatbot_service import _is_capability_question
+
+    assert _is_capability_question("what crops do you cover?")
+    assert _is_capability_question("which districts are supported")
+    # Must NOT hijack a real question that happens to contain "what can you"
+    assert not _is_capability_question("what can you tell me about carrots")
+
+
+def test_build_refusal_and_followups_use_real_coverage():
+    import app.user.services.chatbot_service as svc
+
+    # Force the enum-fallback capabilities and a clean cache.
+    svc._capabilities_cache = None
+    reply = svc._build_refusal("how do I grow rice in kurunegala")
+    assert reply and len(reply) < 400
+    followups = svc._refusal_followups("carrot price in galle")
+    assert len(followups) == 3
+    assert followups[-1] == "What crops do you cover?"
+    # Near-miss crop match surfaces the covered crop in the suggestions.
+    assert any("Carrot" in f for f in followups)
+    svc._capabilities_cache = None  # avoid leaking into other tests
+
+
+def test_explicit_miss_gazetteer():
+    import app.user.services.chatbot_service as svc
+
+    svc._capabilities_cache = None
+    # Covered crop + uncovered district → crop_match
+    assert svc._explicit_miss("carrot price in Galle") == ("crop_match", "Carrot")
+    # Covered district + uncovered crop → district_match
+    assert svc._explicit_miss("potato in Nuwara Eliya") == (
+        "district_match",
+        "Nuwara Eliya",
+    )
+    # Both uncovered → generic
+    assert svc._explicit_miss("rice price in Kurunegala") == ("generic", "")
+    # No uncovered term → None (normal retrieval path)
+    assert svc._explicit_miss("carrot yield in Badulla") is None
+    # Substring trap: "rice" must NOT match inside "price"
+    assert svc._explicit_miss("carrot price in Badulla") is None
+    svc._capabilities_cache = None
+
+
+def test_generic_refusal_has_no_empty_placeholders():
+    import app.user.services.chatbot_service as svc
+
+    svc._capabilities_cache = None
+    # ("generic", "") must render a generic template, not a district_match
+    # template with an empty name ("I have data for , but not that crop").
+    reply = svc._build_refusal("rice price in Kurunegala", near=("generic", ""))
+    assert "data for ," not in reply
+    assert "In  I can help" not in reply
+    svc._capabilities_cache = None

@@ -51,6 +51,17 @@ def create_app() -> FastAPI:
         model_loader.load_all(settings.MODEL_DIR)
         logger.info("Models loaded: %s", model_loader.status_report())
 
+        # Warm the RAG sentence-encoder once, now, from the baked offline cache.
+        # This moves the (previously per-request, network-bound) load to boot,
+        # so a bad cache surfaces here instead of hanging the first chat request.
+        try:
+            from app.services.chatbot_service import _get_encoder
+
+            _get_encoder()
+            logger.info("RAG sentence-encoder preloaded")
+        except Exception as exc:
+            logger.warning("RAG encoder preload failed (chat will 500): %s", exc)
+
         yield  # app runs here
 
     app = FastAPI(

@@ -1,6 +1,7 @@
 """AI chatbot service — LLaMA 3 via Groq API with RAG."""
 
 import logging
+import os
 
 from html.parser import HTMLParser
 
@@ -12,9 +13,9 @@ logger = logging.getLogger(__name__)
 
 _MAX_LEN = 500
 _encoder = None  # SentenceTransformer singleton — loaded once on first chat request
-_HF_CACHE = (
-    "/tmp/hf_cache"  # nosec B108 — intentional, writable by non-root container user
-)
+# Baked into the image at build time (see Dockerfile); loaded fully offline so
+# no HuggingFace download ever happens in the request path. Overridable via env.
+_HF_CACHE = os.environ.get("SENTENCE_TRANSFORMERS_HOME", "/app/hf_cache")
 
 
 def chat(req: ChatRequest, settings) -> ChatResponse:
@@ -62,11 +63,22 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def _get_encoder():
-    """Return the SentenceTransformer encoder, loading it once and caching it."""
+    """Return the SentenceTransformer encoder, loading it once and caching it.
+
+    The model is baked into the image (Dockerfile) and loaded fully offline
+    from _HF_CACHE — no network fetch in the request path. Forcing offline
+    means a missing/corrupt cache raises here (caught by ``chat``) instead of
+    silently blocking the worker on a stalled HuggingFace download.
+    """
     global _encoder
     if _encoder is None:
+        # Belt-and-braces in case the image was built without the offline ENVs.
+        # HF_HUB_OFFLINE avoids any network in the request path; disabling Xet
+        # avoids the hf_xet "Permission denied" hang if a download does occur.
+        os.environ.setdefault("HF_HUB_OFFLINE", "1")
+        os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+        os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
         from sentence_transformers import SentenceTransformer  # type: ignore
-        import os
 
         os.makedirs(_HF_CACHE, exist_ok=True)
         _encoder = SentenceTransformer("all-MiniLM-L6-v2", cache_folder=_HF_CACHE)

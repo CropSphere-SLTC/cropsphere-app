@@ -19,6 +19,20 @@ env
 # Environment files (secrets must never be in image)
 .env
 .env.local
+firebase-credentials.json
+
+# Build artifacts
+*.egg-info
+dist
+build
+
+# Load test files
+load_test.js
+load_test_report*.txt
+locustfile.py
+
+# Stray files
+new.txt
 
 # IDE
 .vscode

@@ -65,7 +65,9 @@ def get_db():
     return _db
 
 
-def get_or_create_user(uid: str, email: str = "", photo_url: str = "") -> Dict[str, Any]:
+def get_or_create_user(
+    uid: str, email: str = "", photo_url: str = ""
+) -> Dict[str, Any]:
     """Get user document from Firestore or create it if it doesn't exist.
     New users get role 'user' by default.
     Superadmin UID gets role 'superadmin' automatically.

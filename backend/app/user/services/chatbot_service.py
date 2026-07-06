@@ -112,7 +112,7 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
             clean,
             district=req.district.value if req.district else "",
             crop=req.crop.value if req.crop else "",
-            history=req.conversation_history[-3:],
+            history=req.conversation_history,
         )
         confidence = _confidence_label(context)
 
@@ -197,7 +197,7 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
         clean,
         district=req.district.value if req.district else "",
         crop=req.crop.value if req.crop else "",
-        history=req.conversation_history[-3:],
+        history=req.conversation_history,
     )
     confidence = _confidence_label(context)
     followups = _followups(req)
@@ -361,6 +361,12 @@ def _system_prompt(req: ChatRequest) -> str:
         "You must answer ONLY using the information in the 'Relevant context' "
         "provided to you. Do not use your own general knowledge, and do not "
         "guess. "
+        "When multiple data sources are provided and the user's question is "
+        "ambiguous, prioritize data from the district and crop discussed most "
+        "recently in the conversation history. However, if the user "
+        "explicitly references an earlier topic (e.g. 'go back to the "
+        "Badulla question', 'about the carrots we discussed first'), use "
+        "that referenced topic instead of the most recent one. "
         "If no 'Relevant context' is provided, reply with exactly: "
         f'"{_OUT_OF_SCOPE_REPLY}" '
         "When you do have relevant context, first write one short sentence "
@@ -383,10 +389,11 @@ def _rag_context(
     """Retrieve the top-k most relevant RAG chunks for the query.
 
     Inputs: message (sanitised user query); optional district/crop from the
-    UI dropdown filters; history (recent ConversationTurn list — its USER
-    messages enrich the retrieval embedding so follow-up questions inherit
-    context like a previously-mentioned district; assistant turns are
-    ignored as embedding noise).
+    UI dropdown filters; history (full ConversationTurn list, schema-capped
+    at 10 — the last 3 USER messages whose assistant reply was not an
+    out-of-scope refusal enrich the retrieval embedding, recency-weighted,
+    so follow-up questions inherit context like a previously-mentioned
+    district; assistant turns and refused topics are excluded as noise).
     Scoring model:
       raw     — cosine similarity; the ONLY quality signal. Gates the
                 _MIN_RELEVANCE floor and drives the confidence label.
@@ -420,15 +427,35 @@ def _rag_context(
         # embedding so follow-ups inherit context ("carrot in jaffna" ->
         # "how much can I earn" still retrieves Jaffna chunks). Enrichment
         # affects ONLY the embedding — the message sent to Groq is unchanged.
-        recent_users = [t.content for t in (history or []) if t.role == "user"]
+        # Context blend input: user messages whose assistant reply was NOT
+        # an out-of-scope refusal — a refused topic (e.g. rice) must not
+        # steer retrieval for the next question. Filter over the full
+        # provided history FIRST, then cap to the last 3 user messages,
+        # then recency-weight. A user message with no following assistant
+        # turn is kept (its topic was never refused).
+        turns = history or []
+        recent_users = []
+        for i, turn in enumerate(turns):
+            if turn.role != "user":
+                continue
+            next_turn = turns[i + 1] if i + 1 < len(turns) else None
+            if next_turn and _OUT_OF_SCOPE_MARKER in next_turn.content:
+                continue  # refused topic — skip from context
+            recent_users.append(turn.content)
+        recent_users = recent_users[-3:]
         if recent_users:
             # Weighted embedding blend: the current message dominates so an
             # explicit topic switch is never hijacked by stale context, while
             # a vague follow-up still inherits district/crop signal.
             e_msg = encoder.encode(message, convert_to_tensor=True)
-            e_ctx = encoder.encode(
-                " ".join(recent_users), convert_to_tensor=True
-            )
+            # Recency-weighted context: each user message is encoded
+            # separately (single batched call) and averaged with linearly
+            # increasing weights (oldest=1 .. newest=k), so the most recent
+            # message dominates the context — "carrot yield in Badulla"
+            # (newest) outweighs "carrots in Nuwara Eliya" (older).
+            ctx_embs = encoder.encode(recent_users, convert_to_tensor=True)
+            weights = range(1, len(recent_users) + 1)
+            e_ctx = sum(w * e for w, e in zip(weights, ctx_embs)) / sum(weights)
             q_emb = _QUERY_WEIGHT * e_msg + (1 - _QUERY_WEIGHT) * e_ctx
         else:
             q_emb = encoder.encode(message, convert_to_tensor=True)

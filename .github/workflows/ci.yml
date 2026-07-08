@@ -101,7 +101,10 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt 
+          # CPU-only torch first (matches Dockerfile pin) — pre-satisfying the
+          # resolver stops requirements.txt deps from pulling multi-GB CUDA torch
+          pip install torch==2.12.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
           pip install pytest pytest-cov pytest-asyncio httpx \
                       flake8 black bandit pip-audit
 
@@ -202,6 +205,8 @@ jobs:
 
       - name: Install dependencies
         run: |
+          # CPU-only torch first (matches Dockerfile pin) — see backend job
+          pip install torch==2.12.1 --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt
           pip install pytest pytest-cov flake8 black bandit pip-audit \
                       great-expectations

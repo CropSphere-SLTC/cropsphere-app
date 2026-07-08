@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from app.dependencies import get_user_id
 from app.middleware.rate_limit import limiter
 from app.models.schemas import RecommendRequest, RecommendResponse
-from app.services.recommend_service import get_recommendations
+from app.user.services.recommend_service import get_recommendations
 from app.utils.firestore import audit_log
 
 router = APIRouter(prefix="/api/recommend", tags=["recommend"])

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from app.dependencies import get_user_id
 from app.middleware.rate_limit import limiter
 from app.models.schemas import YieldPredictRequest, YieldPredictResponse
-from app.services.yield_service import predict_yield
+from app.user.services.yield_service import predict_yield
 from app.utils.firestore import audit_log
 
 router = APIRouter(prefix="/api/yield", tags=["yield"])

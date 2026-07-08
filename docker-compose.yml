@@ -16,7 +16,6 @@ services:
       APP_ENV: development
       FIREBASE_CREDENTIALS_JSON: /app/firebase-credentials.json
       FIREBASE_PROJECT_ID: cropsphere-2e87c
-      GROQ_API_KEY: ${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}
       ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:8080,https://cropsphere.web.app"
       MODEL_DIR: /app/models/files
       RATE_LIMIT_PER_MINUTE: "60"

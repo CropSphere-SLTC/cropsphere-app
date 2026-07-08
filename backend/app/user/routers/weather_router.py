@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from app.dependencies import get_user_id
 from app.middleware.rate_limit import limiter
 from app.models.schemas import WeatherForecastRequest, WeatherForecastResponse
-from app.services.weather_service import forecast_weather
+from app.user.services.weather_service import forecast_weather
 from app.utils.firestore import audit_log
 
 router = APIRouter(prefix="/api/weather", tags=["weather"])

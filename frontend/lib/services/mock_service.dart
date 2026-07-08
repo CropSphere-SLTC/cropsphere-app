@@ -259,6 +259,25 @@ class MockService {
     );
   }
 
+  /// Mock SSE stream: emits the mock reply word-by-word, then metadata,
+  /// then done — mirrors the real /api/chat/stream event vocabulary so
+  /// the streaming UI is fully testable offline.
+  Stream<Map<String, dynamic>> sendChatStream(ChatRequest request) async* {
+    final response = await sendChat(request);
+    for (final word in response.reply.split(' ')) {
+      await Future.delayed(const Duration(milliseconds: 40));
+      yield {'type': 'text', 'content': '$word '};
+    }
+    yield {
+      'type': 'metadata',
+      'confidence': 'Moderate confidence',
+      'sources': response.sourcesUsed,
+      'suggested_followups': response.suggestedFollowups,
+      'conversation_id': '',
+    };
+    yield {'type': 'done'};
+  }
+
   String _addWeeks(String dateStr, int weeks) {
     try {
       final date = DateTime.parse(dateStr);

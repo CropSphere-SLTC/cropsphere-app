@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from app.dependencies import get_user_id
 from app.middleware.rate_limit import limiter
 from app.models.schemas import DemandPredictRequest, DemandPredictResponse
-from app.services.demand_service import predict_demand
+from app.user.services.demand_service import predict_demand
 from app.utils.firestore import audit_log
 
 router = APIRouter(prefix="/api/demand", tags=["demand"])

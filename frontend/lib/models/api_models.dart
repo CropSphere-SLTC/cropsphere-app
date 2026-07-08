@@ -485,7 +485,8 @@ class ChatResponse {
   final List<String> suggestedFollowups;
   final String conversationId;
   final bool isMock;
-  final String confidence; // XAI label: High/Moderate/Low confidence, Out of scope
+  final String
+  confidence; // XAI label: High/Moderate/Low confidence, Out of scope
 
   ChatResponse({
     required this.reply,

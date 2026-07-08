@@ -232,7 +232,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     setState(() => _busyUids.add(user.uid));
     try {
       await _admin.setUserBanned(user.uid, nextBanned);
-      _showSnack(nextBanned ? '${user.email} banned' : '${user.email} unbanned');
+      _showSnack(
+        nextBanned ? '${user.email} banned' : '${user.email} unbanned',
+      );
       await _loadUsers();
     } catch (e) {
       _showSnack(_errorMessage(e), isError: true);
@@ -276,7 +278,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     }
   }
 
-  String _truncate(String id) => id.length <= 10 ? id : '${id.substring(0, 8)}…';
+  String _truncate(String id) =>
+      id.length <= 10 ? id : '${id.substring(0, 8)}…';
 
   String _truncateHash(String hash) =>
       hash.length <= 12 ? hash : hash.substring(0, 12);
@@ -314,7 +317,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         color: AppTheme.primary,
         onRefresh: _loadAll,
         child: _loading
-            ? const Center(child: CircularProgressIndicator(color: AppTheme.primary))
+            ? const Center(
+                child: CircularProgressIndicator(color: AppTheme.primary),
+              )
             : SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(16),
@@ -499,8 +504,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     return LayoutBuilder(
       builder: (context, constraints) {
         final perRow = constraints.maxWidth < 600 ? 2 : 4;
-        final cardWidth =
-            (constraints.maxWidth - (perRow - 1) * 12) / perRow;
+        final cardWidth = (constraints.maxWidth - (perRow - 1) * 12) / perRow;
         return Wrap(
           spacing: 12,
           runSpacing: 12,
@@ -654,8 +658,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                         isDense: true,
                         items: _roles
                             .map(
-                              (r) =>
-                                  DropdownMenuItem(value: r, child: Text(r)),
+                              (r) => DropdownMenuItem(value: r, child: Text(r)),
                             )
                             .toList(),
                         onChanged: busy
@@ -795,10 +798,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     message: detailsText,
                     child: SizedBox(
                       width: 180,
-                      child: Text(
-                        detailsText,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                      child: Text(detailsText, overflow: TextOverflow.ellipsis),
                     ),
                   ),
                 ),

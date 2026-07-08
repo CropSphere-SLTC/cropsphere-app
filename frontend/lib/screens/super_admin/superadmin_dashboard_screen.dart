@@ -426,11 +426,7 @@ class _SuperadminDashboardScreenState extends State<SuperadminDashboardScreen>
       ),
       child: Row(
         children: [
-          const Icon(
-            Icons.admin_panel_settings,
-            color: Colors.white,
-            size: 32,
-          ),
+          const Icon(Icons.admin_panel_settings, color: Colors.white, size: 32),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -706,9 +702,7 @@ class _SuperadminDashboardScreenState extends State<SuperadminDashboardScreen>
                         'editable from here yet',
                         style: TextStyle(
                           fontSize: 11,
-                          color: AppTheme.textSecondary.withValues(
-                            alpha: 0.9,
-                          ),
+                          color: AppTheme.textSecondary.withValues(alpha: 0.9),
                         ),
                       ),
                     ],
@@ -744,9 +738,7 @@ class _SuperadminDashboardScreenState extends State<SuperadminDashboardScreen>
                       )
                     : const Icon(Icons.cleaning_services_outlined),
                 label: Text(
-                  _cleaningUpSessions
-                      ? 'Cleaning up...'
-                      : 'Clean Old Sessions',
+                  _cleaningUpSessions ? 'Cleaning up...' : 'Clean Old Sessions',
                 ),
               ),
             ),
@@ -836,8 +828,7 @@ class _SuperadminDashboardScreenState extends State<SuperadminDashboardScreen>
                         isDense: true,
                         items: _roles
                             .map(
-                              (r) =>
-                                  DropdownMenuItem(value: r, child: Text(r)),
+                              (r) => DropdownMenuItem(value: r, child: Text(r)),
                             )
                             .toList(),
                         onChanged: busy

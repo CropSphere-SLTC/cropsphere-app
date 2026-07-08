@@ -123,8 +123,9 @@ class ApiService {
     var buffer = '';
     var sawDone = false;
     try {
-      await for (final chunk
-          in body.stream.cast<List<int>>().transform(utf8.decoder)) {
+      await for (final chunk in body.stream.cast<List<int>>().transform(
+        utf8.decoder,
+      )) {
         buffer += chunk;
         // SSE events are \n\n-delimited; one network chunk may carry a
         // partial event, so split on complete events only.

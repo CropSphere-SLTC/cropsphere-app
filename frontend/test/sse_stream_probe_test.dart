@@ -80,8 +80,9 @@ Stream<Map<String, dynamic>> sendChatStreamProbe(
   var buffer = '';
   var sawDone = false;
   try {
-    await for (final chunk
-        in body.stream.cast<List<int>>().transform(utf8.decoder)) {
+    await for (final chunk in body.stream.cast<List<int>>().transform(
+      utf8.decoder,
+    )) {
       onRawChunk(chunk);
       buffer += chunk;
       while (buffer.contains('\n\n')) {
@@ -106,8 +107,7 @@ Stream<Map<String, dynamic>> sendChatStreamProbe(
 }
 
 void main() {
-  test('sendChatStream parses adversarially-chunked SSE on IO adapter',
-      () async {
+  test('sendChatStream parses adversarially-chunked SSE on IO adapter', () async {
     final server = await _startSseServer();
     final dio = Dio(BaseOptions(baseUrl: 'http://127.0.0.1:${server.port}'));
 
@@ -124,7 +124,9 @@ void main() {
       onRawChunk: (c) => rawChunks.add(c),
       onResponse: (status, headers) =>
           // ignore: avoid_print
-          print('>>> RESPONSE status=$status content-type=${headers['content-type']}'),
+          print(
+            '>>> RESPONSE status=$status content-type=${headers['content-type']}',
+          ),
     )) {
       received.add(event);
       arrivals.add(sw.elapsedMilliseconds);
@@ -133,8 +135,10 @@ void main() {
     }
 
     // ignore: avoid_print
-    print('>>> raw chunk count: ${rawChunks.length} '
-        '(first raw chunk: ${rawChunks.isNotEmpty ? rawChunks.first : "-"})');
+    print(
+      '>>> raw chunk count: ${rawChunks.length} '
+      '(first raw chunk: ${rawChunks.isNotEmpty ? rawChunks.first : "-"})',
+    );
 
     // Layer 1: events flow
     expect(received.where((e) => e['type'] == 'text').length, 5);
@@ -143,8 +147,11 @@ void main() {
     // Layer 3: no parse errors despite mid-JSON chunk splits
     expect(received.where((e) => e['type'] == 'error'), isEmpty);
     // Incremental delivery: events spread over time, not one burst at the end
-    expect(arrivals.last - arrivals.first, greaterThan(20),
-        reason: 'events must arrive incrementally, not in one buffered lump');
+    expect(
+      arrivals.last - arrivals.first,
+      greaterThan(20),
+      reason: 'events must arrive incrementally, not in one buffered lump',
+    );
 
     await server.close(force: true);
   });

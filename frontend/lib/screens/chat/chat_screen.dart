@@ -35,10 +35,12 @@ class _ChatScreenState extends State<ChatScreen> {
   /// User-friendly messages for streaming failures, keyed by the error
   /// codes shared with the backend SSE contract. No technical detail.
   static const _streamErrorMessages = <String, String>{
-    'network': "Couldn't reach the server. Check your connection and try again.",
+    'network':
+        "Couldn't reach the server. Check your connection and try again.",
     'rate_limit':
         'The AI service is busy right now. Please wait a moment and try again.',
-    'server_error': 'The AI service is temporarily unavailable. Try again shortly.',
+    'server_error':
+        'The AI service is temporarily unavailable. Try again shortly.',
     'stream_interrupted': 'Response was interrupted.',
     'empty_response': 'No response received. Try rephrasing your question.',
     'auth_error': 'Your session may have expired. Please sign in again.',
@@ -103,9 +105,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _displayMessages
           ..clear()
           ..addAll(
-            detail.messages.map(
-              (m) => {'role': m.role, 'content': m.content},
-            ),
+            detail.messages.map((m) => {'role': m.role, 'content': m.content}),
           );
         _history
           ..clear()
@@ -343,8 +343,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
     var completed = false;
     try {
-      await for (final event
-          in ServiceFactory.getService().sendChatStream(request)) {
+      await for (final event in ServiceFactory.getService().sendChatStream(
+        request,
+      )) {
         switch (event['type']) {
           case 'text':
             setState(() {
@@ -389,7 +390,10 @@ class _ChatScreenState extends State<ChatScreen> {
         }
         if (completed && bubble['errorCode'] == null) {
           _history.add(
-            ChatMessage(role: 'assistant', content: bubble['content'] as String),
+            ChatMessage(
+              role: 'assistant',
+              content: bubble['content'] as String,
+            ),
           );
           // Keep last 10 turns
           if (_history.length > 20) {
@@ -871,7 +875,9 @@ class _ChatScreenState extends State<ChatScreen> {
         ? confidence.split('—').last.trim()
         : '';
     final hasFooter =
-        parsed.reasoning.isNotEmpty || sources.isNotEmpty || advisory.isNotEmpty;
+        parsed.reasoning.isNotEmpty ||
+        sources.isNotEmpty ||
+        advisory.isNotEmpty;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -1047,17 +1053,17 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       child: Text(
         label,
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
-          color: fg,
-        ),
+        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: fg),
       ),
     );
   }
 
   /// The bubble's muted XAI footer: divider + reasoning/sources/advisory.
-  Widget _xaiFooter(_ParsedReply parsed, List<String> sources, String advisory) {
+  Widget _xaiFooter(
+    _ParsedReply parsed,
+    List<String> sources,
+    String advisory,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

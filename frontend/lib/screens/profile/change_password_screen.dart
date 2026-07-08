@@ -246,10 +246,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
           const Icon(Icons.error_outline, color: AppTheme.error),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(
-              message,
-              style: const TextStyle(color: AppTheme.error),
-            ),
+            child: Text(message, style: const TextStyle(color: AppTheme.error)),
           ),
         ],
       ),

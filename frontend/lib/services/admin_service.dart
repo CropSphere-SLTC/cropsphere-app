@@ -72,10 +72,8 @@ class AdminService {
     } on DioException catch (e) {
       final status = e.response?.statusCode;
       if (status == 429) {
-        final retryAfter = int.tryParse(
-              e.response?.headers.value('retry-after') ?? '',
-            ) ??
-            3;
+        final retryAfter =
+            int.tryParse(e.response?.headers.value('retry-after') ?? '') ?? 3;
         debugPrint(
           'AdminService.checkAdminAccess: rate limited, retrying in ${retryAfter}s',
         );

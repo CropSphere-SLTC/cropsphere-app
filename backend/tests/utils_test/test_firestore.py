@@ -7,7 +7,6 @@ firebase_admin directly since that module is genuinely installed.
 
 import hashlib
 import hmac
-from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest

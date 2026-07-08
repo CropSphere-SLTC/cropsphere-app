@@ -38,6 +38,7 @@ yarn-error.log*
 .env
 .env.local
 .env.*.local
+.dockerignore
 
 # ── macOS ────────────────────────────────────────────────────────────────────
 .DS_Store

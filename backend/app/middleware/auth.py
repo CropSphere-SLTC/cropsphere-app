@@ -7,6 +7,9 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
+# In-memory session cache — prevents duplicate session documents per container lifetime
+_session_cache: set = set()
+
 logger = logging.getLogger(__name__)
 
 # Paths that bypass JWT verification
@@ -44,6 +47,8 @@ class FirebaseAuthMiddleware(BaseHTTPMiddleware):
                 content={"detail": "Token invalid or expired"},
             )
 
+        _track_session(uid, request)
+
         request.state.user_id = uid
         return await call_next(request)
 
@@ -61,6 +66,25 @@ def _extract_bearer(request: Request) -> Optional[str]:
     if header.startswith("Bearer "):
         return header[7:]
     return None
+
+
+def _track_session(uid: str, request: Request) -> None:
+    """Record login activity once per container lifetime per user.
+
+    Uses an in-memory cache to avoid writing a new session document
+    on every authenticated request — only fires on first request per UID.
+    """
+    if uid in _session_cache:
+        return
+    _session_cache.add(uid)
+    try:
+        from app.utils.firestore import create_session, update_last_login
+
+        device_info = request.headers.get("User-Agent", "unknown")
+        update_last_login(uid)
+        create_session(uid, device_info)
+    except Exception as exc:
+        logger.warning("Session tracking failed for uid=%s: %s", uid, exc)
 
 
 def _verify(token: str) -> Optional[str]:
@@ -84,7 +108,17 @@ def _verify(token: str) -> Optional[str]:
             )
 
         decoded = fb_auth.verify_id_token(token)
-        return decoded.get("uid")
+        uid = decoded.get("uid")
+        email = decoded.get("email", "")
+        photo_url = decoded.get("picture", "")
+        # Create user document in Firestore if first login
+        try:
+            from app.utils.firestore import get_or_create_user
+
+            get_or_create_user(uid, email, photo_url)
+        except Exception:
+            pass  # Never block auth for Firestore failures
+        return uid
     except Exception as exc:
         logger.warning(
             "JWT verification failed: %s — %s",

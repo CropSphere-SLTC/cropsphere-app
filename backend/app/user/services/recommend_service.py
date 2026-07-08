@@ -13,9 +13,9 @@ from app.models.schemas import (
     RecommendResponse,
     YieldPredictRequest,
 )
-from app.services.price_service import predict_price_internal
-from app.services.weather_service import forecast_weather_internal
-from app.services.yield_service import predict_yield
+from app.user.services.price_service import predict_price_internal
+from app.user.services.weather_service import forecast_weather_internal
+from app.user.services.yield_service import predict_yield
 
 logger = logging.getLogger(__name__)
 

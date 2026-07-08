@@ -669,7 +669,7 @@ class TestAuditLogging:
         ), patch(
             "app.models.loader.model_loader.get_model", return_value=_mock_model()
         ), patch(
-            "app.routers.yield_router.audit_log"
+            "app.user.routers.yield_router.audit_log"
         ) as mock_audit:
             _post(client, VALID, valid_auth_header)
 
@@ -683,7 +683,7 @@ class TestAuditLogging:
         """audit_log must fire even when model is absent (mock response)."""
         with patch(
             "app.models.loader.model_loader.is_loaded", return_value=False
-        ), patch("app.routers.yield_router.audit_log") as mock_audit:
+        ), patch("app.user.routers.yield_router.audit_log") as mock_audit:
             _post(client, VALID, valid_auth_header)
 
         mock_audit.assert_called_once()
@@ -694,7 +694,7 @@ class TestAuditLogging:
         """audit_log must NOT fire when Pydantic rejects the input (422)."""
         bad_payload = {**VALID, "rainfall_mm": 9999.0}
 
-        with patch("app.routers.yield_router.audit_log") as mock_audit:
+        with patch("app.user.routers.yield_router.audit_log") as mock_audit:
             resp = _post(client, bad_payload, valid_auth_header)
 
         assert resp.status_code == 422
@@ -702,7 +702,7 @@ class TestAuditLogging:
 
     def test_audit_log_not_called_on_401(self, client):
         """audit_log must NOT fire when auth fails (401)."""
-        with patch("app.routers.yield_router.audit_log") as mock_audit:
+        with patch("app.user.routers.yield_router.audit_log") as mock_audit:
             resp = _post(client, VALID)
 
         assert resp.status_code == 401

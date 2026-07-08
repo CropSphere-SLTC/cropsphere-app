@@ -440,7 +440,9 @@ def _stream_error_code(exc: Exception, has_partial: bool) -> str:
         if isinstance(exc, RateLimitError):
             return "rate_limit"
     except ImportError:
-        pass
+        # groq package not installed in this environment (e.g. some test
+        # runs) — fall through to the generic server_error classification.
+        logger.debug("groq.RateLimitError unavailable — skipping rate-limit check")
     # Groq 5xx / auth / connection problems are all server-side issues
     # from the farmer's perspective.
     return "server_error"

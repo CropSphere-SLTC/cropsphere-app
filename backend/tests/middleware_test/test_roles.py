@@ -59,14 +59,16 @@ def test_require_user_raises_403_when_banned():
     assert exc.value.status_code == 403
 
 
-def test_require_user_swallows_lookup_errors_and_allows():
+def test_require_user_fails_closed_on_lookup_error():
     def _boom(uid):
         raise RuntimeError("firestore down")
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr("app.utils.firestore.is_user_banned", _boom)
-        # Non-HTTPException errors are swallowed -> user allowed through
-        assert roles.require_user("uid-1") == "uid-1"
+        # Non-HTTPException errors fail closed -> 503, never silently allowed
+        with pytest.raises(HTTPException) as exc_info:
+            roles.require_user("uid-1")
+        assert exc_info.value.status_code == 503
 
 
 # ═══════════════════════════════════════════════════════════════════════════

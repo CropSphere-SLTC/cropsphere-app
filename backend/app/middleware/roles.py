@@ -24,7 +24,8 @@ def require_user(uid: str = Depends(get_current_uid)) -> str:
     except HTTPException:
         raise
     except Exception:
-        pass
+        logger.exception("Ban-status check failed for uid=%s", uid)
+        raise HTTPException(status_code=503, detail="Unable to verify account status")
     return uid
 
 

@@ -85,9 +85,6 @@ def _track_session(uid: str, request: Request) -> None:
         create_session(uid, device_info)
     except Exception as exc:
         logger.warning("Session tracking failed for uid=%s: %s", uid, exc)
-        create_session(uid, device_info)
-    except Exception as exc:
-        logger.warning("Session tracking failed for uid=%s: %s", uid, exc)
 
 
 def _verify(token: str) -> Optional[str]:

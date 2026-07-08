@@ -5,7 +5,7 @@ import hmac
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
@@ -54,7 +54,7 @@ def init_firestore(credentials_json: str, project_id: str) -> None:
             cred = credentials.Certificate(credentials_json)
         firebase_admin.initialize_app(cred, {"projectId": project_id})
 
-    _db = firestore.client()
+    _db = firestore.client(database_id="cropsphere-database")
     logger.info("Firestore initialised for project: %s", project_id)
 
 
@@ -63,6 +63,317 @@ def get_db():
     if _db is None:
         raise RuntimeError("Firestore not initialised. Call init_firestore() first.")
     return _db
+
+
+def get_or_create_user(
+    uid: str, email: str = "", photo_url: str = ""
+) -> Dict[str, Any]:
+    """Get user document from Firestore or create it if it doesn't exist.
+    New users get role 'user' by default.
+    Superadmin UID gets role 'superadmin' automatically.
+    """
+    try:
+        from app.config import get_settings
+
+        db = get_db()
+        ref = db.collection("users").document(uid)
+        doc = ref.get()
+        if doc.exists:
+            # Update photo_url if it changed (Google OAuth photo can change)
+            if photo_url:
+                ref.update({"photo_url": photo_url})
+            return doc.to_dict()
+        # Determine role — superadmin UID always gets superadmin role
+        settings = get_settings()
+        superadmin_uids = [u.strip() for u in settings.SUPERADMIN_UID.split(",")]
+        role = "superadmin" if uid in superadmin_uids else "user"
+        user_data = {
+            "uid": uid,
+            "email": email,
+            "photo_url": photo_url,
+            "role": role,
+            "is_banned": False,
+            "created_at": datetime.now(timezone.utc),
+        }
+        ref.set(user_data)
+        logger.info(f"Created user document: uid={uid} role={role}")
+        return user_data
+    except Exception as exc:
+        logger.error(f"get_or_create_user failed: {exc}")
+        return {"uid": uid, "role": "user", "is_banned": False}
+
+
+def get_user_role(uid: str) -> str:
+    """Get user role from Firestore. Returns 'user' as safe fallback."""
+    try:
+        from app.config import get_settings
+
+        settings = get_settings()
+        # Superadmin UID always returns superadmin regardless of Firestore
+        superadmin_uids = [u.strip() for u in settings.SUPERADMIN_UID.split(",")]
+        if uid in superadmin_uids:
+            return "superadmin"
+        db = get_db()
+        doc = db.collection("users").document(uid).get()
+        if doc.exists:
+            data = doc.to_dict()
+            if data.get("is_banned"):
+                return "banned"
+            return data.get("role", "user")
+        return "user"
+    except Exception as exc:
+        logger.error(f"get_user_role failed: {exc}")
+        return "user"
+
+
+def is_user_banned(uid: str) -> bool:
+    """Check if user is banned."""
+    try:
+        db = get_db()
+        doc = db.collection("users").document(uid).get()
+        if doc.exists:
+            return doc.to_dict().get("is_banned", False)
+        return False
+    except Exception as exc:
+        logger.error(f"is_user_banned failed: {exc}")
+        return False
+
+
+# ── User profile & sessions ────────────────────────────────────────────────────
+
+
+def get_user_profile(uid: str) -> Dict[str, Any]:
+    """Return the raw user document — profile fields plus preferences.
+
+    Raises RuntimeError if the document doesn't exist (shouldn't happen for
+    an authenticated caller — get_or_create_user runs on every login).
+    """
+    db = get_db()
+    doc = db.collection("users").document(uid).get()
+    if not doc.exists:
+        raise RuntimeError(f"User document not found for uid={uid}")
+    return doc.to_dict()
+
+
+def update_user_profile(uid: str, display_name: str) -> None:
+    """Update display_name on a user's Firestore document."""
+    db = get_db()
+    db.collection("users").document(uid).update({"display_name": display_name})
+
+
+def get_user_preferences(uid: str) -> Dict[str, Any]:
+    """Return the preferences dict from a user's Firestore document.
+
+    Returns {} if the user has never saved preferences — callers apply
+    their own defaults.
+    """
+    db = get_db()
+    doc = db.collection("users").document(uid).get()
+    if not doc.exists:
+        return {}
+    return doc.to_dict().get("preferences", {})
+
+
+def update_user_preferences(uid: str, preferences: Dict[str, Any]) -> None:
+    """Save preferences to a user's Firestore document."""
+    db = get_db()
+    db.collection("users").document(uid).update({"preferences": preferences})
+
+
+def update_last_login(uid: str) -> None:
+    """Update last_login timestamp on a user's Firestore document.
+
+    Called from the auth middleware on every verified request — failures
+    are logged but never allowed to block authentication.
+    """
+    try:
+        db = get_db()
+        db.collection("users").document(uid).update(
+            {"last_login": datetime.now(timezone.utc)}
+        )
+    except Exception as exc:
+        logger.error(f"update_last_login failed: {exc}")
+
+
+def get_active_sessions(uid: str) -> int:
+    """Count sessions for uid with last_active within the past 24 hours.
+
+    Note: this equality + range query needs a composite Firestore index on
+    (uid ASC, last_active ASC) — Firestore's error message links directly
+    to the console page to create it if missing.
+    """
+    try:
+        from google.cloud.firestore_v1.base_query import FieldFilter
+
+        db = get_db()
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+        docs = (
+            db.collection("sessions")
+            .where(filter=FieldFilter("uid", "==", uid))
+            .where(filter=FieldFilter("last_active", ">=", cutoff))
+            .stream()
+        )
+        return sum(1 for _ in docs)
+    except Exception as exc:
+        logger.error(f"get_active_sessions failed: {exc}")
+        return 0
+
+
+def create_session(uid: str, device_info: str) -> None:
+    """Record a session document — called from the auth middleware on every
+    verified request. Failures are logged but never allowed to block
+    authentication.
+    """
+    try:
+        db = get_db()
+        now = datetime.now(timezone.utc)
+        db.collection("sessions").add(
+            {
+                "uid": uid,
+                "device_info": device_info,
+                "created_at": now,
+                "last_active": now,
+            }
+        )
+    except Exception as exc:
+        logger.error(f"create_session failed: {exc}")
+
+
+# ── Chat conversation history ─────────────────────────────────────────────────
+
+MAX_MESSAGES_PER_CONVERSATION = 50
+
+
+def list_conversations(uid: str, limit: int = 50) -> list:
+    """List a user's chat conversations, newest first.
+
+    Returns summaries only (id, title, updated_at, message_count) — never the
+    embedded messages array. Needs a composite index on (uid ASC,
+    updated_at DESC); Firestore's error links to the console page if missing.
+    """
+    from google.cloud.firestore_v1.base_query import FieldFilter
+    from google.cloud import firestore as gcf
+
+    db = get_db()
+    docs = (
+        db.collection("chat_conversations")
+        .where(filter=FieldFilter("uid", "==", uid))
+        .order_by("updated_at", direction=gcf.Query.DESCENDING)
+        .limit(limit)
+        .stream()
+    )
+    out = []
+    for doc in docs:
+        data = doc.to_dict()
+        out.append(
+            {
+                "id": doc.id,
+                "title": data.get("title", ""),
+                "updated_at": data.get("updated_at"),
+                "message_count": data.get("message_count", 0),
+            }
+        )
+    return out
+
+
+def get_conversation(conversation_id: str):
+    """Return the full conversation dict (including messages) or None.
+
+    Caller is responsible for checking ownership (uid field) before
+    returning data to a client.
+    """
+    db = get_db()
+    doc = db.collection("chat_conversations").document(conversation_id).get()
+    if not doc.exists:
+        return None
+    data = doc.to_dict()
+    data["id"] = doc.id
+    return data
+
+
+def create_conversation(uid: str, title: str) -> str:
+    """Create an empty conversation document and return its id."""
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    _, ref = db.collection("chat_conversations").add(
+        {
+            "uid": uid,
+            "title": title,
+            "created_at": now,
+            "updated_at": now,
+            "message_count": 0,
+            "messages": [],
+        }
+    )
+    return ref.id
+
+
+def append_messages(conversation_id: str, user_msg: str, assistant_msg: str) -> None:
+    """Append a user/assistant message pair to a conversation.
+
+    Raises ValueError if the conversation would exceed
+    MAX_MESSAGES_PER_CONVERSATION messages, or if it doesn't exist.
+    """
+    db = get_db()
+    ref = db.collection("chat_conversations").document(conversation_id)
+    doc = ref.get()
+    if not doc.exists:
+        raise ValueError(f"Conversation not found: {conversation_id}")
+    data = doc.to_dict()
+    messages = data.get("messages", [])
+    if len(messages) + 2 > MAX_MESSAGES_PER_CONVERSATION:
+        raise ValueError("Conversation message limit reached")
+    now = datetime.now(timezone.utc)
+    messages.append({"role": "user", "content": user_msg, "timestamp": now})
+    messages.append({"role": "assistant", "content": assistant_msg, "timestamp": now})
+    ref.update(
+        {
+            "messages": messages,
+            "message_count": len(messages),
+            "updated_at": now,
+        }
+    )
+
+
+def rename_conversation(conversation_id: str, title: str) -> None:
+    """Rename a conversation. Ownership must be checked by the caller."""
+    db = get_db()
+    db.collection("chat_conversations").document(conversation_id).update(
+        {"title": title, "updated_at": datetime.now(timezone.utc)}
+    )
+
+
+def delete_conversation(conversation_id: str) -> None:
+    """Delete a conversation. Ownership must be checked by the caller."""
+    db = get_db()
+    db.collection("chat_conversations").document(conversation_id).delete()
+
+
+def admin_audit_log(
+    actor_uid: str,
+    actor_role: str,
+    action: str,
+    target_uid: str = "",
+    details: Dict[str, Any] = {},
+) -> None:
+    """Write admin action to Firestore audit log with actor_role field.
+    Superadmin activities are only visible to superadmin.
+    Admin activities are visible to both admin and superadmin.
+    """
+    try:
+        db = get_db()
+        db.collection("admin_audit_logs").add(
+            {
+                "actor_uid": actor_uid,
+                "actor_role": actor_role,
+                "action": action,
+                "target_uid": target_uid,
+                "details": details,
+                "timestamp": datetime.now(timezone.utc),
+            }
+        )
+    except Exception as exc:
+        logger.error(f"admin_audit_log failed: {exc}")
 
 
 def audit_log(user_id: str, endpoint: str, input_data: Dict[str, Any]) -> None:

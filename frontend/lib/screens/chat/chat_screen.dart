@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../config/app_config.dart';
 import '../../services/service_factory.dart';
+import '../../services/chat_history_service.dart';
 import '../../models/api_models.dart';
+import '../../models/chat_history_models.dart';
 import '../../widgets/app_theme.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -14,16 +16,41 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  final TextEditingController _controller = TextEditingController();
-  final ScrollController _scrollController = ScrollController();
-  final List<ChatMessage> _history = [];
-  final List<Map<String, dynamic>> _displayMessages = [];
-  bool _isLoading = false;
-  List<String> _suggestedFollowups = [
+  static const double _wideBreakpoint = 900;
+  static const _defaultFollowups = [
     'What should I plant this Maha season?',
     'What is the expected yield for Carrot?',
     'Which district has best prices?',
   ];
+
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  final TextEditingController _controller = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+  final _historyService = ChatHistoryService();
+  final List<ChatMessage> _history = [];
+  final List<Map<String, dynamic>> _displayMessages = [];
+  bool _isLoading = false;
+  bool _isStreaming = false;
+
+  /// User-friendly messages for streaming failures, keyed by the error
+  /// codes shared with the backend SSE contract. No technical detail.
+  static const _streamErrorMessages = <String, String>{
+    'network':
+        "Couldn't reach the server. Check your connection and try again.",
+    'rate_limit':
+        'The AI service is busy right now. Please wait a moment and try again.',
+    'server_error':
+        'The AI service is temporarily unavailable. Try again shortly.',
+    'stream_interrupted': 'Response was interrupted.',
+    'empty_response': 'No response received. Try rephrasing your question.',
+    'auth_error': 'Your session may have expired. Please sign in again.',
+  };
+
+  // ── Conversation history state ──────────────────────────────────────────
+  String? _conversationId; // null = new chat
+  List<ConversationSummary> _conversations = [];
+  bool _conversationsLoading = false;
+  List<String> _suggestedFollowups = List.of(_defaultFollowups);
   String? _selectedDistrict;
   String? _selectedCrop;
   String _selectedModel = 'accurate';
@@ -47,7 +74,144 @@ class _ChatScreenState extends State<ChatScreen> {
     'Groundnut',
   ];
 
+  @override
+  void initState() {
+    super.initState();
+    if (!AppConfig.useMockServices) _loadConversations();
+  }
+
+  Future<void> _loadConversations() async {
+    setState(() => _conversationsLoading = true);
+    try {
+      final conversations = await _historyService.listConversations();
+      if (mounted) setState(() => _conversations = conversations);
+    } catch (e) {
+      debugPrint('Failed to load conversations: $e');
+    } finally {
+      if (mounted) setState(() => _conversationsLoading = false);
+    }
+  }
+
+  Future<void> _openConversation(ConversationSummary summary) async {
+    // Close the drawer on mobile before loading.
+    if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
+      Navigator.of(context).pop();
+    }
+    try {
+      final detail = await _historyService.getConversation(summary.id);
+      if (!mounted) return;
+      setState(() {
+        _conversationId = detail.id;
+        _displayMessages
+          ..clear()
+          ..addAll(
+            detail.messages.map((m) => {'role': m.role, 'content': m.content}),
+          );
+        _history
+          ..clear()
+          ..addAll(
+            detail.messages.map(
+              (m) => ChatMessage(role: m.role, content: m.content),
+            ),
+          );
+        _suggestedFollowups = [];
+      });
+      _scrollToBottom();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to load conversation')),
+        );
+      }
+    }
+  }
+
+  void _startNewChat() {
+    if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
+      Navigator.of(context).pop();
+    }
+    setState(() {
+      _conversationId = null;
+      _displayMessages.clear();
+      _history.clear();
+      _suggestedFollowups = List.of(_defaultFollowups);
+    });
+  }
+
+  Future<void> _renameConversation(ConversationSummary summary) async {
+    final controller = TextEditingController(text: summary.title);
+    final newTitle = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rename conversation'),
+        content: TextField(
+          controller: controller,
+          maxLength: 100,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Title'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Rename'),
+          ),
+        ],
+      ),
+    );
+    if (newTitle == null || newTitle.isEmpty || newTitle == summary.title) {
+      return;
+    }
+    try {
+      await _historyService.renameConversation(summary.id, newTitle);
+      _loadConversations();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to rename conversation')),
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteConversation(ConversationSummary summary) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete conversation?'),
+        content: Text('"${summary.title}" will be permanently deleted.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await _historyService.deleteConversation(summary.id);
+      if (summary.id == _conversationId) _startNewChat();
+      _loadConversations();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to delete conversation')),
+        );
+      }
+    }
+  }
+
   Future<void> _sendMessage(String message) async {
+    if (_isLoading || _isStreaming) return; // never two concurrent requests
     if (message.trim().isEmpty) return;
     if (message.length > 500) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -57,7 +221,16 @@ class _ChatScreenState extends State<ChatScreen> {
       );
       return;
     }
+    if (AppConfig.useStreamingChat) {
+      await _sendMessageStreaming(message);
+    } else {
+      await _sendMessageNonStreaming(message);
+    }
+  }
 
+  /// Non-streaming fallback — the original POST /api/chat flow, kept
+  /// intact and selected via AppConfig.useStreamingChat = false.
+  Future<void> _sendMessageNonStreaming(String message) async {
     _controller.clear();
     setState(() {
       _displayMessages.add({'role': 'user', 'content': message});
@@ -79,14 +252,28 @@ class _ChatScreenState extends State<ChatScreen> {
           crop: _selectedCrop,
           model: _selectedModel,
           language: 'auto',
+          conversationId: _conversationId,
         ),
       );
+
+      // A new chat gets its conversation id from the first reply — refresh
+      // the sidebar so the new conversation appears immediately.
+      final isNewConversation =
+          _conversationId == null && response.conversationId.isNotEmpty;
+      if (response.conversationId.isNotEmpty) {
+        _conversationId = response.conversationId;
+      }
+      if (isNewConversation && !AppConfig.useMockServices) {
+        _loadConversations();
+      }
 
       setState(() {
         _displayMessages.add({
           'role': 'assistant',
           'content': response.reply,
           'isMock': response.isMock,
+          'confidence': response.confidence,
+          'sources': response.sourcesUsed,
         });
         _history.add(ChatMessage(role: 'assistant', content: response.reply));
         _suggestedFollowups = response.suggestedFollowups;
@@ -107,6 +294,128 @@ class _ChatScreenState extends State<ChatScreen> {
       setState(() => _isLoading = false);
       _scrollToBottom();
     }
+  }
+
+  /// Streaming send path: adds an empty assistant bubble immediately, then
+  /// appends SSE text deltas as they arrive. Metadata (confidence, sources,
+  /// followups, conversation id) lands at the end of the stream. On failure
+  /// the bubble keeps any partial text and gains an inline error + retry.
+  ///
+  /// [isRetry] skips re-adding the user bubble/history entry — the original
+  /// send already added them, and _buildValidHistory() excludes the trailing
+  /// user message, so the retried message is never duplicated in context.
+  Future<void> _sendMessageStreaming(
+    String message, {
+    bool isRetry = false,
+  }) async {
+    if (_isStreaming) return; // guard: never two concurrent streams
+    _controller.clear();
+    final bubble = <String, dynamic>{
+      'role': 'assistant',
+      'content': '',
+      'streaming': true,
+      'retryFor': message,
+    };
+    // _isStreaming is set synchronously, before any await, so the input
+    // field is disabled for the whole stream — initial send and retry alike.
+    setState(() {
+      _isStreaming = true;
+      if (!isRetry) {
+        _displayMessages.add({'role': 'user', 'content': message});
+        _history.add(ChatMessage(role: 'user', content: message));
+      }
+      _displayMessages.add(bubble);
+      _suggestedFollowups = [];
+    });
+    _scrollToBottom();
+
+    final userId = FirebaseAuth.instance.currentUser?.uid ?? 'anonymous';
+    final request = ChatRequest(
+      message: message,
+      conversationHistory: _buildValidHistory(),
+      userId: userId,
+      district: _selectedDistrict,
+      crop: _selectedCrop,
+      model: _selectedModel,
+      language: 'auto',
+      conversationId: _conversationId,
+    );
+
+    var completed = false;
+    try {
+      await for (final event in ServiceFactory.getService().sendChatStream(
+        request,
+      )) {
+        switch (event['type']) {
+          case 'text':
+            setState(() {
+              bubble['content'] =
+                  (bubble['content'] as String) +
+                  (event['content'] as String? ?? '');
+            });
+            _scrollToBottom();
+          case 'metadata':
+            final convId = event['conversation_id'] as String? ?? '';
+            final isNewConversation =
+                _conversationId == null && convId.isNotEmpty;
+            if (convId.isNotEmpty) _conversationId = convId;
+            if (isNewConversation && !AppConfig.useMockServices) {
+              _loadConversations();
+            }
+            setState(() {
+              bubble['confidence'] = event['confidence'] as String? ?? '';
+              bubble['sources'] = List<String>.from(event['sources'] ?? []);
+              _suggestedFollowups = List<String>.from(
+                event['suggested_followups'] ?? [],
+              );
+            });
+          case 'error':
+            setState(() {
+              bubble['errorCode'] = event['code'] as String? ?? 'server_error';
+            });
+          case 'done':
+            completed = true;
+        }
+      }
+    } catch (_) {
+      setState(() {
+        bubble['errorCode'] ??= 'stream_interrupted';
+      });
+    } finally {
+      setState(() {
+        bubble['streaming'] = false;
+        if (!completed && bubble['errorCode'] == null) {
+          // Stream ended without [DONE] or an explicit error event.
+          bubble['errorCode'] = 'stream_interrupted';
+        }
+        if (completed && bubble['errorCode'] == null) {
+          _history.add(
+            ChatMessage(
+              role: 'assistant',
+              content: bubble['content'] as String,
+            ),
+          );
+          // Keep last 10 turns
+          if (_history.length > 20) {
+            _history.removeRange(0, 2);
+            _displayMessages.removeRange(0, 2);
+          }
+        }
+        _isStreaming = false;
+      });
+      _scrollToBottom();
+    }
+  }
+
+  /// Removes a failed streamed bubble and resends its user message.
+  /// _sendMessageStreaming sets _isStreaming synchronously, so the input
+  /// stays disabled and a second concurrent stream is impossible.
+  Future<void> _retryStream(Map<String, dynamic> bubble) async {
+    if (_isStreaming || _isLoading) return;
+    final retryFor = bubble['retryFor'] as String?;
+    if (retryFor == null) return;
+    setState(() => _displayMessages.remove(bubble));
+    await _sendMessageStreaming(retryFor, isRetry: true);
   }
 
   void _scrollToBottom() {
@@ -130,21 +439,185 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isWide = MediaQuery.of(context).size.width >= _wideBreakpoint;
+    final chatArea = Column(
+      children: [
+        _buildHeader(isWide),
+        _buildContextBar(),
+        Expanded(child: _buildMessageList()),
+        if (_suggestedFollowups.isNotEmpty) _buildSuggestions(),
+        _buildInputBar(),
+      ],
+    );
+
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: AppTheme.background,
-      body: Column(
-        children: [
-          _buildHeader(),
-          _buildContextBar(),
-          Expanded(child: _buildMessageList()),
-          if (_suggestedFollowups.isNotEmpty) _buildSuggestions(),
-          _buildInputBar(),
+      drawer: isWide ? null : Drawer(child: SafeArea(child: _buildSidebar())),
+      body: isWide
+          ? Row(
+              children: [
+                SizedBox(
+                  width: 280,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border(
+                        right: BorderSide(color: Colors.grey[300]!),
+                      ),
+                    ),
+                    child: _buildSidebar(),
+                  ),
+                ),
+                Expanded(child: chatArea),
+              ],
+            )
+          : chatArea,
+    );
+  }
+
+  // ── Sidebar ───────────────────────────────────────────────────────────────
+
+  Widget _buildSidebar() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: ElevatedButton.icon(
+            onPressed: _startNewChat,
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text('New Chat'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primary,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+            ),
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: _conversationsLoading
+              ? const Center(
+                  child: CircularProgressIndicator(color: AppTheme.primary),
+                )
+              : _conversations.isEmpty
+              ? Center(
+                  child: Text(
+                    AppConfig.useMockServices
+                        ? 'History unavailable in mock mode'
+                        : 'No conversations yet',
+                    style: TextStyle(color: Colors.grey[500], fontSize: 13),
+                  ),
+                )
+              : ListView.builder(
+                  itemCount: _conversations.length,
+                  itemBuilder: (ctx, i) =>
+                      _buildConversationTile(_conversations[i]),
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildConversationTile(ConversationSummary summary) {
+    final isActive = summary.id == _conversationId;
+    return ListTile(
+      dense: true,
+      selected: isActive,
+      selectedTileColor: AppTheme.primary.withValues(alpha: 0.08),
+      leading: Icon(
+        Icons.chat_bubble_outline,
+        size: 18,
+        color: isActive ? AppTheme.primary : Colors.grey[500],
+      ),
+      title: Text(
+        summary.title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
+          color: isActive ? AppTheme.primaryDark : Colors.black87,
+        ),
+      ),
+      subtitle: Text(
+        _relativeTime(summary.updatedAt),
+        style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+      ),
+      // Hover menu on web/desktop, long-press menu on mobile.
+      trailing: PopupMenuButton<String>(
+        icon: Icon(Icons.more_vert, size: 16, color: Colors.grey[500]),
+        onSelected: (action) => action == 'rename'
+            ? _renameConversation(summary)
+            : _deleteConversation(summary),
+        itemBuilder: (ctx) => const [
+          PopupMenuItem(
+            value: 'rename',
+            child: ListTile(
+              dense: true,
+              leading: Icon(Icons.edit_outlined, size: 18),
+              title: Text('Rename'),
+            ),
+          ),
+          PopupMenuItem(
+            value: 'delete',
+            child: ListTile(
+              dense: true,
+              leading: Icon(Icons.delete_outline, size: 18),
+              title: Text('Delete'),
+            ),
+          ),
         ],
+      ),
+      onTap: () => _openConversation(summary),
+      onLongPress: () => _showConversationActions(summary),
+    );
+  }
+
+  void _showConversationActions(ConversationSummary summary) {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('Rename'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _renameConversation(summary);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: AppTheme.error),
+              title: const Text(
+                'Delete',
+                style: TextStyle(color: AppTheme.error),
+              ),
+              onTap: () {
+                Navigator.pop(ctx);
+                _deleteConversation(summary);
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildHeader() {
+  String _relativeTime(DateTime? time) {
+    if (time == null) return '';
+    final diff = DateTime.now().difference(time.toLocal());
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    return '${time.toLocal().day}/${time.toLocal().month}/${time.toLocal().year}';
+  }
+
+  Widget _buildHeader(bool isWide) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -156,6 +629,13 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       child: Row(
         children: [
+          if (!isWide)
+            IconButton(
+              icon: const Icon(Icons.menu, color: Colors.white),
+              tooltip: 'Conversations',
+              padding: EdgeInsets.zero,
+              onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+            ),
           const Icon(Icons.chat, color: Colors.white, size: 28),
           const SizedBox(width: 12),
           Column(
@@ -185,15 +665,7 @@ class _ChatScreenState extends State<ChatScreen> {
             IconButton(
               icon: const Icon(Icons.delete_outline, color: Colors.white70),
               tooltip: 'Clear chat',
-              onPressed: () => setState(() {
-                _displayMessages.clear();
-                _history.clear();
-                _suggestedFollowups = [
-                  'What should I plant this Maha season?',
-                  'What is the expected yield for Carrot?',
-                  'Which district has best prices?',
-                ];
-              }),
+              onPressed: _startNewChat,
             ),
         ],
       ),
@@ -378,6 +850,35 @@ class _ChatScreenState extends State<ChatScreen> {
     final isError = msg['role'] == 'error';
     final isMock = msg['isMock'] as bool? ?? false;
 
+    // XAI data — bot replies only; user and error bubbles are unchanged.
+    // Messages loaded from saved history have no 'confidence'/'sources' keys
+    // and gracefully render without badge/footer.
+    final isBot = !isUser && !isError;
+    final isStreamingMsg = isBot && (msg['streaming'] as bool? ?? false);
+    // Streamed bubbles get a fade-in on badge/footer when metadata lands;
+    // regular history bubbles render statically (no re-fade on scroll).
+    final wasStreamed = isBot && msg.containsKey('streaming');
+    final errorCode = isBot ? msg['errorCode'] as String? : null;
+    final confidence = isBot ? (msg['confidence'] as String? ?? '') : '';
+    final sources = isBot
+        ? ((msg['sources'] as List?)?.cast<String>() ?? const <String>[])
+        : const <String>[];
+    // While text is still streaming, show it raw — the reasoning line is
+    // split into the footer only once the stream completes ([DONE]).
+    final parsed = isBot && !isStreamingMsg
+        ? _parseReply(msg['content'] as String)
+        : _ParsedReply('', msg['content'] as String);
+    // Backend's Low-confidence label carries an advisory after the em dash
+    // ("please verify with an agricultural officer") — badge shows the short
+    // label, the advisory moves to the muted footer.
+    final advisory = confidence.contains('—')
+        ? confidence.split('—').last.trim()
+        : '';
+    final hasFooter =
+        parsed.reasoning.isNotEmpty ||
+        sources.isNotEmpty ||
+        advisory.isNotEmpty;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
@@ -420,8 +921,20 @@ class _ChatScreenState extends State<ChatScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // TOP — XAI confidence badge (bot messages only); fades in
+                  // when metadata arrives at the end of a stream
+                  if (confidence.isNotEmpty) ...[
+                    wasStreamed
+                        ? _fadeIn(_confidenceBadge(confidence))
+                        : _confidenceBadge(confidence),
+                    const SizedBox(height: 6),
+                  ],
+                  // MIDDLE — answer text (reasoning split out for bot replies);
+                  // "..." placeholder while the stream is starting (Phase 1)
                   Text(
-                    msg['content'],
+                    isStreamingMsg && parsed.answer.isEmpty
+                        ? '...'
+                        : parsed.answer,
                     style: TextStyle(
                       color: isUser
                           ? Colors.white
@@ -431,6 +944,51 @@ class _ChatScreenState extends State<ChatScreen> {
                       fontSize: 14,
                     ),
                   ),
+                  // BOTTOM — muted XAI footer; hidden when empty (out-of-scope)
+                  if (hasFooter)
+                    wasStreamed
+                        ? _fadeIn(_xaiFooter(parsed, sources, advisory))
+                        : _xaiFooter(parsed, sources, advisory),
+                  // Inline stream-error state: keeps any partial text above,
+                  // adds a muted warning + optional retry inside the bubble.
+                  if (errorCode != null) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.warning_amber_outlined,
+                          size: 14,
+                          color: Colors.orange[800],
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            _streamErrorMessages[errorCode] ??
+                                _streamErrorMessages['server_error']!,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.orange[800],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    // Auth errors need a fresh sign-in, not a retry.
+                    if (errorCode != 'auth_error')
+                      TextButton.icon(
+                        onPressed: () => _retryStream(msg),
+                        icon: const Icon(Icons.refresh, size: 14),
+                        label: const Text('Tap to retry'),
+                        style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          minimumSize: const Size(0, 28),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          foregroundColor: AppTheme.primaryDark,
+                          textStyle: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                  ],
                   if (isMock)
                     Padding(
                       padding: const EdgeInsets.only(top: 6),
@@ -454,6 +1012,103 @@ class _ChatScreenState extends State<ChatScreen> {
               child: const Icon(Icons.person, color: Colors.white, size: 16),
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  /// Splits a bot reply into (reasoning, answer). The backend instructs the
+  /// model to lead with one "Reasoning: ..." sentence, then the answer on a
+  /// new line. Splits on the first blank line, falling back to the first
+  /// newline (the model often emits a single \n). No "Reasoning:" prefix →
+  /// the whole reply is the answer.
+  _ParsedReply _parseReply(String reply) {
+    final trimmed = reply.trimLeft();
+    if (!trimmed.startsWith('Reasoning:')) return _ParsedReply('', reply);
+    var cut = trimmed.indexOf('\n\n');
+    if (cut == -1) cut = trimmed.indexOf('\n');
+    if (cut == -1) return _ParsedReply('', reply); // one-liner: don't hide it
+    return _ParsedReply(
+      trimmed.substring('Reasoning:'.length, cut).trim(),
+      trimmed.substring(cut).trim(),
+    );
+  }
+
+  /// Small colored chip showing the XAI confidence label. Long backend labels
+  /// ("Low confidence — please verify...") are truncated at the em dash; the
+  /// advisory tail is rendered in the bubble footer instead.
+  Widget _confidenceBadge(String confidence) {
+    final label = confidence.split('—').first.trim();
+    final (bg, fg) = switch (label) {
+      'High confidence' => (Colors.green[600]!, Colors.white),
+      'Moderate confidence' => (Colors.amber[400]!, Colors.black87),
+      'Low confidence' => (Colors.orange[700]!, Colors.white),
+      _ => (Colors.grey[600]!, Colors.white), // Out of scope + unknown
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: fg),
+      ),
+    );
+  }
+
+  /// The bubble's muted XAI footer: divider + reasoning/sources/advisory.
+  Widget _xaiFooter(
+    _ParsedReply parsed,
+    List<String> sources,
+    String advisory,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 8),
+        Container(height: 1, color: Colors.grey[200]),
+        const SizedBox(height: 6),
+        if (parsed.reasoning.isNotEmpty)
+          _xaiFooterLine(Icons.lightbulb_outline, parsed.reasoning),
+        if (sources.isNotEmpty)
+          _xaiFooterLine(Icons.description_outlined, sources.join(', ')),
+        if (advisory.isNotEmpty) _xaiFooterLine(Icons.info_outline, advisory),
+      ],
+    );
+  }
+
+  /// Fades a widget in on first build — used so the confidence badge and
+  /// XAI footer appear smoothly when stream metadata arrives, not jarringly.
+  Widget _fadeIn(Widget child) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 300),
+      builder: (context, opacity, c) => Opacity(opacity: opacity, child: c),
+      child: child,
+    );
+  }
+
+  /// One muted line in the XAI footer (reasoning / sources / advisory).
+  Widget _xaiFooterLine(IconData icon, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 12, color: Colors.grey[500]),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.grey[600],
+                height: 1.3,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -580,15 +1235,19 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           const SizedBox(width: 8),
           GestureDetector(
-            onTap: _isLoading ? null : () => _sendMessage(_controller.text),
+            onTap: (_isLoading || _isStreaming)
+                ? null
+                : () => _sendMessage(_controller.text),
             child: Container(
               width: 44,
               height: 44,
               decoration: BoxDecoration(
-                color: _isLoading ? Colors.grey : AppTheme.primaryDark,
+                color: (_isLoading || _isStreaming)
+                    ? Colors.grey
+                    : AppTheme.primaryDark,
                 shape: BoxShape.circle,
               ),
-              child: _isLoading
+              child: (_isLoading || _isStreaming)
                   ? const Padding(
                       padding: EdgeInsets.all(10),
                       child: CircularProgressIndicator(
@@ -632,4 +1291,11 @@ class _ChatScreenState extends State<ChatScreen> {
         )
         .toList();
   }
+}
+
+/// Bot reply split into its XAI reasoning sentence and the main answer.
+class _ParsedReply {
+  final String reasoning;
+  final String answer;
+  _ParsedReply(this.reasoning, this.answer);
 }

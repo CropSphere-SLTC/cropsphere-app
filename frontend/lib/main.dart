@@ -23,6 +23,15 @@ import 'screens/weather/weather_screen.dart';
 import 'screens/demand/demand_screen.dart';
 import 'screens/recommend/recommend_screen.dart';
 import 'screens/chat/chat_screen.dart';
+import 'screens/admin/admin_dashboard_screen.dart';
+import 'screens/super_admin/superadmin_dashboard_screen.dart';
+import 'screens/profile/account_settings_screen.dart';
+import 'screens/profile/change_password_screen.dart';
+import 'services/admin_service.dart';
+import 'services/profile_service.dart';
+import 'services/session_service.dart';
+import 'models/profile_models.dart';
+import 'widgets/profile_popup.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -85,10 +94,12 @@ class MainShell extends StatefulWidget {
   State<MainShell> createState() => _MainShellState();
 }
 
-class _MainShellState extends State<MainShell> {
+class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   int _selectedIndex = 0;
+  bool _isAdmin = false;
+  UserProfile? _profile;
 
-  late final List<Widget> _screens = [
+  late final List<Widget> _baseScreens = [
     DashboardScreen(onNavigate: _navigateTo), // 0
     YieldScreen(onNavigate: _navigateTo), // 1
     const PriceScreen(), // 2
@@ -98,20 +109,213 @@ class _MainShellState extends State<MainShell> {
     const ChatScreen(), // 6
   ];
 
-  void _navigateTo(int index) => setState(() => _selectedIndex = index);
+  // Both roles pass the same checkAdminAccess() gate (backend's
+  // require_admin allows admin or superadmin) — the actual role from the
+  // loaded profile decides which of the two screens fills that slot.
+  List<Widget> get _screens => [
+    ..._baseScreens,
+    if (_isAdmin)
+      if (_profile?.role == 'superadmin')
+        const SuperadminDashboardScreen()
+      else
+        const AdminDashboardScreen(), // 7 — admin/superadmin only
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _checkAdminAccess();
+    _loadProfile();
+    _loadLanguagePreference();
+  }
+
+  Future<void> _loadProfile() async {
+    try {
+      final profile = await ProfileService().getProfile();
+      if (mounted) setState(() => _profile = profile);
+    } catch (e) {
+      debugPrint('Failed to load profile: $e');
+    }
+  }
+
+  // The saved language preference otherwise only takes effect once the user
+  // re-visits Account Settings and saves again in that session — apply it
+  // to the shared AppLangNotifier as soon as the app boots.
+  Future<void> _loadLanguagePreference() async {
+    try {
+      final prefs = await ProfileService().getPreferences();
+      if (!mounted) return;
+      final lang = AppLang.values.firstWhere(
+        (l) => l.name == prefs.language,
+        orElse: () => AppLang.en,
+      );
+      AppLangProvider.of(context).setLang(lang);
+    } catch (e) {
+      debugPrint('Failed to load language preference: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // A role change made by a superadmin elsewhere (e.g. promoting this same
+  // account to admin, or admin to superadmin) never reaches an already-open
+  // session on its own — checkAdminAccess()/loadProfile() only ran once, in
+  // initState(). Re-run both whenever the app comes back to the foreground,
+  // and whenever the user taps Home, so a freshly granted (or revoked, or
+  // changed-tier) role is picked up without requiring a full app restart.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkAdminAccess();
+      _loadProfile();
+    }
+  }
+
+  Future<void> _checkAdminAccess() async {
+    final isAdmin = await AdminService().checkAdminAccess();
+    if (mounted) setState(() => _isAdmin = isAdmin);
+  }
+
+  void _navigateTo(int index) {
+    setState(() => _selectedIndex = index);
+    if (index == 0) {
+      _checkAdminAccess();
+      _loadProfile();
+    }
+  }
+
+  Future<void> _showProfilePopup() async {
+    final profile = _profile;
+    if (profile == null) return;
+
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Profile',
+      barrierColor: Colors.black.withValues(alpha: 0.05),
+      transitionDuration: const Duration(milliseconds: 150),
+      pageBuilder: (dialogContext, _, _) {
+        return SafeArea(
+          child: Align(
+            alignment: Alignment.topRight,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 8, right: 12),
+              child: Material(
+                color: Colors.transparent,
+                child: ProfilePopup(
+                  profile: profile,
+                  onProfileUpdated: (updated) {
+                    if (mounted) setState(() => _profile = updated);
+                  },
+                  onOpenSettings: () {
+                    Navigator.of(dialogContext).pop();
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const AccountSettingsScreen(),
+                      ),
+                    );
+                  },
+                  onOpenChangePassword: () {
+                    Navigator.of(dialogContext).pop();
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const ChangePasswordScreen(),
+                      ),
+                    );
+                  },
+                  onLogout: () async {
+                    Navigator.of(dialogContext).pop();
+                    await SessionService.logout();
+                  },
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // Single-letter fallback shown in the app-bar avatar when there's no
+  // photo (or it fails to load) — ProfilePopup uses a bigger two-letter
+  // version of its own since its avatar is larger.
+  String get _avatarInitial {
+    final name = _profile?.name.trim() ?? '';
+    return name.isNotEmpty ? name[0].toUpperCase() : '?';
+  }
+
+  Widget _buildAppBarAvatar() {
+    final photoUrl = _profile?.photoUrl;
+    final hasPhoto = photoUrl != null && photoUrl.isNotEmpty;
+    const diameter = 36.0;
+
+    final initial = Text(
+      _avatarInitial,
+      style: const TextStyle(
+        color: Colors.white,
+        fontWeight: FontWeight.w700,
+        fontSize: 15,
+      ),
+    );
+
+    return GestureDetector(
+      onTap: _profile == null ? null : _showProfilePopup,
+      child: CircleAvatar(
+        radius: diameter / 2,
+        backgroundColor: Colors.white24,
+        // Image.network (not CircleAvatar's own backgroundImage) — same
+        // pattern as ProfilePopup._buildAvatar, since errorBuilder only
+        // exists on the Image widget, not on ImageProvider.
+        child: hasPhoto
+            ? ClipOval(
+                child: Image.network(
+                  photoUrl,
+                  width: diameter,
+                  height: diameter,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => initial,
+                ),
+              )
+            : initial,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     // Rebuild nav labels when language changes
     final lang = AppLangProvider.lang(context);
+    // Selected index may point past the Admin tab if role finishes loading
+    // after a later tab was chosen — clamp defensively.
+    final safeIndex = _selectedIndex < _screens.length ? _selectedIndex : 0;
 
     return Scaffold(
       backgroundColor: const Color(0xFFFAFFF5),
-      body: IndexedStack(index: _selectedIndex, children: _screens),
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(52),
+        child: AppBar(
+          backgroundColor: AppTheme.primary,
+          elevation: 0,
+          automaticallyImplyLeading: false,
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: _buildAppBarAvatar(),
+            ),
+          ],
+        ),
+      ),
+      body: IndexedStack(index: safeIndex, children: _screens),
       bottomNavigationBar: _CropBottomNav(
-        selectedIndex: _selectedIndex,
+        selectedIndex: safeIndex,
         onTap: _navigateTo,
         lang: lang,
+        showAdmin: _isAdmin,
       ),
     );
   }
@@ -128,11 +332,13 @@ class _CropBottomNav extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onTap;
   final AppLang lang;
+  final bool showAdmin;
 
   const _CropBottomNav({
     required this.selectedIndex,
     required this.onTap,
     required this.lang,
+    this.showAdmin = false,
   });
 
   static const _labelsEn = [
@@ -143,6 +349,7 @@ class _CropBottomNav extends StatelessWidget {
     'Crop',
     'Demand',
     'Chat',
+    'Admin',
   ];
   static const _labelsSi = [
     'මුල',
@@ -152,6 +359,7 @@ class _CropBottomNav extends StatelessWidget {
     'භෝග',
     'ඉල්ලුම',
     'AI',
+    'පරිපාලක',
   ];
   static const _labelsTa = [
     'முகப்பு',
@@ -161,6 +369,7 @@ class _CropBottomNav extends StatelessWidget {
     'பயிர்',
     'தேவை',
     'AI',
+    'நிர்வாகி',
   ];
 
   static const _activeBg = [
@@ -171,6 +380,7 @@ class _CropBottomNav extends StatelessWidget {
     Color(0xFFF3E5F5), // Crop
     Color(0xFFE8EAF6), // Demand
     Color(0xFFE0F2F1), // Chat
+    Color(0xFFFFEBEE), // Admin
   ];
 
   static const _activeColor = [
@@ -181,6 +391,7 @@ class _CropBottomNav extends StatelessWidget {
     Color(0xFF6A1B9A),
     Color(0xFF283593),
     Color(0xFF004D40),
+    Color(0xFFC62828), // Admin
   ];
 
   List<String> get _labels => switch (lang) {
@@ -192,6 +403,7 @@ class _CropBottomNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final labels = _labels;
+    final itemCount = showAdmin ? 8 : 7;
     return Container(
       decoration: const BoxDecoration(
         color: Colors.white,
@@ -209,7 +421,7 @@ class _CropBottomNav extends StatelessWidget {
         child: SizedBox(
           height: 62,
           child: Row(
-            children: List.generate(7, (i) {
+            children: List.generate(itemCount, (i) {
               final active = selectedIndex == i;
               return Expanded(
                 child: InkWell(
@@ -324,6 +536,11 @@ class _CropBottomNav extends StatelessWidget {
             '<circle cx="16.5" cy="17.5" r="1.8" fill="$c" opacity="0.7"/>'
             '<path d="M10 7L12 3L14 7" stroke="$c" stroke-width="1.6" stroke-linecap="round" fill="none"/>'
             '<line x1="12" y1="3" x2="12" y2="9" stroke="$c" stroke-width="1.6" stroke-linecap="round"/>'
+            '</svg>',
+      7 => // Admin — shield with checkmark
+        '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
+            '<path d="M12 2L20 5V11C20 16 16.5 20.5 12 22C7.5 20.5 4 16 4 11V5L12 2Z" fill="$c" opacity="0.85"/>'
+            '<path d="M8.5 12L11 14.5L16 9" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>'
             '</svg>',
       _ => // AI Chat — speech bubble + star badge
         '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'

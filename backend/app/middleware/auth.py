@@ -9,6 +9,12 @@ from starlette.requests import Request
 
 # In-memory session cache — prevents duplicate session documents per container lifetime
 _session_cache: set = set()
+# In-memory cache of uids confirmed to have a Firestore user document —
+# prevents re-reading (and, historically, re-writing photo_url on) the same
+# document on every single authenticated request. Safe to cache for the
+# container's lifetime: existence doesn't change, and role/ban status is
+# never sourced from this call (roles.py always fetches those fresh).
+_known_users: set = set()
 
 logger = logging.getLogger(__name__)
 
@@ -111,13 +117,21 @@ def _verify(token: str) -> Optional[str]:
         uid = decoded.get("uid")
         email = decoded.get("email", "")
         photo_url = decoded.get("picture", "")
-        # Create user document in Firestore if first login
-        try:
-            from app.utils.firestore import get_or_create_user
+        # Create user document in Firestore if first login. Only needs to
+        # run once per uid per container lifetime — every request after
+        # that would otherwise re-read (and potentially re-write) this
+        # document for no reason, which is what was driving Firestore 429s
+        # under sustained traffic. Role/ban status is never sourced from
+        # this call, so skipping it on repeat requests doesn't affect the
+        # freshness of those checks (see app.middleware.roles).
+        if uid not in _known_users:
+            try:
+                from app.utils.firestore import get_or_create_user
 
-            get_or_create_user(uid, email, photo_url)
-        except Exception:
-            pass  # Never block auth for Firestore failures
+                get_or_create_user(uid, email, photo_url)
+                _known_users.add(uid)
+            except Exception:
+                pass  # Never block auth for Firestore failures
         return uid
     except Exception as exc:
         logger.warning(

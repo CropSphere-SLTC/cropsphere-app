@@ -79,10 +79,17 @@ def get_or_create_user(
         ref = db.collection("users").document(uid)
         doc = ref.get()
         if doc.exists:
-            # Update photo_url if it changed (Google OAuth photo can change)
-            if photo_url:
+            data = doc.to_dict()
+            # Update photo_url only when it actually changed (Google OAuth
+            # photo can change) — this is called on every authenticated
+            # request, and the decoded token always carries a photo_url for
+            # Google sign-in, so an unconditional write here hammers this
+            # single document with a write on every request and is a real
+            # source of Firestore write-contention 429s under load.
+            if photo_url and data.get("photo_url") != photo_url:
                 ref.update({"photo_url": photo_url})
-            return doc.to_dict()
+                data["photo_url"] = photo_url
+            return data
         # Determine role — superadmin UID always gets superadmin role
         settings = get_settings()
         superadmin_uids = [u.strip() for u in settings.SUPERADMIN_UID.split(",")]

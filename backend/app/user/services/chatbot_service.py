@@ -85,7 +85,19 @@ _FORMATTING_RULES = (
     "- Conversion factors: 1 ha = 2.471 acres; 1 acre = 160 perches; "
     "1 ha = 395.37 perches.\n"
     "- Only ask which unit if the user gives a number without any unit "
-    "word."
+    "word.\n"
+    "- After answering a yield or price question, add one short sentence "
+    "offering to estimate earnings if the farmer tells you their land "
+    "size. Example: 'Want me to estimate your earnings? Just tell me "
+    "your land size in acres or perches.' Only offer this once per "
+    "topic — if you already gave an earnings estimate or the farmer "
+    "already asked about earnings, don't repeat the offer.\n"
+    "- When the farmer mentioned their location or crop earlier in the "
+    "conversation, reference it naturally in your answer. Say 'In your "
+    "area of Jaffna' or 'For your carrots in Badulla' instead of just "
+    "stating the district name. This makes the answer feel personal. "
+    "Only do this when the context is clear from conversation history — "
+    "don't assume a location the farmer never mentioned."
 )
 # Client-safe error messages for streaming failures. Technical detail
 # (status codes, exception types) is logged server-side only.
@@ -128,9 +140,10 @@ _CAPABILITY_PATTERNS = (
 # unit words that identify a bare follow-up reply to it (e.g. "perches").
 _UNIT_CLARIFICATION_PHRASE = "is that"
 _UNIT_KEYWORDS = ("acre", "hectare", "perch", "ha")
-# Max length (chars) for a reply to be treated as a bare unit answer rather
-# than a new, independent question.
-_UNIT_REPLY_MAX_LEN = 20
+# Marks the bot's earnings-offer line from _FORMATTING_RULES ("Want me to
+# estimate your earnings? Just tell me your land size...") — the other
+# trigger (besides the clarifying question above) for rebuilding a reply.
+_EARNINGS_OFFER_PHRASE = "tell me your land size"
 # Phrases that ask about every crop at once rather than one specific crop —
 # top-k retrieval only surfaces 2-3 crops for these, so the full list is
 # injected separately (see _build_messages).
@@ -198,6 +211,24 @@ _AGRICULTURAL_INTENT_PHRASES = (
     "which crop",
     "best crop",
     "recommend",
+)
+# Phrases that signal the farmer is introducing themselves/their context
+# ("I'm from Jaffna", "I'm growing groundnut in Hambantota") rather than
+# asking a question — the bot should acknowledge and wait, not run
+# retrieval/Groq on a statement with nothing to answer.
+_CONTEXT_STATEMENT_PHRASES = (
+    "i'm from",
+    "i am from",
+    "i live in",
+    "i'm growing",
+    "i am growing",
+    "i grow",
+    "i'm a farmer",
+    "i am a farmer",
+    "my farm is in",
+    "my land is in",
+    "i have land in",
+    "i have a farm in",
 )
 # Keywords used by _question_type to classify what kind of question was
 # just answered, so _smart_followups can suggest a natural next step.
@@ -302,6 +333,22 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
     logger.info(f"Using model: {groq_model} (requested: {req.model})")
 
     try:
+        # Introductory/context-setting statement ("I'm from Jaffna", "I'm
+        # growing groundnut in Hambantota") — the farmer is providing
+        # context, not asking a question. Acknowledge and prompt for a
+        # real question instead of running retrieval/Groq on a statement
+        # with nothing to answer. Runs before every other check, including
+        # the gazetteer, so naming an uncovered district here is just
+        # small talk, not a refusal.
+        if _is_context_statement(clean):
+            reply, cq_followups = _build_context_ack(clean)
+            return ChatResponse(
+                reply=reply,
+                sources_used=[],
+                suggested_followups=cq_followups,
+                confidence="High confidence",
+            )
+
         # Capability question ("what crops do you cover?") — answered from
         # our own dataset metadata. No retrieval, no Groq; deterministic and
         # always in scope. Runs after audit (so it is logged) but before
@@ -492,6 +539,22 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
         except Exception as exc:
             logger.warning("Stream persistence failed uid=%s: %s", verified_uid, exc)
             return ""
+
+    # Introductory/context-setting statement — same handling as chat(),
+    # adapted to streaming. See chat() for why this runs first.
+    if _is_context_statement(clean):
+        reply, cq_followups = _build_context_ack(clean)
+        yield {"type": "text", "content": reply}
+        conv_id = _persist(reply)
+        logger.info("[STREAM COMPLETE] conv=%s len=%d", conv_id, len(reply))
+        yield {
+            "type": "metadata",
+            "confidence": "High confidence",
+            "sources": [],
+            "suggested_followups": cq_followups,
+            "conversation_id": conv_id,
+        }
+        return
 
     # Capability question — same short-circuit as chat(); no retrieval, no
     # Groq. Runs after audit (logged) but before retrieval. It is persisted
@@ -809,15 +872,19 @@ def _system_prompt(req: ChatRequest) -> str:
 
 
 def _expand_clarifying_reply(message: str, history: list) -> str:
-    """Rebuild a bare land-unit reply into a retrieval query with real content.
+    """Rebuild a land-unit reply into a retrieval query with real content.
 
     When the bot's last turn asked the land-unit clarifying question ("Is
-    that X acres, X hectares, or X perches?" — see _system_prompt) and the
-    user replies with just the unit (e.g. "perches"), that reply alone has
-    no agricultural content and fails the RAG relevance floor, so retrieval
-    wrongly comes back empty and the grounding guard refuses it as out of
-    scope. Detect that pattern and prepend the user's preceding question so
-    retrieval has real signal to match against.
+    that X acres, X hectares, or X perches?" — see _system_prompt) or made
+    the earnings-offer ("Want me to estimate your earnings? Just tell me
+    your land size..." — see _FORMATTING_RULES), and the user's reply
+    contains a unit word — whether that's just "perches" or a longer "10
+    perches. What yield can I expect?" — the reply may still have too
+    little agricultural content on its own and fail the RAG relevance
+    floor, so retrieval wrongly comes back empty and the grounding guard
+    refuses it as out of scope. Detect that pattern and prepend the user's
+    preceding question so retrieval has real signal to match against,
+    regardless of how long the current reply is.
 
     Only the retrieval query is affected — the message audited, checked for
     capability/near-miss, and sent to Groq as the "user" turn is untouched;
@@ -829,7 +896,7 @@ def _expand_clarifying_reply(message: str, history: list) -> str:
     Outputs: rebuilt query string, or the original message unchanged when
     the clarifying-reply pattern doesn't match.
     """
-    if not history or len(message) >= _UNIT_REPLY_MAX_LEN:
+    if not history:
         return message
     msg_lower = message.lower()
     if not any(kw in msg_lower for kw in _UNIT_KEYWORDS):
@@ -839,12 +906,13 @@ def _expand_clarifying_reply(message: str, history: list) -> str:
     if last_turn.role != "assistant":
         return message
     last_lower = last_turn.content.lower()
-    if _UNIT_CLARIFICATION_PHRASE not in last_lower:
-        return message
-    if not any(kw in last_lower for kw in _UNIT_KEYWORDS):
+    if _UNIT_CLARIFICATION_PHRASE in last_lower:
+        if not any(kw in last_lower for kw in _UNIT_KEYWORDS):
+            return message
+    elif _EARNINGS_OFFER_PHRASE not in last_lower:
         return message
 
-    # The user turn the clarifying question was responding to.
+    # The user turn the clarifying question / earnings offer was responding to.
     for turn in reversed(history[:-1]):
         if turn.role == "user":
             return f"{turn.content} {message}"
@@ -1131,7 +1199,18 @@ def _rag_context(
                 continue  # refused / capability topic — skip from context
             recent_users.append(turn.content)
         recent_users = recent_users[-3:]
-        if recent_users:
+        caps = _dataset_capabilities()
+        msg_lower = message.lower()
+        has_crop = any(c.lower() in msg_lower for c in caps["crops"])
+        has_district = any(d.lower() in msg_lower for d in caps["districts"])
+        if has_crop and has_district:
+            # User named both a crop and a district explicitly — their
+            # message alone is the best retrieval query. Blending in
+            # history here is what causes "maize price in Anuradhapura"
+            # to sometimes retrieve carrot/Badulla chunks instead, when
+            # that was the previous topic.
+            q_emb = encoder.encode(message, convert_to_tensor=True)
+        elif recent_users:
             # Weighted embedding blend: the current message dominates so an
             # explicit topic switch is never hijacked by stale context, while
             # a vague follow-up still inherits district/crop signal.
@@ -1407,6 +1486,79 @@ def _refusal_followups(message: str, near: tuple | None = None) -> list:
         f"{crops[1 % len(crops)]} yield in {districts[1 % len(districts)]}",
         "What crops do you cover?",
     ]
+
+
+def _is_context_statement(message: str) -> bool:
+    """True when the message is the farmer introducing themselves or their
+    situation ("I'm from Jaffna") rather than asking a question."""
+    msg = message.lower()
+    return any(p in msg for p in _CONTEXT_STATEMENT_PHRASES)
+
+
+def _build_context_ack(message: str) -> tuple:
+    """Build a friendly acknowledgment for a context-setting statement.
+    Never calls Groq — deterministic template. Validates any crop+district
+    combination against the dataset before promising to "focus on" it, so
+    the farmer isn't misled into asking a follow-up that then gets
+    refused. Outputs: (reply text, suggested_followups).
+    """
+    caps = _dataset_capabilities()
+    msg = message.lower()
+    crop = next((c for c in caps["crops"] if c.lower() in msg), None)
+    district = next((d for d in caps["districts"] if d.lower() in msg), None)
+
+    if crop and district:
+        crop_districts = caps["crop_districts"].get(crop) or caps["districts"]
+        if district in crop_districts:
+            reply = (
+                f"Great, I'll focus on {crop} in {district}. What would "
+                "you like to know — yields, prices, or best planting "
+                "seasons?"
+            )
+            followups = [
+                f"{crop} yield in {district}",
+                f"Best season for {crop} in {district}",
+                f"{crop} price in {district}",
+            ]
+        else:
+            shown = ", ".join(crop_districts)
+            reply = (
+                f"I'll keep {district} in mind! I don't have {crop} data "
+                f"specifically for {district}, but I do have {crop} data "
+                f"for {shown}. Want to try one of those?"
+            )
+            followups = [f"{crop} yield in {d}" for d in crop_districts[:3]]
+    elif district:
+        reply = (
+            f"Got it, I'll keep {district} in mind! What would you like "
+            "to know — crop yields, prices, or best planting seasons?"
+        )
+        followups = []
+    elif crop:
+        reply = (
+            f"Noted, you're interested in {crop}. Which district are you "
+            "in? Or just ask me a question!"
+        )
+        followups = []
+    else:
+        # No covered crop/district recognized — check for an explicitly
+        # named UNCOVERED crop (e.g. "I'm growing rice") so the farmer
+        # learns that upfront instead of a generic prompt.
+        tokens = set(re.findall(r"[a-z]+", msg))
+        uncovered_crop = next((c for c in tokens if c in _UNCOVERED_CROPS), None)
+        if uncovered_crop:
+            top_crops = ", ".join(caps["crops"][:4])
+            reply = (
+                f"I don't have data on {uncovered_crop} yet. I cover "
+                f"{top_crops}. Want to know about one of those?"
+            )
+        else:
+            reply = (
+                "Thanks for sharing! Which crop and district would you "
+                "like to know about?"
+            )
+        followups = []
+    return reply, followups
 
 
 def _is_capability_question(message: str) -> bool:

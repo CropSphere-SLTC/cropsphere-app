@@ -17,11 +17,20 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   static const double _wideBreakpoint = 900;
-  static const _defaultFollowups = [
-    'What should I plant this Maha season?',
-    'What is the expected yield for Carrot?',
-    'Which district has best prices?',
+  static const _onboardingFollowups = [
+    'What crops do you cover?',
+    'Carrot yield in Badulla',
+    'Best season for maize in Anuradhapura',
   ];
+  static const _welcomeMessage =
+      "Welcome to CropSphere! I'm your agricultural assistant for "
+      "Sri Lankan farming. I can help you with:\n\n"
+      "- Crop yields (how much you can harvest)\n"
+      "- Market prices (selling price at the farm)\n"
+      "- Best planting seasons\n"
+      "- Earnings estimates for your land\n\n"
+      "Just type your question, or tap one of the suggestions below "
+      "to get started!";
 
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final TextEditingController _controller = TextEditingController();
@@ -50,7 +59,7 @@ class _ChatScreenState extends State<ChatScreen> {
   String? _conversationId; // null = new chat
   List<ConversationSummary> _conversations = [];
   bool _conversationsLoading = false;
-  List<String> _suggestedFollowups = List.of(_defaultFollowups);
+  List<String> _suggestedFollowups = [];
   String? _selectedDistrict;
   String? _selectedCrop;
   String _selectedModel = 'accurate';
@@ -77,7 +86,23 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    _addWelcomeMessage();
     if (!AppConfig.useMockServices) _loadConversations();
+  }
+
+  /// Shows the onboarding welcome bubble + starter chips for a brand-new,
+  /// empty conversation. Purely frontend decoration: added to
+  /// _displayMessages only, never to _history, so _buildValidHistory()
+  /// (which reads from _history) never includes it — it's never sent to
+  /// the backend or persisted.
+  void _addWelcomeMessage() {
+    _displayMessages.add({
+      'role': 'assistant',
+      'content': _welcomeMessage,
+      'confidence': 'High confidence',
+      'sources': <String>[],
+    });
+    _suggestedFollowups = List.of(_onboardingFollowups);
   }
 
   Future<void> _loadConversations() async {
@@ -134,7 +159,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _conversationId = null;
       _displayMessages.clear();
       _history.clear();
-      _suggestedFollowups = List.of(_defaultFollowups);
+      _addWelcomeMessage();
     });
   }
 

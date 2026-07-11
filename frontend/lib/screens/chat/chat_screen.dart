@@ -17,20 +17,17 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   static const double _wideBreakpoint = 900;
+  static const _logoAsset = 'assets/images/cropsphere_logo.png';
   static const _onboardingFollowups = [
-    'What crops do you cover?',
     'Carrot yield in Badulla',
     'Best season for maize in Anuradhapura',
+    'What crops do you cover?',
   ];
-  static const _welcomeMessage =
-      "Welcome to CropSphere! I'm your agricultural assistant for "
-      "Sri Lankan farming. I can help you with:\n\n"
-      "- Crop yields (how much you can harvest)\n"
-      "- Market prices (selling price at the farm)\n"
-      "- Best planting seasons\n"
-      "- Earnings estimates for your land\n\n"
-      "Just type your question, or tap one of the suggestions below "
-      "to get started!";
+  static const _starterIcons = [
+    Icons.grass,
+    Icons.calendar_month,
+    Icons.list_alt,
+  ];
 
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final TextEditingController _controller = TextEditingController();
@@ -86,23 +83,7 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
-    _addWelcomeMessage();
     if (!AppConfig.useMockServices) _loadConversations();
-  }
-
-  /// Shows the onboarding welcome bubble + starter chips for a brand-new,
-  /// empty conversation. Purely frontend decoration: added to
-  /// _displayMessages only, never to _history, so _buildValidHistory()
-  /// (which reads from _history) never includes it — it's never sent to
-  /// the backend or persisted.
-  void _addWelcomeMessage() {
-    _displayMessages.add({
-      'role': 'assistant',
-      'content': _welcomeMessage,
-      'confidence': 'High confidence',
-      'sources': <String>[],
-    });
-    _suggestedFollowups = List.of(_onboardingFollowups);
   }
 
   Future<void> _loadConversations() async {
@@ -159,7 +140,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _conversationId = null;
       _displayMessages.clear();
       _history.clear();
-      _addWelcomeMessage();
+      _suggestedFollowups = [];
     });
   }
 
@@ -661,7 +642,7 @@ class _ChatScreenState extends State<ChatScreen> {
               padding: EdgeInsets.zero,
               onPressed: () => _scaffoldKey.currentState?.openDrawer(),
             ),
-          const Icon(Icons.chat, color: Colors.white, size: 28),
+          _logo(28),
           const SizedBox(width: 12),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -839,24 +820,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _buildMessageList() {
     if (_displayMessages.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.chat_bubble_outline, size: 64, color: Colors.grey[300]),
-            const SizedBox(height: 16),
-            Text(
-              'Ask me anything about Sri Lanka agriculture',
-              style: TextStyle(color: Colors.grey[500], fontSize: 15),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Yield • Prices • Weather • Crop recommendations',
-              style: TextStyle(color: Colors.grey[400], fontSize: 12),
-            ),
-          ],
-        ),
-      );
+      return _buildEmptyState();
     }
     return ListView.builder(
       controller: _scrollController,
@@ -867,6 +831,102 @@ class _ChatScreenState extends State<ChatScreen> {
         final msg = _displayMessages[i];
         return _buildMessageBubble(msg);
       },
+    );
+  }
+
+  /// CropSphere logo, used at every size across the screen (header, bot
+  /// avatar, empty-state badge). ClipOval trims the source PNG's thin
+  /// square margin around the circle so no white corner/edge shows once
+  /// it's placed on a non-white background (e.g. the header gradient).
+  Widget _logo(double size) {
+    return ClipOval(
+      child: Image.asset(
+        _logoAsset,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+      ),
+    );
+  }
+
+  /// Modern centered empty state shown when a conversation has no messages
+  /// yet (fresh launch or "New Chat") — replaces the old placeholder text
+  /// and welcome bubble. Tapping a starter card sends it exactly like a
+  /// followup chip tap; the bottom chip row stays hidden the whole time
+  /// since _suggestedFollowups is empty until a real response arrives.
+  Widget _buildEmptyState() {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 600),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(vertical: 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _logo(72),
+              const SizedBox(height: 16),
+              Text(
+                'CropSphere',
+                style: TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.primary,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Text(
+                  'Ask about crops, yields, and prices for Sri Lankan '
+                  'agriculture',
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                ),
+              ),
+              const SizedBox(height: 24),
+              for (var i = 0; i < _onboardingFollowups.length; i++) ...[
+                _buildStarterCard(_starterIcons[i], _onboardingFollowups[i]),
+                if (i < _onboardingFollowups.length - 1)
+                  const SizedBox(height: 9),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStarterCard(IconData icon, String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: GestureDetector(
+        onTap: () => _sendMessage(text),
+        child: Container(
+          width: double.infinity,
+          height: 48,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey[200]!),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, size: 20, color: AppTheme.primary),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  text,
+                  style: const TextStyle(fontSize: 14, color: Colors.black87),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -912,14 +972,7 @@ class _ChatScreenState extends State<ChatScreen> {
             : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (!isUser) ...[
-            CircleAvatar(
-              backgroundColor: const Color(0xFF37474F),
-              radius: 16,
-              child: const Icon(Icons.eco, color: Colors.white, size: 16),
-            ),
-            const SizedBox(width: 8),
-          ],
+          if (!isUser) ...[_logo(32), const SizedBox(width: 8)],
           Flexible(
             child: Container(
               padding: const EdgeInsets.all(12),
@@ -1142,11 +1195,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget _buildTypingIndicator() {
     return Row(
       children: [
-        CircleAvatar(
-          backgroundColor: const Color(0xFF37474F),
-          radius: 16,
-          child: const Icon(Icons.eco, color: Colors.white, size: 16),
-        ),
+        _logo(32),
         const SizedBox(width: 8),
         Container(
           padding: const EdgeInsets.all(12),

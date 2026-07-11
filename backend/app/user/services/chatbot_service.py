@@ -55,6 +55,38 @@ _OUT_OF_SCOPE_REPLY = (
 # _system_prompt() — the model is told to emit exactly that text when the
 # provided context can't answer the question.
 _OUT_OF_SCOPE_MARKER = "I don't have relevant agricultural data"
+# Substring that identifies a clarifying-question reply (see
+# _build_clarification). Used only for loop prevention — never ask a
+# clarifying question right after asking one. NOT added to
+# _NON_TOPIC_SIGNATURES: a clarification isn't a refusal, so the user's
+# original vague question must stay eligible as retrieval context.
+_CLARIFICATION_MARKER = "Could you tell me which crop and district"
+# Style/formatting rules, injected as their own system message by
+# _build_messages() (after the RAG context, before history) rather than
+# folded into _system_prompt(). Kept as a module-level constant — built
+# once, not rebuilt per request — and separate from the safety-critical
+# rules in _system_prompt() so the LLM is less likely to skip either set.
+_FORMATTING_RULES = (
+    "FORMATTING RULES:\n"
+    "- Use simple language a farmer would understand. Say 'selling price "
+    "at the farm' not 'farmgate price'. Say 'amount you can harvest' not "
+    "'yield per hectare'. When you must use a technical term, explain it "
+    "in parentheses the first time.\n"
+    "- For multiple data points, use a dash (-) list. For single points, "
+    "use a normal sentence.\n"
+    "- Use thousands separators (20,169 not 20169).\n"
+    "- When the user specifies their land unit (e.g. 'I have 2 acres'), "
+    "answer using ONLY that unit. Do not show hectares or perches — the "
+    "farmer told you what they use.\n"
+    "- When the user asks a general question WITHOUT mentioning a land "
+    "size (e.g. 'what is the yield for carrots in Badulla'), show all "
+    "three units: kg/ha, kg/acre, kg/perch. Format: '20,169 kg/ha "
+    "(8,162 kg/acre; 51 kg/perch)'.\n"
+    "- Conversion factors: 1 ha = 2.471 acres; 1 acre = 160 perches; "
+    "1 ha = 395.37 perches.\n"
+    "- Only ask which unit if the user gives a number without any unit "
+    "word."
+)
 # Client-safe error messages for streaming failures. Technical detail
 # (status codes, exception types) is logged server-side only.
 _STREAM_ERROR_MESSAGES = {
@@ -91,6 +123,90 @@ _CAPABILITY_PATTERNS = (
     "what can you help",
     "what do you cover",
 )
+# Phrases that identify the bot's own clarifying question about land units
+# ("Is that X acres, X hectares, or X perches?" — see _system_prompt) and the
+# unit words that identify a bare follow-up reply to it (e.g. "perches").
+_UNIT_CLARIFICATION_PHRASE = "is that"
+_UNIT_KEYWORDS = ("acre", "hectare", "perch", "ha")
+# Max length (chars) for a reply to be treated as a bare unit answer rather
+# than a new, independent question.
+_UNIT_REPLY_MAX_LEN = 20
+# Phrases that ask about every crop at once rather than one specific crop —
+# top-k retrieval only surfaces 2-3 crops for these, so the full list is
+# injected separately (see _build_messages).
+_ALL_CROPS_PATTERNS = ("all crops", "every crop", "all the crops")
+# Combo patterns: verb + any qualifier — requires BOTH so a real question
+# like "explain carrot yield" (has agricultural content) doesn't match.
+_REFORMULATION_PATTERNS = (
+    ("show", ("simply", "simpler", "simple")),
+    ("explain", ("again", "clearly", "better", "more")),
+)
+# Standalone phrases that always mean "rephrase/simplify the previous
+# answer", regardless of what else is in the message.
+_REFORMULATION_PHRASES = (
+    "rephrase",
+    "reword",
+    "say it again",
+    "not clear",
+    "don't understand",
+    "confused",
+    "what do you mean",
+    "what does that mean",
+    "can you simplify",
+    "make it simpler",
+    "in simple words",
+    "in easy words",
+    "show me the math",
+    "show the math",
+    "show the calculation",
+    "how did you calculate",
+    "what's the formula",
+    "break it down",
+    "step by step",
+)
+# Subset of the phrases above that specifically ask for calculation
+# steps rather than a simpler rewrite — used by _reformulation_type to
+# pick which instruction _build_reformulation_messages sends to Groq.
+_MATH_REFORMULATION_PHRASES = (
+    "show me the math",
+    "show the math",
+    "show the calculation",
+    "how did you calculate",
+    "what's the formula",
+    "break it down",
+    "step by step",
+)
+# Words/phrases that signal a farming-related question even without a
+# named crop or district — distinguishes "how much can I earn?" (worth a
+# clarifying question) from an unrelated query that also scored low
+# (weather on Mars, a joke — still refused as out of scope).
+_AGRICULTURAL_INTENT_PHRASES = (
+    "earn",
+    "income",
+    "money",
+    "profit",
+    "revenue",
+    "plant",
+    "grow",
+    "cultivate",
+    "harvest",
+    "yield",
+    "crop",
+    "season",
+    "price",
+    "cost",
+    "which crop",
+    "best crop",
+    "recommend",
+)
+# Keywords used by _question_type to classify what kind of question was
+# just answered, so _smart_followups can suggest a natural next step.
+# "earn"/"money" are their own bucket, not folded into price, so the
+# EARNINGS follow-up set below is actually reachable.
+_YIELD_TYPE_KEYWORDS = ("yield", "harvest", "grow")
+_EARNINGS_TYPE_KEYWORDS = ("earn", "money")
+_PRICE_TYPE_KEYWORDS = ("price", "cost", "sell")
+_SEASON_TYPE_KEYWORDS = ("season", "plant", "when")
 _capabilities_cache: dict | None = None
 # Common Sri Lankan crops/districts NOT in our dataset. Lets a near-miss be
 # caught proactively even when retrieval finds semantically-similar covered
@@ -172,6 +288,12 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
 
     _safe_audit(req.user_id, clean)
 
+    # Bare land-unit reply to the bot's own clarifying question (e.g. the
+    # user just replies "perches") — rebuilt into a real query for retrieval
+    # only, before any capability/gazetteer check or retrieval itself runs.
+    # See _expand_clarifying_reply for why this is needed.
+    retrieval_query = _expand_clarifying_reply(clean, req.conversation_history)
+
     # ── Language detection ──────────────────────────────────────────────────
     # If user specified language explicitly, use it; otherwise auto-detect
 
@@ -206,16 +328,62 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
                 confidence="Out of scope",
             )
 
+        # Reformulation request ("show them simply", "explain that again")
+        # — rewrite the previous answer instead of running retrieval. These
+        # carry no agricultural keywords, so retrieval would otherwise come
+        # back empty and get wrongly refused as out of scope.
+        if _is_reformulation_request(clean):
+            previous_reply = _last_assistant_reply(req.conversation_history)
+            if previous_reply:
+                from groq import Groq  # type: ignore
+
+                client = Groq(api_key=settings.GROQ_API_KEY)
+                messages = _build_reformulation_messages(
+                    _system_prompt(req), previous_reply, req, clean
+                )
+                response = client.chat.completions.create(
+                    model=groq_model,
+                    messages=messages,
+                    max_tokens=512,
+                    temperature=0.7,
+                )
+                return ChatResponse(
+                    reply=response.choices[0].message.content,
+                    sources_used=[],
+                    suggested_followups=_default_followups(req),
+                    confidence="Moderate confidence",
+                )
+            # No previous assistant turn to reformulate — fall through to
+            # the normal retrieval path below.
+
         # RAG retrieval always uses English-normalised query for best results.
         # The UI's optional district/crop filters boost matching chunks in
         # the ranking (never in the relevance floor or confidence label).
         context = _rag_context(
-            clean,
+            retrieval_query,
             district=req.district.value if req.district else "",
             crop=req.crop.value if req.crop else "",
             history=req.conversation_history,
         )
         confidence = _confidence_label(context)
+
+        # Vague-but-agricultural query ("how much can I earn?") — ask a
+        # clarifying question instead of refusing as out of scope. Runs
+        # BEFORE the grounding guard so a real, answerable question never
+        # hits the flat refusal below just because it named no crop or
+        # district. Non-agricultural queries (Mars, jokes) still fall
+        # through to that refusal, since _has_agricultural_intent is False
+        # for those.
+        if _is_vague_agricultural_query(clean, context, req.conversation_history):
+            reply, cq_followups = _build_clarification(
+                clean, context, req.conversation_history
+            )
+            return ChatResponse(
+                reply=reply,
+                sources_used=[],
+                suggested_followups=cq_followups,
+                confidence="Moderate confidence",
+            )
 
         # Grounding guard (primary defence): if nothing in our agricultural
         # dataset matched above the relevance floor, refuse deterministically
@@ -228,6 +396,22 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
                 sources_used=[],
                 suggested_followups=_refusal_followups(clean),
                 confidence=confidence,
+            )
+
+        # Ambiguous query: retrieval found something, but it's a weak,
+        # multi-topic match and the user never named a crop/district — ask
+        # a clarifying question instead of guessing. Deterministic
+        # template; never calls Groq; not a refusal (doesn't set "Out of
+        # scope" and stays eligible as retrieval context on the next turn).
+        if _is_ambiguous_query(clean, context, req.conversation_history):
+            reply, cq_followups = _build_clarification(
+                clean, context, req.conversation_history
+            )
+            return ChatResponse(
+                reply=reply,
+                sources_used=[],
+                suggested_followups=cq_followups,
+                confidence="Moderate confidence",
             )
 
         from groq import Groq  # type: ignore
@@ -259,7 +443,7 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
         return ChatResponse(
             reply=reply,
             sources_used=context["sources"],
-            suggested_followups=_followups(req),
+            suggested_followups=_smart_followups(context, clean, req),
             confidence=confidence,
         )
     except Exception as exc:
@@ -292,6 +476,10 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
     clean = _strip_html(req.message)[:_MAX_LEN]
     _safe_audit(req.user_id, clean)
     groq_model = _GROQ_MODELS.get(req.model, _GROQ_MODELS["accurate"])
+
+    # Bare land-unit reply to the bot's own clarifying question — rebuilt
+    # into a real query for retrieval only. See _expand_clarifying_reply.
+    retrieval_query = _expand_clarifying_reply(clean, req.conversation_history)
 
     def _persist(full_reply: str) -> str:
         """Save the completed turn; failure logs but never breaks the stream."""
@@ -339,14 +527,76 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
         }
         return
 
+    # Reformulation request — same rewrite-the-previous-answer handling as
+    # chat(), adapted to streaming. See chat() for why this exists.
+    if _is_reformulation_request(clean):
+        previous_reply = _last_assistant_reply(req.conversation_history)
+        if previous_reply:
+            reform_parts: list = []
+            try:
+                from groq import Groq  # type: ignore
+
+                client = Groq(api_key=settings.GROQ_API_KEY)
+                messages = _build_reformulation_messages(
+                    _system_prompt(req), previous_reply, req, clean
+                )
+                stream = client.chat.completions.create(
+                    model=groq_model,
+                    messages=messages,
+                    max_tokens=512,
+                    temperature=0.7,
+                    stream=True,
+                )
+                for chunk in stream:
+                    delta = chunk.choices[0].delta.content if chunk.choices else None
+                    if delta:
+                        reform_parts.append(delta)
+                        yield {"type": "text", "content": delta}
+            except Exception as exc:
+                code = _stream_error_code(exc, has_partial=bool(reform_parts))
+                logger.error(
+                    "Chat stream error user=%s code=%s: %s",
+                    req.user_id,
+                    code,
+                    type(exc).__name__,
+                )
+                yield {
+                    "type": "error",
+                    "code": code,
+                    "message": _STREAM_ERROR_MESSAGES[code],
+                }
+                return
+
+            full = "".join(reform_parts)
+            if not full.strip():
+                yield {
+                    "type": "error",
+                    "code": "empty_response",
+                    "message": _STREAM_ERROR_MESSAGES["empty_response"],
+                }
+                return
+
+            conv_id = _persist(full)
+            logger.info("[STREAM COMPLETE] conv=%s len=%d", conv_id, len(full))
+            yield {
+                "type": "metadata",
+                "confidence": "Moderate confidence",
+                "sources": [],
+                "suggested_followups": _default_followups(req),
+                "conversation_id": conv_id,
+            }
+            return
+        # No previous assistant turn to reformulate — fall through to the
+        # normal retrieval path below.
+
     context = _rag_context(
-        clean,
+        retrieval_query,
         district=req.district.value if req.district else "",
         crop=req.crop.value if req.crop else "",
         history=req.conversation_history,
     )
     confidence = _confidence_label(context)
-    followups = _followups(req)
+    followups = _smart_followups(context, clean, req)
 
     def _metadata(conv_id: str) -> dict:
         return {
@@ -357,6 +607,21 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
             "conversation_id": conv_id,
         }
 
+    # Vague-but-agricultural query — same clarifying-question handling as
+    # chat(), adapted to streaming, runs before the grounding guard. See
+    # chat() for why this exists.
+    if _is_vague_agricultural_query(clean, context, req.conversation_history):
+        reply, cq_followups = _build_clarification(
+            clean, context, req.conversation_history
+        )
+        followups = cq_followups
+        yield {"type": "text", "content": reply}
+        conv_id = _persist(reply)
+        logger.info("[STREAM COMPLETE] conv=%s len=%d", conv_id, len(reply))
+        confidence = "Moderate confidence"
+        yield _metadata(conv_id)
+        return
+
     # Grounding guard — same friendly, dataset-aware refusal as chat(), no
     # Groq call. Reassigning followups here is picked up by the _metadata
     # closure below.
@@ -366,6 +631,20 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
         yield {"type": "text", "content": reply}
         conv_id = _persist(reply)
         logger.info("[STREAM COMPLETE] conv=%s len=%d", conv_id, len(reply))
+        yield _metadata(conv_id)
+        return
+
+    # Ambiguous query — same clarifying-question handling as chat(),
+    # adapted to streaming. See chat() for why this exists.
+    if _is_ambiguous_query(clean, context, req.conversation_history):
+        reply, cq_followups = _build_clarification(
+            clean, context, req.conversation_history
+        )
+        followups = cq_followups
+        yield {"type": "text", "content": reply}
+        conv_id = _persist(reply)
+        logger.info("[STREAM COMPLETE] conv=%s len=%d", conv_id, len(reply))
+        confidence = "Moderate confidence"
         yield _metadata(conv_id)
         return
 
@@ -496,35 +775,293 @@ def _strip_html(text: str) -> str:
 
 
 def _system_prompt(req: ChatRequest) -> str:
-    """Build system prompt with language instruction injected."""
+    """Build the core system prompt: identity, grounding, refusal, reasoning,
+    ambiguity-priority, and no-calculations rules. Kept short and numbered so
+    the LLM doesn't skip rules buried mid-paragraph. Style/formatting rules
+    live separately in _FORMATTING_RULES, injected by _build_messages()."""
     district = f" The farmer is in {req.district.value}." if req.district else ""
     crop = f" They are asking about {req.crop.value}." if req.crop else ""
 
-    # Get language-specific instruction
-
-    base = (
+    return (
         "You are CropSphere, an agricultural assistant for Sri Lankan farmers."
-        f"{district}{crop} "
-        "You must answer ONLY using the information in the 'Relevant context' "
-        "provided to you. Do not use your own general knowledge, and do not "
-        "guess. "
-        "When multiple data sources are provided and the user's question is "
-        "ambiguous, prioritize data from the district and crop discussed most "
-        "recently in the conversation history. However, if the user "
-        "explicitly references an earlier topic (e.g. 'go back to the "
+        f"{district}{crop}\n\n"
+        "RULES (in priority order):\n"
+        "1. Answer ONLY from the 'Relevant context' provided. Never use "
+        "general knowledge. Never guess.\n"
+        f'2. If no context is provided, reply with exactly: "{_OUT_OF_SCOPE_REPLY}"\n'
+        "3. Start every answer with one short sentence: 'Reasoning: ' that "
+        "names the SPECIFIC data you used (e.g. the source document, "
+        'district, season, or crop) — never vague phrases like "based on '
+        'similar regions". Then give your final answer on a new line.\n'
+        "4. When multiple sources are provided and the question is "
+        "ambiguous, prioritize the most recently discussed topic. If the "
+        "user references an earlier topic explicitly (e.g. 'go back to the "
         "Badulla question', 'about the carrots we discussed first'), use "
-        "that referenced topic instead of the most recent one. "
-        "If no 'Relevant context' is provided, reply with exactly: "
-        f'"{_OUT_OF_SCOPE_REPLY}" '
-        "When you do have relevant context, first write one short sentence "
-        "starting with 'Reasoning: ' that names the SPECIFIC data you used "
-        "(e.g. the source document, district, season, or crop) — never vague "
-        'phrases like "based on similar regions". Then give your final answer '
-        "on a new line."
+        "that referenced topic instead.\n"
+        "5. Show ONLY the final result the farmer needs — never show "
+        "intermediate steps, conversion math, per-hectare breakdowns, or "
+        "formulas. This especially applies to earnings calculations: say "
+        "'You can earn around 522,368 LKR per acre' NOT '8,162 kg/acre * "
+        "64 LKR/kg = 522,368 LKR/acre'. Only show calculation steps if "
+        "the user explicitly asks with words like 'how', 'calculate', "
+        "'show me the math', or 'explain the calculation'."
     )
 
-    # Append language instruction — this is the key feature
-    return base
+
+def _expand_clarifying_reply(message: str, history: list) -> str:
+    """Rebuild a bare land-unit reply into a retrieval query with real content.
+
+    When the bot's last turn asked the land-unit clarifying question ("Is
+    that X acres, X hectares, or X perches?" — see _system_prompt) and the
+    user replies with just the unit (e.g. "perches"), that reply alone has
+    no agricultural content and fails the RAG relevance floor, so retrieval
+    wrongly comes back empty and the grounding guard refuses it as out of
+    scope. Detect that pattern and prepend the user's preceding question so
+    retrieval has real signal to match against.
+
+    Only the retrieval query is affected — the message audited, checked for
+    capability/near-miss, and sent to Groq as the "user" turn is untouched;
+    Groq already sees the full conversation history so it doesn't need the
+    rebuilt text.
+
+    Inputs: message (sanitised current user text); history (full
+    ConversationTurn list from the request, most recent turn last).
+    Outputs: rebuilt query string, or the original message unchanged when
+    the clarifying-reply pattern doesn't match.
+    """
+    if not history or len(message) >= _UNIT_REPLY_MAX_LEN:
+        return message
+    msg_lower = message.lower()
+    if not any(kw in msg_lower for kw in _UNIT_KEYWORDS):
+        return message
+
+    last_turn = history[-1]
+    if last_turn.role != "assistant":
+        return message
+    last_lower = last_turn.content.lower()
+    if _UNIT_CLARIFICATION_PHRASE not in last_lower:
+        return message
+    if not any(kw in last_lower for kw in _UNIT_KEYWORDS):
+        return message
+
+    # The user turn the clarifying question was responding to.
+    for turn in reversed(history[:-1]):
+        if turn.role == "user":
+            return f"{turn.content} {message}"
+    return message
+
+
+def _is_reformulation_request(message: str) -> bool:
+    """True when the message asks the bot to rephrase, simplify, or
+    re-explain its PREVIOUS answer — not a new agricultural question.
+    Combo patterns (e.g. "explain" + "again") require both words so a real
+    question like "explain carrot yield" is never caught here.
+    """
+    msg = message.lower()
+    if any(p in msg for p in _REFORMULATION_PHRASES):
+        return True
+    for verb, qualifiers in _REFORMULATION_PATTERNS:
+        if verb in msg and any(q in msg for q in qualifiers):
+            return True
+    return False
+
+
+def _reformulation_type(message: str) -> str:
+    """Which kind of reformulation this is — "math" (show the calculation
+    steps) or "simplify" (rewrite in simpler terms). Only meaningful when
+    _is_reformulation_request(message) is already True.
+    """
+    msg = message.lower()
+    if any(p in msg for p in _MATH_REFORMULATION_PHRASES):
+        return "math"
+    return "simplify"
+
+
+def _last_assistant_reply(history: list) -> str | None:
+    """Most recent assistant turn in the conversation, or None."""
+    for turn in reversed(history or []):
+        if turn.role == "assistant":
+            return turn.content
+    return None
+
+
+def _is_previous_clarification(history: list | None) -> bool:
+    """True when the bot's last turn was itself a clarifying question —
+    prevents asking twice in a row."""
+    if not history:
+        return False
+    last = history[-1]
+    return last.role == "assistant" and _CLARIFICATION_MARKER in last.content
+
+
+def _recent_topic(message: str, history: list | None, caps: dict) -> tuple | None:
+    """Most recent (crop, district) pair the user discussed, from the last
+    user message whose reply was NOT a refusal/capability summary — mirrors
+    the recency filter _rag_context uses for its own context blend.
+    """
+    turns = history or []
+    for i in range(len(turns) - 1, -1, -1):
+        turn = turns[i]
+        if turn.role != "user":
+            continue
+        next_turn = turns[i + 1] if i + 1 < len(turns) else None
+        if next_turn and _is_non_topic_reply(next_turn.content):
+            continue
+        msg = turn.content.lower()
+        crop = next((c for c in caps["crops"] if c.lower() in msg), None)
+        district = next((d for d in caps["districts"] if d.lower() in msg), None)
+        if crop and district:
+            return (crop, district)
+    return None
+
+
+def _chunk_topics(context: dict) -> list:
+    """Distinct (crop, district) pairs from the retrieved chunks, in
+    ranked order, deduplicated."""
+    seen: list = []
+    for ch in context["chunks"]:
+        crop, district = ch.get("crop"), ch.get("district")
+        if crop and district and (crop, district) not in seen:
+            seen.append((crop, district))
+    return seen
+
+
+def _has_agricultural_intent(message: str) -> bool:
+    """True when the message is clearly about farming (earnings, planting,
+    yields, crop choice, etc.) even without naming a specific crop or
+    district — as opposed to an unrelated question (weather on Mars, a
+    joke) that just happens to also score low on retrieval.
+    """
+    msg = message.lower()
+    return any(p in msg for p in _AGRICULTURAL_INTENT_PHRASES)
+
+
+def _is_vague_agricultural_query(
+    message: str, context: dict, history: list | None
+) -> bool:
+    """True when a clearly-agricultural question can't be pinned to a
+    crop/district by retrieval — either nothing passed the relevance floor
+    at all, or what did is a weak, multi-topic match. Runs BEFORE the
+    grounding guard, so a real question like "how much can I earn?" gets a
+    clarifying question instead of a flat refusal.
+
+    Gated on _has_agricultural_intent (as is _is_ambiguous_query below,
+    for the same reason): a non-agricultural query that also scores low
+    (Mars, a joke) must still fall through to the grounding guard's
+    refusal. When chunks DO exist, this duplicates _is_ambiguous_query's
+    weak-multitopic condition — not dead code, since this check runs
+    BEFORE the grounding guard while _is_ambiguous_query is the catch-all
+    that runs after it.
+    """
+    if not _has_agricultural_intent(message):
+        return False
+    if _is_all_crops_query(message) or _is_previous_clarification(history):
+        return False
+    caps = _dataset_capabilities()
+    msg = message.lower()
+    if any(c.lower() in msg for c in caps["crops"]):
+        return False
+    if any(d.lower() in msg for d in caps["districts"]):
+        return False
+    if not context["chunks"]:
+        # Even with agricultural wording, a near-zero score means the
+        # query has essentially no connection to the dataset at all — let
+        # it fall through to the grounding guard's refusal instead of
+        # offering a clarification for something unanswerable regardless
+        # of which crop/district the user picks.
+        return context["score"] >= 0.15
+    if not (_MIN_RELEVANCE <= context["score"] < 0.5):
+        return False
+    crops = {ch.get("crop") for ch in context["chunks"] if ch.get("crop")}
+    districts = {ch.get("district") for ch in context["chunks"] if ch.get("district")}
+    return len(crops) > 1 or len(districts) > 1
+
+
+def _is_ambiguous_query(message: str, context: dict, history: list | None) -> bool:
+    """True when the query is too vague to answer confidently: no crop or
+    district named, a weak retrieval match, AND that weak match itself
+    spans multiple crops/districts — the system genuinely can't tell which
+    one the user means. A named crop/district, a clear single topic despite
+    a low score, an "all crops" query, a reply to a clarification just
+    asked, or a query with zero agricultural intent (e.g. "weather on
+    Mars" weakly matching unrelated chunks by embedding similarity alone)
+    are never treated as ambiguous.
+    """
+    if not context["chunks"]:
+        return False
+    if not _has_agricultural_intent(message):
+        return False
+    if _is_all_crops_query(message) or _is_previous_clarification(history):
+        return False
+    caps = _dataset_capabilities()
+    msg = message.lower()
+    if any(c.lower() in msg for c in caps["crops"]):
+        return False
+    if any(d.lower() in msg for d in caps["districts"]):
+        return False
+    if not (_MIN_RELEVANCE <= context["score"] < 0.5):
+        return False
+    crops = {ch.get("crop") for ch in context["chunks"] if ch.get("crop")}
+    districts = {ch.get("district") for ch in context["chunks"] if ch.get("district")}
+    return len(crops) > 1 or len(districts) > 1
+
+
+def _default_topic_suggestions(caps: dict, exclude: tuple | None = None) -> list:
+    """Fallback (crop, district) suggestions built from the dataset's own
+    metadata (one district per crop), used when there are no retrieved
+    chunks to derive options from — e.g. a vague agricultural question
+    ("how much can I earn?") that scored below the relevance floor."""
+    options: list = []
+    for crop in caps["crops"]:
+        districts = caps["crop_districts"].get(crop) or caps["districts"]
+        if not districts:
+            continue
+        pair = (crop, districts[0])
+        if pair != exclude and pair not in options:
+            options.append(pair)
+        if len(options) >= 3:
+            break
+    return options
+
+
+def _build_clarification(message: str, context: dict, history: list | None) -> tuple:
+    """Build a friendly clarifying question plus tappable options, when
+    _is_ambiguous_query or _is_vague_agricultural_query is True. Never
+    calls Groq — deterministic template.
+    Outputs: (reply text, suggested_followups — "{crop} in {district}"
+    strings, the same options named in the reply, max 3).
+    """
+    caps = _dataset_capabilities()
+    recent = _recent_topic(message, history, caps)
+    options: list = []
+    if recent:
+        options.append(recent)
+    chunk_topics = _chunk_topics(context)
+    for pair in chunk_topics:
+        if len(options) >= 3:
+            break
+        if pair not in options:
+            options.append(pair)
+    # No chunks to derive options from (the vague-agricultural, no-match
+    # case) — fall back to generic suggestions from the dataset itself.
+    if not chunk_topics:
+        for pair in _default_topic_suggestions(caps, exclude=recent):
+            if len(options) >= 3:
+                break
+            if pair not in options:
+                options.append(pair)
+
+    lines = [
+        "I'd like to give you the most accurate answer. Could you tell me "
+        "which crop and district you're asking about?"
+    ]
+    followups = []
+    for crop, district in options:
+        suffix = " (from your earlier question)" if (crop, district) == recent else ""
+        lines.append(f"- {crop} in {district}{suffix}")
+        followups.append(f"{crop} in {district}")
+    lines.append("- Or tell me a different crop and district")
+    return "\n".join(lines), followups
 
 
 def _rag_context(
@@ -553,6 +1090,10 @@ def _rag_context(
       "sources": ordered unique source labels of returned chunks
       "score":   highest RAW score among returned chunks (best-match score
                  overall when nothing passes — for logging/diagnostics)
+    Chunk dicts also carry "crop" and "district" (None when the metadata
+    slot is empty or the "all" placeholder) — used by _is_ambiguous_query
+    and _build_clarification to detect and resolve vague queries; not
+    used anywhere in scoring or filtering.
     Security assumption: district/crop are enum values validated by Pydantic.
     """
     empty = {"chunks": [], "sources": [], "score": 0.0}
@@ -636,7 +1177,19 @@ def _rag_context(
         sources: list = []
         for _boosted, raw, i, meta in top:
             source = meta.get("source") or _source_label(meta)
-            out.append({"text": chunks[i], "source": source, "score": raw})
+            crop = meta.get("crop")
+            district = meta.get("district")
+            out.append(
+                {
+                    "text": chunks[i],
+                    "source": source,
+                    "score": raw,
+                    "crop": crop if crop and crop.lower() != "all" else None,
+                    "district": (
+                        district if district and district.lower() != "all" else None
+                    ),
+                }
+            )
             if source not in sources:
                 sources.append(source)
         top_raw = max(c["score"] for c in out)
@@ -916,6 +1469,13 @@ def _confidence_label(context: dict) -> str:
     return "Low confidence — please verify with an agricultural officer"
 
 
+def _is_all_crops_query(message: str) -> bool:
+    """True when the user asks about every crop at once (e.g. "what are the
+    yields for all crops"), not one specific crop."""
+    msg = message.lower()
+    return any(p in msg for p in _ALL_CROPS_PATTERNS)
+
+
 def _build_messages(system: str, context: dict, req: ChatRequest, message: str) -> list:
     """Assemble the Groq message list: system prompt, RAG context, history,
     current message.
@@ -941,6 +1501,22 @@ def _build_messages(system: str, context: dict, req: ChatRequest, message: str) 
         msgs.append(
             {"role": "system", "content": "Relevant context:\n" + "\n".join(parts)}
         )
+    # Style/formatting rules — separate system message so they stay close to
+    # the conversation and don't compete with the safety-critical rules in
+    # the core prompt (see _FORMATTING_RULES).
+    msgs.append({"role": "system", "content": _FORMATTING_RULES})
+    # "All crops" queries: top-k retrieval only surfaces 2-3 crops' worth of
+    # chunks, so the LLM can't know the other crops exist at all. Inject the
+    # full crop list from our own dataset metadata as extra context so it
+    # can name what it knows and point to individual queries for the rest.
+    if _is_all_crops_query(message):
+        crops_list = ", ".join(_dataset_capabilities()["crops"])
+        msgs.append(
+            {
+                "role": "system",
+                "content": f"Available crops in CropSphere dataset: {crops_list}",
+            }
+        )
     # Sliding window — only the most recent turns reach Groq; the system
     # prompt and RAG context above are never part of the window.
     history = req.conversation_history
@@ -956,7 +1532,46 @@ def _build_messages(system: str, context: dict, req: ChatRequest, message: str) 
     return msgs
 
 
-def _followups(req: ChatRequest) -> list:
+def _build_reformulation_messages(
+    system: str, previous_reply: str, req: ChatRequest, message: str
+) -> list:
+    """Assemble the Groq message list for a reformulation request.
+
+    Same core rules (Part A) and formatting rules (Part B) as
+    _build_messages, but the RAG-context slot is replaced with an
+    instruction to rewrite the previous answer — no retrieval involved, so
+    the model is grounded in the SAME data as before, not new chunks.
+    """
+    msgs = [{"role": "system", "content": system}]
+    if _reformulation_type(message) == "math":
+        instruction = (
+            "The user wants to see the calculation steps behind your "
+            "previous answer. Here is your previous answer: "
+            f"{previous_reply}. Show the step-by-step math and formulas "
+            "used to arrive at each number. Include unit conversions if "
+            "relevant."
+        )
+    else:
+        instruction = (
+            "The user wants a simpler, clearer version of your previous "
+            "answer. Here is your previous answer: "
+            f"{previous_reply}. Rewrite it using shorter sentences, "
+            "simpler words, and bullet points if it helps. Remove any "
+            "unnecessary detail — keep only what the farmer needs to "
+            "know. Use the same data — do not add new information."
+        )
+    msgs.append({"role": "system", "content": instruction})
+    msgs.append({"role": "system", "content": _FORMATTING_RULES})
+    history = req.conversation_history
+    if len(history) > _MAX_HISTORY_MESSAGES:
+        history = history[-_MAX_HISTORY_MESSAGES:]
+    for turn in history:
+        msgs.append({"role": turn.role, "content": turn.content})
+    msgs.append({"role": "user", "content": message})
+    return msgs
+
+
+def _default_followups(req: ChatRequest) -> list:
     """Generate follow-up suggestions in the detected language."""
     crop = req.crop.value if req.crop else "crops"
     district = req.district.value if req.district else "your area"
@@ -969,6 +1584,88 @@ def _followups(req: ChatRequest) -> list:
     ]
 
     return followups_en
+
+
+def _question_type(message: str) -> str:
+    """Classify what kind of question was just answered, from keywords in
+    the user's message — drives which template _smart_followups picks."""
+    msg = message.lower()
+    if any(k in msg for k in _YIELD_TYPE_KEYWORDS):
+        return "yield"
+    if any(k in msg for k in _EARNINGS_TYPE_KEYWORDS):
+        return "earnings"
+    if any(k in msg for k in _PRICE_TYPE_KEYWORDS):
+        return "price"
+    if any(k in msg for k in _SEASON_TYPE_KEYWORDS):
+        return "season"
+    return "general"
+
+
+def _smart_followups(context: dict, message: str, req: ChatRequest) -> list:
+    """Generate 3 tappable follow-up chips from what was just answered,
+    instead of a fixed template: the top retrieved chunk's crop/district
+    (falling back to the UI's dropdown filters, then to the static
+    defaults) and the TYPE of question just asked, so chips suggest a
+    natural next question rather than a generic one.
+    """
+    if not context or not context.get("chunks"):
+        return _default_followups(req)
+
+    top = context["chunks"][0]
+    crop = top.get("crop") or (req.crop.value if req.crop else None)
+    district = top.get("district") or (req.district.value if req.district else None)
+    if not crop or not district:
+        return _default_followups(req)
+
+    caps = _dataset_capabilities()
+    crop_districts = caps["crop_districts"].get(crop, [])
+    district_crops = caps["district_crops"].get(district, [])
+    # The resolved crop/district must actually be a real pairing in the
+    # dataset — chunk metadata and the UI's dropdown filters can disagree
+    # (e.g. crop from the chunk, district from a stale UI filter) — a
+    # mismatched pair would suggest an impossible chip.
+    if district not in crop_districts:
+        return _default_followups(req)
+
+    qtype = _question_type(message)
+    if qtype == "yield":
+        chips = [
+            f"{crop} price in {district}",
+            f"How much can I earn from 1 acre of {crop} in {district}?",
+        ]
+        if len(crop_districts) > 1:
+            chips.append(f"Compare {crop} yield with other districts")
+        else:
+            chips.append(f"Best season for {crop} in {district}")
+        return chips
+    if qtype == "price":
+        return [
+            f"Expected yield for {crop} in {district}",
+            f"Best season to plant {crop} in {district}",
+            "How much can I earn from 1 acre?",
+        ]
+    if qtype == "season":
+        return [
+            f"{crop} yield in {district}",
+            f"What's the price for {crop}?",
+            f"How much land do I need for {crop}?",
+        ]
+    if qtype == "earnings":
+        chips = []
+        if len(district_crops) > 1:
+            chips.append(f"Compare earnings with other crops in {district}")
+        else:
+            chips.append(f"{crop} price in {district}")
+        chips.append(f"Best season for {crop} in {district}?")
+        chips.append(f"{crop} yield across all seasons")
+        return chips
+    chips = [f"Tell me more about {crop} in {district}"]
+    if len(crop_districts) > 1:
+        chips.append("Compare with other districts")
+    else:
+        chips.append(f"Best season for {crop} in {district}")
+    chips.append("What crops do you cover?")
+    return chips
 
 
 def _safe_audit(user_id: str, message: str) -> None:

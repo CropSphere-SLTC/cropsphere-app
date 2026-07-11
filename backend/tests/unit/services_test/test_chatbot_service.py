@@ -426,13 +426,13 @@ def test_system_prompt_without_district_or_crop():
 
 def test_followups_uses_crop_and_district():
     req = _make_request(district="Badulla", crop="Carrot")
-    fu = cs._followups(req)
+    fu = cs._default_followups(req)
     assert len(fu) == 3 and "Carrot" in fu[0] and "Badulla" in fu[0]
 
 
 def test_followups_defaults_when_missing():
     req = _make_request()
-    fu = cs._followups(req)
+    fu = cs._default_followups(req)
     assert "crops" in fu[0] and "your area" in fu[0]
 
 

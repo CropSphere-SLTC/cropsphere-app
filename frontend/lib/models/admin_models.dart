@@ -84,6 +84,87 @@ class AuditLog {
   );
 }
 
+class GapReport {
+  final String period;
+  final int totalInteractions;
+  final Map<String, int> responseBreakdown;
+  final List<RefusedQuestion> topRefusedQuestions;
+  final List<MissingItem> missingCrops;
+  final List<MissingItem> missingDistricts;
+  final Map<String, int> confidenceDistribution;
+  final Map<String, int> knowledgeLevelDistribution;
+  final int avgResponseTimeMs;
+  final double chipTapRate;
+  final double avgSessionLength;
+
+  GapReport({
+    required this.period,
+    required this.totalInteractions,
+    required this.responseBreakdown,
+    required this.topRefusedQuestions,
+    required this.missingCrops,
+    required this.missingDistricts,
+    required this.confidenceDistribution,
+    required this.knowledgeLevelDistribution,
+    required this.avgResponseTimeMs,
+    required this.chipTapRate,
+    required this.avgSessionLength,
+  });
+
+  factory GapReport.fromJson(Map<String, dynamic> json) => GapReport(
+    period: json['period'] ?? '',
+    totalInteractions: json['total_interactions'] ?? 0,
+    responseBreakdown: Map<String, int>.from(json['response_breakdown'] ?? {}),
+    topRefusedQuestions: ((json['top_refused_questions'] ?? []) as List)
+        .map((e) => RefusedQuestion.fromJson(Map<String, dynamic>.from(e)))
+        .toList(),
+    missingCrops: ((json['missing_crops'] ?? []) as List)
+        .map((e) => MissingItem.fromJson(Map<String, dynamic>.from(e), 'crop'))
+        .toList(),
+    missingDistricts: ((json['missing_districts'] ?? []) as List)
+        .map(
+          (e) => MissingItem.fromJson(Map<String, dynamic>.from(e), 'district'),
+        )
+        .toList(),
+    confidenceDistribution: Map<String, int>.from(
+      json['confidence_distribution'] ?? {},
+    ),
+    knowledgeLevelDistribution: Map<String, int>.from(
+      json['knowledge_level_distribution'] ?? {},
+    ),
+    avgResponseTimeMs: json['avg_response_time_ms'] ?? 0,
+    chipTapRate: (json['chip_tap_rate'] as num? ?? 0).toDouble(),
+    avgSessionLength: (json['avg_session_length'] as num? ?? 0).toDouble(),
+  );
+}
+
+class RefusedQuestion {
+  final String question;
+  final int count;
+
+  RefusedQuestion({required this.question, required this.count});
+
+  factory RefusedQuestion.fromJson(Map<String, dynamic> json) =>
+      RefusedQuestion(
+        question: json['question'] ?? '',
+        count: json['count'] ?? 0,
+      );
+}
+
+class MissingItem {
+  final String name;
+  final int requestCount;
+
+  MissingItem({required this.name, required this.requestCount});
+
+  // `key` is 'crop' or 'district' — the two endpoints use different field names.
+  factory MissingItem.fromJson(Map<String, dynamic> json, String key) =>
+      MissingItem(
+        name: json[key] ?? '',
+        requestCount: json['request_count'] ?? 0,
+      );
+}
+
 class SuperadminConfig {
   final int adminRateLimitPerMinute;
   final int superadminRateLimitPerMinute;

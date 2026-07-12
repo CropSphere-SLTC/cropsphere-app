@@ -12,6 +12,7 @@ import '../../services/admin_service.dart';
 import '../../services/session_service.dart';
 import '../../services/superadmin_service.dart';
 import '../../widgets/app_theme.dart';
+import '../admin/gap_report_screen.dart';
 
 class SuperadminDashboardScreen extends StatefulWidget {
   const SuperadminDashboardScreen({super.key});
@@ -376,6 +377,8 @@ class _SuperadminDashboardScreenState extends State<SuperadminDashboardScreen>
                       _buildModelGrid(),
                     ],
                     const SizedBox(height: 24),
+                    _buildGapReportCard(),
+                    const SizedBox(height: 24),
                     _sectionTitle('System Configuration'),
                     const SizedBox(height: 10),
                     if (_configError != null)
@@ -512,6 +515,36 @@ class _SuperadminDashboardScreenState extends State<SuperadminDashboardScreen>
         fontSize: 16,
         fontWeight: FontWeight.bold,
         color: AppTheme.textPrimary,
+      ),
+    );
+  }
+
+  // Tappable card → the Gap Report analytics sub-screen. The backend's
+  // require_admin already grants superadmin the same access as admin, so this
+  // mirrors the card on AdminDashboardScreen and opens the identical screen.
+  Widget _buildGapReportCard() {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: ListTile(
+        leading: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: AppTheme.primary.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: const Icon(Icons.insights, color: AppTheme.primary),
+        ),
+        title: const Text(
+          'Gap Report',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: const Text('Chatbot usage & missing-data insights'),
+        trailing: const Icon(Icons.chevron_right, color: AppTheme.textMuted),
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const GapReportScreen()),
+        ),
       ),
     );
   }

@@ -131,4 +131,12 @@ class AdminService {
     final logs = response.data['logs'] as List;
     return logs.map((l) => Map<String, dynamic>.from(l)).toList();
   }
+
+  Future<GapReport> getGapReport({int days = 7}) async {
+    final response = await _dio.get(
+      '/api/admin/gap-report',
+      queryParameters: {'days': days},
+    );
+    return GapReport.fromJson(response.data);
+  }
 }

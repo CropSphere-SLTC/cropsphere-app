@@ -7,6 +7,7 @@ import '../../models/admin_models.dart';
 import '../../services/admin_service.dart';
 import '../../services/session_service.dart';
 import '../../widgets/app_theme.dart';
+import 'gap_report_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -336,6 +337,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       _buildModelGrid(),
                     ],
                     const SizedBox(height: 24),
+                    _buildGapReportCard(),
+                    const SizedBox(height: 24),
                     _sectionTitle('User Management (${_visibleUsers.length})'),
                     const SizedBox(height: 10),
                     if (_usersError != null)
@@ -462,6 +465,34 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         fontSize: 16,
         fontWeight: FontWeight.bold,
         color: AppTheme.textPrimary,
+      ),
+    );
+  }
+
+  // Tappable card → the Gap Report analytics sub-screen.
+  Widget _buildGapReportCard() {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: ListTile(
+        leading: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: AppTheme.primary.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: const Icon(Icons.insights, color: AppTheme.primary),
+        ),
+        title: const Text(
+          'Gap Report',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: const Text('Chatbot usage & missing-data insights'),
+        trailing: const Icon(Icons.chevron_right, color: AppTheme.textMuted),
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const GapReportScreen()),
+        ),
       ),
     );
   }

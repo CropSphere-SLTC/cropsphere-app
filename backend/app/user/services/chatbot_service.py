@@ -7,15 +7,19 @@ New features:
 - Translation cache: repeated phrases served instantly from memory
 """
 
+import hashlib
 import logging
 import os
 import random
 import re
+import threading
+import time
 
 from html.parser import HTMLParser
 
 from app.models.loader import model_loader
 from app.models.schemas import ChatRequest, ChatResponse
+from app.user.services.analytics_service import log_chat_interaction
 from app.utils.firestore import audit_log
 
 logger = logging.getLogger(__name__)
@@ -323,6 +327,7 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
     Outputs: ChatResponse with reply, sources, and follow-up suggestions.
     Security assumption: user_id verified by JWT middleware before this is called.
     """
+    start = time.monotonic()
     clean = _strip_html(req.message)[:_MAX_LEN]
 
     _safe_audit(req.user_id, clean)
@@ -350,6 +355,7 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
         # small talk, not a refusal.
         if _is_context_statement(clean):
             reply, cq_followups = _build_context_ack(clean)
+            _emit_analytics(req, clean, "context_ack", "High confidence", None, start)
             return ChatResponse(
                 reply=reply,
                 sources_used=[],
@@ -363,6 +369,7 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
         # retrieval, so it never pollutes the retrieval path.
         if _is_capability_question(clean):
             reply, followups = _capability_reply()
+            _emit_analytics(req, clean, "capability", "High confidence", None, start)
             return ChatResponse(
                 reply=reply,
                 sources_used=[],
@@ -376,6 +383,15 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
         # chunks for the wrong location and answer from them.
         miss = _explicit_miss(clean)
         if miss:
+            _emit_analytics(
+                req,
+                clean,
+                "near_miss",
+                "Out of scope",
+                None,
+                start,
+                near_miss_type=miss[0],
+            )
             return ChatResponse(
                 reply=_build_refusal(clean, near=miss),
                 sources_used=[],
@@ -402,6 +418,9 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
                     messages=messages,
                     max_tokens=512,
                     temperature=0.7,
+                )
+                _emit_analytics(
+                    req, clean, "reformulation", "Moderate confidence", None, start
                 )
                 return ChatResponse(
                     reply=response.choices[0].message.content,
@@ -434,6 +453,9 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
             reply, cq_followups = _build_clarification(
                 clean, context, req.conversation_history
             )
+            _emit_analytics(
+                req, clean, "clarification", "Moderate confidence", context, start
+            )
             return ChatResponse(
                 reply=reply,
                 sources_used=[],
@@ -447,6 +469,7 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
         # LLM, so it cannot answer from its own general knowledge (e.g.
         # "what's the weather on Mars").
         if not context["chunks"]:
+            _emit_analytics(req, clean, "refusal", confidence, context, start)
             return ChatResponse(
                 reply=_build_refusal(clean),
                 sources_used=[],
@@ -462,6 +485,9 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
         if _is_ambiguous_query(clean, context, req.conversation_history):
             reply, cq_followups = _build_clarification(
                 clean, context, req.conversation_history
+            )
+            _emit_analytics(
+                req, clean, "clarification", "Moderate confidence", context, start
             )
             return ChatResponse(
                 reply=reply,
@@ -496,6 +522,7 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
 
         # Cache the reply for future repeated questions
 
+        _emit_analytics(req, clean, "answer", confidence, context, start)
         return ChatResponse(
             reply=reply,
             sources_used=context["sources"],
@@ -529,6 +556,7 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
     by the router; it keys history persistence exactly as the non-streaming
     endpoint does. Technical error detail is logged server-side only.
     """
+    start = time.monotonic()
     clean = _strip_html(req.message)[:_MAX_LEN]
     _safe_audit(req.user_id, clean)
     groq_model = _GROQ_MODELS.get(req.model, _GROQ_MODELS["accurate"])
@@ -563,6 +591,7 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
             "suggested_followups": cq_followups,
             "conversation_id": conv_id,
         }
+        _emit_analytics(req, clean, "context_ack", "High confidence", None, start)
         return
 
     # Capability question — same short-circuit as chat(); no retrieval, no
@@ -581,6 +610,7 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
             "suggested_followups": cap_followups,
             "conversation_id": conv_id,
         }
+        _emit_analytics(req, clean, "capability", "High confidence", None, start)
         return
 
     # Explicit near-miss — same short-circuit as chat(); no retrieval, no Groq.
@@ -597,6 +627,15 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
             "suggested_followups": _refusal_followups(clean, near=miss),
             "conversation_id": conv_id,
         }
+        _emit_analytics(
+            req,
+            clean,
+            "near_miss",
+            "Out of scope",
+            None,
+            start,
+            near_miss_type=miss[0],
+        )
         return
 
     # Reformulation request — same rewrite-the-previous-answer handling as
@@ -658,6 +697,9 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
                 "suggested_followups": _default_followups(req),
                 "conversation_id": conv_id,
             }
+            _emit_analytics(
+                req, clean, "reformulation", "Moderate confidence", None, start
+            )
             return
         # No previous assistant turn to reformulate — fall through to the
         # normal retrieval path below.
@@ -693,6 +735,9 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
         logger.info("[STREAM COMPLETE] conv=%s len=%d", conv_id, len(reply))
         confidence = "Moderate confidence"
         yield _metadata(conv_id)
+        _emit_analytics(
+            req, clean, "clarification", "Moderate confidence", context, start
+        )
         return
 
     # Grounding guard — same friendly, dataset-aware refusal as chat(), no
@@ -705,6 +750,7 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
         conv_id = _persist(reply)
         logger.info("[STREAM COMPLETE] conv=%s len=%d", conv_id, len(reply))
         yield _metadata(conv_id)
+        _emit_analytics(req, clean, "refusal", confidence, context, start)
         return
 
     # Ambiguous query — same clarifying-question handling as chat(),
@@ -719,6 +765,9 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
         logger.info("[STREAM COMPLETE] conv=%s len=%d", conv_id, len(reply))
         confidence = "Moderate confidence"
         yield _metadata(conv_id)
+        _emit_analytics(
+            req, clean, "clarification", "Moderate confidence", context, start
+        )
         return
 
     parts: list = []
@@ -773,6 +822,7 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
     conv_id = _persist(full)
     logger.info("[STREAM COMPLETE] conv=%s len=%d", conv_id, len(full))
     yield _metadata(conv_id)
+    _emit_analytics(req, clean, "answer", confidence, context, start)
 
 
 def _stream_error_code(exc: Exception, has_partial: bool) -> str:
@@ -1917,3 +1967,181 @@ def _safe_audit(user_id: str, message: str) -> None:
         )
     except Exception as exc:
         logger.warning("Chat audit log failed: %s", exc)
+
+
+# ── Analytics ─────────────────────────────────────────────────────────────────
+# One chat_analytics document per interaction (questioning patterns, refused
+# topics, usage). Best-effort throughout: _emit_analytics runs the whole
+# record build + Firestore write in a daemon thread, and every function here
+# swallows its own errors, so analytics can never break or slow a chat reply.
+# See app.user.services.analytics_service.log_chat_interaction.
+
+
+def _anonymize_uid(user_id: str) -> str:
+    """One-way hash of the Firebase uid so analytics can count distinct users
+    and sessions without storing the raw uid (privacy / DevSecOps posture,
+    consistent with audit_log hashing prediction inputs)."""
+    return hashlib.sha256((user_id or "").encode()).hexdigest()[:16]
+
+
+def _detect_crop_mention(message: str) -> str | None:
+    """Return the crop named in `message`, checking BOTH covered crops
+    (_dataset_capabilities) and known-uncovered crops (_UNCOVERED_CROPS), or
+    None. Covered crops use substring match (as _near_miss does); uncovered
+    crops use whole-word tokens so 'rice' never matches inside 'price'."""
+    msg = message.lower()
+    for crop in _dataset_capabilities()["crops"]:
+        if crop.lower() in msg:
+            return crop
+    tokens = set(re.findall(r"[a-z]+", msg))
+    for crop in sorted(_UNCOVERED_CROPS):
+        if crop in tokens:
+            return crop
+    return None
+
+
+def _detect_district_mention(message: str) -> str | None:
+    """Return the district named in `message`, checking BOTH covered districts
+    (_dataset_capabilities) and known-uncovered districts (_UNCOVERED_DISTRICTS),
+    or None. Same matching rules as _detect_crop_mention."""
+    msg = message.lower()
+    for district in _dataset_capabilities()["districts"]:
+        if district.lower() in msg:
+            return district
+    tokens = set(re.findall(r"[a-z]+", msg))
+    for district in sorted(_UNCOVERED_DISTRICTS):
+        if district in tokens:
+            return district
+    return None
+
+
+def _detect_if_chip_tapped(message: str, previous_followups: list) -> bool:
+    """True when `message` matches one of the previous turn's
+    suggested_followups (whitespace/case-insensitive) — i.e. the farmer tapped
+    a suggestion chip instead of typing a new question."""
+    if not previous_followups:
+        return False
+    norm = message.strip().lower()
+    return any(norm == (f or "").strip().lower() for f in previous_followups)
+
+
+def _reconstruct_previous_followups(req: ChatRequest) -> list:
+    """Recompute the suggested_followups the PREVIOUS assistant turn showed.
+
+    The API never persists or echoes suggested_followups, so to tell whether
+    the current message was a tapped chip we replay the previous USER turn
+    through the same path selection chat() uses and rebuild its followups —
+    re-running RAG retrieval for the retrieval-based paths. Called ONLY from
+    the _emit_analytics background thread, so the extra retrieval never adds
+    latency to the live response. Returns [] when there is no prior user turn
+    or reconstruction fails.
+    """
+    try:
+        history = req.conversation_history or []
+        prev_idx = next(
+            (i for i in range(len(history) - 1, -1, -1) if history[i].role == "user"),
+            None,
+        )
+        if prev_idx is None:
+            return []
+        prev_msg = _strip_html(history[prev_idx].content)[:_MAX_LEN]
+        prior = history[:prev_idx]
+        district = req.district.value if req.district else ""
+        crop = req.crop.value if req.crop else ""
+
+        if _is_context_statement(prev_msg):
+            return _build_context_ack(prev_msg)[1]
+        if _is_capability_question(prev_msg):
+            return _capability_reply()[1]
+        miss = _explicit_miss(prev_msg)
+        if miss:
+            return _refusal_followups(prev_msg, near=miss)
+        if _is_reformulation_request(prev_msg) and _last_assistant_reply(prior):
+            return _default_followups(req)
+
+        retrieval_query = _expand_clarifying_reply(prev_msg, prior)
+        context = _rag_context(
+            retrieval_query, district=district, crop=crop, history=prior
+        )
+        if _is_vague_agricultural_query(prev_msg, context, prior):
+            return _build_clarification(prev_msg, context, prior)[1]
+        if not context["chunks"]:
+            return _refusal_followups(prev_msg)
+        if _is_ambiguous_query(prev_msg, context, prior):
+            return _build_clarification(prev_msg, context, prior)[1]
+        return _smart_followups(context, prev_msg, req)
+    except Exception as exc:
+        logger.debug("followup reconstruction failed: %s", exc)
+        return []
+
+
+def _emit_analytics(
+    req: ChatRequest,
+    message: str,
+    response_type: str,
+    confidence: str,
+    context: dict | None,
+    start: float,
+    near_miss_type: str | None = None,
+) -> None:
+    """Fire-and-forget: record one chat_analytics document for this turn.
+
+    Runs in a daemon thread for two reasons — analytics must add no latency to
+    the chat response, and chip-tap detection reconstructs the previous turn's
+    followups which may re-run RAG retrieval (too heavy for the hot path).
+    response_time_ms is sampled HERE (just before the caller returns / finishes
+    the stream) so it reflects end-to-end handling. Never raises.
+    """
+    elapsed_ms = int((time.monotonic() - start) * 1000)
+    try:
+        threading.Thread(
+            target=_run_analytics,
+            args=(
+                req,
+                message,
+                response_type,
+                confidence,
+                context,
+                near_miss_type,
+                elapsed_ms,
+            ),
+            daemon=True,
+        ).start()
+    except Exception as exc:  # spawning the thread must never bubble up
+        logger.warning("analytics thread spawn failed: %s", exc)
+
+
+def _run_analytics(
+    req: ChatRequest,
+    message: str,
+    response_type: str,
+    confidence: str,
+    context: dict | None,
+    near_miss_type: str | None,
+    elapsed_ms: int,
+) -> None:
+    """Background-thread body: reconstruct chip context, assemble the record,
+    hand it to log_chat_interaction. Errors are swallowed."""
+    try:
+        ctx = context or {}
+        data = {
+            "user_id": _anonymize_uid(req.user_id),
+            "question": message[:200],
+            "question_type": _question_type(message),
+            "response_type": response_type,
+            "confidence": confidence,
+            "retrieval_score": float(ctx.get("score", 0.0) or 0.0),
+            "sources_used": list(ctx.get("sources", []) or []),
+            "crop_mentioned": _detect_crop_mention(message),
+            "district_mentioned": _detect_district_mention(message),
+            "near_miss_type": near_miss_type,
+            "followup_chip_tapped": _detect_if_chip_tapped(
+                message, _reconstruct_previous_followups(req)
+            ),
+            "session_message_count": len(req.conversation_history) + 1,
+            "model_used": req.model,
+            "response_time_ms": elapsed_ms,
+        }
+        log_chat_interaction(data)
+    except Exception as exc:
+        logger.warning("analytics assembly failed: %s", exc)

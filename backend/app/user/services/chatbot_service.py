@@ -165,29 +165,37 @@ _REFORMULATION_PHRASES = (
     "confused",
     "what do you mean",
     "what does that mean",
-    "can you simplify",
+    "simplify",
     "make it simpler",
     "in simple words",
     "in easy words",
-    "show me the math",
-    "show the math",
-    "show the calculation",
-    "how did you calculate",
-    "what's the formula",
-    "break it down",
-    "step by step",
 )
-# Subset of the phrases above that specifically ask for calculation
-# steps rather than a simpler rewrite — used by _reformulation_type to
-# pick which instruction _build_reformulation_messages sends to Groq.
+# Standalone keywords that specifically ask for calculation steps rather
+# than a simpler rewrite — used by _reformulation_type to pick which
+# instruction _build_reformulation_messages sends to Groq. Broader than
+# exact phrase matching: e.g. "explain the formula" now qualifies too.
 _MATH_REFORMULATION_PHRASES = (
-    "show me the math",
-    "show the math",
-    "show the calculation",
-    "how did you calculate",
-    "what's the formula",
-    "break it down",
+    "math",
+    "calculation",
+    "formula",
     "step by step",
+    "break it down",
+    "break down",
+    "how did you calculate",
+)
+# On-request formal/scientific notation instead of the step-by-step
+# breakdown — negative exponents and center-dot notation, the style
+# preferred in advanced science/engineering. Checked BEFORE
+# _MATH_REFORMULATION_PHRASES in _reformulation_type, since phrases like
+# "standard mathematical format" also contain "math" and would otherwise
+# be misclassified as the regular step-by-step type.
+_FORMAL_MATH_PHRASES = (
+    "standard format",
+    "scientific format",
+    "formal notation",
+    "standard math",
+    "standard mathematical format",
+    "mathematical format",
 )
 # Words/phrases that signal a farming-related question even without a
 # named crop or district — distinguishes "how much can I earn?" (worth a
@@ -385,8 +393,9 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
                 from groq import Groq  # type: ignore
 
                 client = Groq(api_key=settings.GROQ_API_KEY)
+                rtype = _reformulation_type(clean)
                 messages = _build_reformulation_messages(
-                    _system_prompt(req), previous_reply, req, clean
+                    _system_prompt(req), previous_reply, req, clean, rtype
                 )
                 response = client.chat.completions.create(
                     model=groq_model,
@@ -600,8 +609,9 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
                 from groq import Groq  # type: ignore
 
                 client = Groq(api_key=settings.GROQ_API_KEY)
+                rtype = _reformulation_type(clean)
                 messages = _build_reformulation_messages(
-                    _system_prompt(req), previous_reply, req, clean
+                    _system_prompt(req), previous_reply, req, clean, rtype
                 )
                 stream = client.chat.completions.create(
                     model=groq_model,
@@ -924,9 +934,20 @@ def _is_reformulation_request(message: str) -> bool:
     re-explain its PREVIOUS answer — not a new agricultural question.
     Combo patterns (e.g. "explain" + "again") require both words so a real
     question like "explain carrot yield" is never caught here.
+
+    Checks both phrase lists — _REFORMULATION_PHRASES (simplify-style) and
+    _MATH_REFORMULATION_PHRASES (math-style) — so this gate never rejects
+    a message that _reformulation_type would later classify as "math". A
+    single source of truth per category avoids the two lists drifting
+    apart, which is exactly what let "show me math" / "break down" fall
+    through to a flat refusal instead of the math reformulation path.
     """
     msg = message.lower()
     if any(p in msg for p in _REFORMULATION_PHRASES):
+        return True
+    if any(p in msg for p in _MATH_REFORMULATION_PHRASES):
+        return True
+    if any(p in msg for p in _FORMAL_MATH_PHRASES):
         return True
     for verb, qualifiers in _REFORMULATION_PATTERNS:
         if verb in msg and any(q in msg for q in qualifiers):
@@ -935,11 +956,14 @@ def _is_reformulation_request(message: str) -> bool:
 
 
 def _reformulation_type(message: str) -> str:
-    """Which kind of reformulation this is — "math" (show the calculation
-    steps) or "simplify" (rewrite in simpler terms). Only meaningful when
+    """Which kind of reformulation this is — "formal_math" (compact
+    scientific-notation equation), "math" (step-by-step calculation), or
+    "simplify" (rewrite in simpler terms). Only meaningful when
     _is_reformulation_request(message) is already True.
     """
     msg = message.lower()
+    if any(p in msg for p in _FORMAL_MATH_PHRASES):
+        return "formal_math"
     if any(p in msg for p in _MATH_REFORMULATION_PHRASES):
         return "math"
     return "simplify"
@@ -1685,7 +1709,7 @@ def _build_messages(system: str, context: dict, req: ChatRequest, message: str) 
 
 
 def _build_reformulation_messages(
-    system: str, previous_reply: str, req: ChatRequest, message: str
+    system: str, previous_reply: str, req: ChatRequest, message: str, rtype: str
 ) -> list:
     """Assemble the Groq message list for a reformulation request.
 
@@ -1693,15 +1717,80 @@ def _build_reformulation_messages(
     _build_messages, but the RAG-context slot is replaced with an
     instruction to rewrite the previous answer — no retrieval involved, so
     the model is grounded in the SAME data as before, not new chunks.
+    rtype ("math" or "simplify", from _reformulation_type) picks which
+    instruction is sent. The math instruction's own formatting rules
+    override Rule 5's "no calculations" in Part A for this one exchange —
+    it's a later, more specific system message, and the user explicitly
+    asked for the math.
     """
     msgs = [{"role": "system", "content": system}]
-    if _reformulation_type(message) == "math":
+    msgs.append(
+        {
+            "role": "system",
+            "content": (
+                "This is a reformulation of your own previous answer, not "
+                "a new grounded answer — do NOT start with 'Reasoning: "
+                "...' this time, and do not split your reply into a "
+                "reasoning sentence and a separate answer. Just give the "
+                "rewritten or calculated answer directly."
+            ),
+        }
+    )
+    if rtype == "formal_math":
         instruction = (
-            "The user wants to see the calculation steps behind your "
-            "previous answer. Here is your previous answer: "
-            f"{previous_reply}. Show the step-by-step math and formulas "
-            "used to arrive at each number. Include unit conversions if "
-            "relevant."
+            "The user wants the calculation shown in standard/formal "
+            "mathematical notation instead of a step-by-step breakdown. "
+            "Here is your previous answer: "
+            f"{previous_reply}. Represent it as a compact formal "
+            "equation:\n\n"
+            "FORMAL NOTATION RULES:\n"
+            "- Use a negative exponent instead of a slash for the rate "
+            "unit: write 'kg·acre⁻¹' not 'kg/acre'\n"
+            "- Use a center dot (·) to join a compound unit's parts, "
+            "e.g. 'kg·acre⁻¹'\n"
+            "- Use '×' (the multiplication sign) for the arithmetic "
+            "operation itself, not 'x' or '*'\n"
+            "- Example: 8,162 kg·acre⁻¹ × 2 acre = 16,324 kg\n"
+            "- Use thousands separators (16,324 not 16324)\n"
+            "- Use the farmer's unit (acres/perches), not hectares\n"
+            "- End with one plain-language summary sentence: 'So you "
+            "can earn around 1,044,736 LKR from your 2 acres.'"
+        )
+    elif rtype == "math":
+        instruction = (
+            "The user wants to see how you arrived at the numbers in "
+            "your previous answer. Here is your previous answer: "
+            f"{previous_reply}. Show the calculation steps clearly and "
+            "readably:\n\n"
+            "MATH FORMATTING RULES:\n"
+            "- Use a clear step-by-step layout with numbered steps\n"
+            "- Each step on its own line\n"
+            "- Show one operation per step, not everything chained "
+            "together\n"
+            "- NEVER multiply a rate that still has its unit attached "
+            "(like '8,162 kg/acre') by a quantity in that same unit "
+            "(like '2 acres') in one expression — it looks like the "
+            "units should cancel out but nothing shows that happening, "
+            "which is confusing, not clearer. Strip the unit from both "
+            "numbers before multiplying, and only attach the unit to "
+            "the final result:\n"
+            "  Good: Step 3: Total harvest = 8,162 x 2 = 16,324 kg\n"
+            "  Bad:  Step 3: Total harvest = 8,162 kg/acre x 2 acres "
+            "= 16,324 kg\n"
+            "- Use simple labels before each number:\n"
+            "  Good:\n"
+            "    Step 1: Yield per acre = 8,162 kg\n"
+            "    Step 2: Your land = 2 acres\n"
+            "    Step 3: Total harvest = 8,162 x 2 = 16,324 kg\n"
+            "    Step 4: Price per kg = 64 LKR\n"
+            "    Step 5: Total earnings = 16,324 x 64 = 1,044,736 LKR\n"
+            "  Bad:\n"
+            "    20,169 kg/ha * 2 / 2.471 * 64 = 1,044,736\n"
+            "- Use the farmer's unit (acres/perches) not hectares\n"
+            "- Use thousands separators (16,324 not 16324)\n"
+            "- Use 'x' for multiplication, not '*'\n"
+            "- End with a clear summary: 'So you can earn around "
+            "1,044,736 LKR from your 2 acres.'"
         )
     else:
         instruction = (

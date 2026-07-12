@@ -74,7 +74,9 @@ def _warmup_models() -> None:
         start = time.monotonic()
         try:
             fn()
-            logger.info(f"[warmup] {name} model ready in {time.monotonic() - start:.2f}s")
+            logger.info(
+                f"[warmup] {name} model ready in {time.monotonic() - start:.2f}s"
+            )
         except Exception as exc:
             logger.warning(f"[warmup] {name} failed: {exc}")
 

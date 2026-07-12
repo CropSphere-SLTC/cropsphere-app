@@ -1,6 +1,7 @@
 // lib/screens/chat/chat_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../config/app_config.dart';
 import '../../services/service_factory.dart';
@@ -1008,20 +1009,42 @@ class _ChatScreenState extends State<ChatScreen> {
                     const SizedBox(height: 6),
                   ],
                   // MIDDLE — answer text (reasoning split out for bot replies);
-                  // "..." placeholder while the stream is starting (Phase 1)
-                  Text(
-                    isStreamingMsg && parsed.answer.isEmpty
-                        ? '...'
-                        : parsed.answer,
-                    style: TextStyle(
-                      color: isUser
-                          ? Colors.white
-                          : isError
-                          ? Colors.red
-                          : Colors.black87,
-                      fontSize: 14,
-                    ),
-                  ),
+                  // "..." placeholder while the stream is starting (Phase 1).
+                  // Bot replies render as markdown (the model uses **bold**,
+                  // numbered/dash lists in math and multi-item answers) —
+                  // softLineBreak keeps single '\n's as real line breaks,
+                  // matching how our system prompt actually formats text
+                  // (single newlines between steps/list items, not blank
+                  // lines). User/error bubbles stay plain text.
+                  isBot
+                      ? MarkdownBody(
+                          data: isStreamingMsg && parsed.answer.isEmpty
+                              ? '...'
+                              : parsed.answer,
+                          softLineBreak: true,
+                          styleSheet: MarkdownStyleSheet(
+                            p: const TextStyle(
+                              color: Colors.black87,
+                              fontSize: 14,
+                            ),
+                            strong: const TextStyle(
+                              color: Colors.black87,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                            ),
+                            listBullet: const TextStyle(
+                              color: Colors.black87,
+                              fontSize: 14,
+                            ),
+                          ),
+                        )
+                      : Text(
+                          parsed.answer,
+                          style: TextStyle(
+                            color: isUser ? Colors.white : Colors.red,
+                            fontSize: 14,
+                          ),
+                        ),
                   // BOTTOM — muted XAI footer; hidden when empty (out-of-scope)
                   if (hasFooter)
                     wasStreamed
@@ -1169,6 +1192,10 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   /// One muted line in the XAI footer (reasoning / sources / advisory).
+  /// Renders as markdown defensively — the reasoning line is normally a
+  /// plain sentence, but if the model ever puts **bold** or a dash list in
+  /// there (e.g. a mis-split reformulation reply), it still renders
+  /// properly instead of showing raw asterisks/dashes.
   Widget _xaiFooterLine(IconData icon, String text) {
     return Padding(
       padding: const EdgeInsets.only(top: 2),
@@ -1178,12 +1205,26 @@ class _ChatScreenState extends State<ChatScreen> {
           Icon(icon, size: 12, color: Colors.grey[500]),
           const SizedBox(width: 4),
           Expanded(
-            child: Text(
-              text,
-              style: TextStyle(
-                fontSize: 11,
-                color: Colors.grey[600],
-                height: 1.3,
+            child: MarkdownBody(
+              data: text,
+              softLineBreak: true,
+              styleSheet: MarkdownStyleSheet(
+                p: TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey[600],
+                  height: 1.3,
+                ),
+                strong: TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey[600],
+                  height: 1.3,
+                  fontWeight: FontWeight.w700,
+                ),
+                listBullet: TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey[600],
+                  height: 1.3,
+                ),
               ),
             ),
           ),

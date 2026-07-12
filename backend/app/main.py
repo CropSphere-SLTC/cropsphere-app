@@ -1,6 +1,8 @@
 """CropSphere FastAPI application — entry point."""
 
 import logging
+import time
+from datetime import date
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,6 +33,201 @@ from app.utils.logger import setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)
+
+
+def _warmup_models() -> None:
+    """Run one real prediction per loaded ML model with realistic dummy
+    inputs, so the first genuine user request never pays the "cold" cost
+    (Keras graph tracing in particular is per model INSTANCE — warming
+    price_Carrot's LSTM does nothing for price_Maize's, which is why every
+    crop-specific model gets its own warm-up call, not just one per
+    service). Each warm-up is fully independent: one model failing logs a
+    warning and never blocks the rest or crashes startup.
+
+    Dummy inputs are real, schema-valid values already proven in the test
+    suite (tests/security/test_auth.py, tests/integration/test_price.py,
+    test_demand.py, test_recommend.py) paired with real crop/district
+    combinations from the CropSphere coverage matrix — not garbage.
+
+    NOTE: these are throwaway calls with dummy data. If response caching
+    is ever added to the prediction endpoints, these warm-up calls must be
+    excluded from it — not an issue today, since no caching exists yet.
+    """
+    from app.models.schemas import (
+        CropEnum,
+        DemandPredictRequest,
+        DistrictEnum,
+        IrrigationEnum,
+        PricePredictRequest,
+        RecommendRequest,
+        SeasonEnum,
+        WeatherForecastRequest,
+        YieldPredictRequest,
+    )
+    from app.user.services.demand_service import predict_demand
+    from app.user.services.price_service import predict_price_internal
+    from app.user.services.recommend_service import get_recommendations
+    from app.user.services.weather_service import forecast_weather
+    from app.user.services.yield_service import predict_yield
+
+    def _run(name: str, fn) -> None:
+        start = time.monotonic()
+        try:
+            fn()
+            logger.info(f"[warmup] {name} model ready in {time.monotonic() - start:.2f}s")
+        except Exception as exc:
+            logger.warning(f"[warmup] {name} failed: {exc}")
+
+    total_start = time.monotonic()
+
+    # crop -> a real, valid growing district (CropSphere coverage matrix)
+    crop_district = {
+        CropEnum.carrot: DistrictEnum.nuwara_eliya,
+        CropEnum.maize: DistrictEnum.anuradhapura,
+        CropEnum.green_gram: DistrictEnum.hambantota,
+        CropEnum.cowpea: DistrictEnum.anuradhapura,
+        CropEnum.finger_millet: DistrictEnum.anuradhapura,
+        CropEnum.groundnut: DistrictEnum.batticaloa,
+    }
+
+    for crop, district in crop_district.items():
+        _run(
+            f"yield_{crop.value}",
+            lambda crop=crop, district=district: predict_yield(
+                YieldPredictRequest(
+                    crop=crop,
+                    district=district,
+                    season=SeasonEnum.maha,
+                    week_of_year=10,
+                    rainfall_mm=100.0,
+                    temp_min_c=10.0,
+                    temp_max_c=22.0,
+                    humidity_pct=70.0,
+                    wind_speed_kmh=10.0,
+                    solar_radiation_mj=15.0,
+                    soil_ph=6.0,
+                    soil_moisture_pct=55.0,
+                    cultivated_area_ha=1.0,
+                    seed_variety="Standard",
+                    fertilizer_index=0.5,
+                    pesticide_index=0.5,
+                    irrigation_type=IrrigationEnum.drip,
+                    N_index=0.5,
+                    P_index=0.5,
+                    K_index=0.5,
+                    prev_crop="none",
+                    demand_index=100.0,
+                    inflation_index=1.0,
+                    holiday_flag=0,
+                    festival_flag=0,
+                ),
+                "system",
+            ),
+        )
+
+    for crop, district in crop_district.items():
+        _run(
+            f"price_{crop.value}",
+            lambda crop=crop, district=district: predict_price_internal(
+                PricePredictRequest(
+                    crop=crop,
+                    district=district,
+                    season=SeasonEnum.maha,
+                    week_of_year=10,
+                    inflation_index=1.2,
+                    fuel_price_index=1.1,
+                    transport_cost_index=1.0,
+                    supply_index=100.0,
+                    demand_index=110.0,
+                    holiday_flag=0,
+                    festival_flag=0,
+                    farmgate_price_lag1=85.0,
+                    farmgate_price_lag2=80.0,
+                    farmgate_price_lag4=75.0,
+                )
+            ),
+        )
+
+    for crop in crop_district:
+        _run(
+            f"demand_{crop.value}",
+            lambda crop=crop: predict_demand(
+                DemandPredictRequest(
+                    crop=crop,
+                    season=SeasonEnum.maha,
+                    week_of_year=10,
+                    demand_lag1=95.0,
+                    demand_lag2=90.0,
+                    demand_lag4=85.0,
+                    retail_price_lkr_kg=120.0,
+                    inflation_index=1.2,
+                    holiday_flag=0,
+                    festival_flag=0,
+                    consumer_pref_index=60.0,
+                    search_trend_index=45.0,
+                ),
+                "system",
+            ),
+        )
+
+    _run(
+        "weather_lstm",
+        lambda: forecast_weather(
+            WeatherForecastRequest(
+                district=DistrictEnum.nuwara_eliya,
+                start_date=date.today().isoformat(),
+                weeks_ahead=1,
+            )
+        ),
+    )
+
+    _run(
+        "recommend_rf",
+        lambda: get_recommendations(
+            RecommendRequest(
+                district=DistrictEnum.nuwara_eliya,
+                season=SeasonEnum.maha,
+                week_of_year=10,
+                rainfall_mm=120.0,
+                temp_min_c=10.0,
+                temp_max_c=22.0,
+                humidity_pct=75.0,
+                soil_ph=6.0,
+                soil_moisture_pct=60.0,
+                N_index=0.5,
+                P_index=0.4,
+                K_index=0.6,
+                irrigation_type=IrrigationEnum.drip,
+            ),
+            "system",
+        ),
+    )
+
+    logger.info(f"[warmup] all models ready in {time.monotonic() - total_start:.2f}s")
+
+
+def _check_firestore(settings) -> None:
+    """Lightweight Firestore connectivity check — lists collection IDs
+    rather than reading any document data. Never blocks startup or raises:
+    prediction models must keep working even if Firestore is unreachable
+    (only chat history and user profiles depend on it).
+    """
+    try:
+        from app.utils.firestore import get_db
+
+        db = get_db()
+        list(db.collections())  # materialize the iterator to force the RPC
+        logger.info(
+            "[startup] Firestore connection verified (project=%s, database=%s)",
+            settings.FIREBASE_PROJECT_ID,
+            "cropsphere-database",  # must stay in sync with init_firestore()
+        )
+    except Exception as exc:
+        logger.warning(
+            "[startup] Firestore connection failed: %s — chat history and "
+            "user profiles will be unavailable",
+            exc,
+        )
 
 
 def create_app() -> FastAPI:
@@ -65,6 +262,13 @@ def create_app() -> FastAPI:
             logger.info("RAG sentence-encoder preloaded")
         except Exception as exc:
             logger.warning("RAG encoder preload failed (chat will 500): %s", exc)
+
+        # Prediction models — warm up all 20 individually loaded models
+        # (RAG's own model, the sentence-encoder above, is separate).
+        _warmup_models()
+
+        # Firestore — verify connectivity, but never block startup on it.
+        _check_firestore(settings)
 
         yield  # app runs here
 

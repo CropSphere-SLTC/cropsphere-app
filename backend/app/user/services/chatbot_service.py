@@ -103,6 +103,111 @@ _FORMATTING_RULES = (
     "Only do this when the context is clear from conversation history — "
     "don't assume a location the farmer never mentioned."
 )
+# ── Knowledge-level detection ─────────────────────────────────────────────────
+# _detect_knowledge_level classifies how the farmer phrases a question so the
+# LLM can match response depth: a beginner asking "what is yield?" needs plain
+# language and practical framing; an expert asking to "compare inter-season
+# yields across upcountry districts" wants concise, data-dense answers. The
+# chosen instruction is injected by _build_messages() as its own system message
+# (after _FORMATTING_RULES, so it overrides conflicting style rules) and logged
+# to analytics.
+
+# Per-message signals (Step 2). 2+ on a side wins that side; advanced breaks
+# ties (advanced phrasing is far more diagnostic of expertise, and we avoid
+# over-detecting "beginner").
+_BEGINNER_DEFINITION_PATTERNS = (
+    "what is",
+    "what's",
+    "what does",
+    "what do you mean",
+    "meaning of",
+    "define ",
+    "wat is",
+)
+_BEGINNER_SIMPLE_PATTERNS = (
+    "tell me about",
+    "what should i do",
+    "what can i",
+    "help me",
+)
+# Text-speak / broken English — matched as whole tokens.
+_BEGINNER_INFORMAL_TOKENS = frozenset(
+    {"wat", "pls", "plz", "hw", "gimme", "wanna", "dunno", "thx"}
+)
+_ADVANCED_TERMS = (
+    "inter-season",
+    "per-hectare",
+    "per hectare",
+    "cultivation",
+    "farmgate",
+    "soil ph",
+)
+_ADVANCED_COMPARISON_PATTERNS = (
+    "compare",
+    "comparison",
+    "difference between",
+    "which is better",
+    "better than",
+    "versus",
+    " vs ",
+)
+_ADVANCED_DATA_PATTERNS = (
+    "kg/",
+    "/kg",
+    "/ha",
+    "/acre",
+    "/perch",
+    "percentage",
+    "percent",
+)
+# Named growing seasons — a beginner "no names mentioned" negative signal and
+# an advanced positive signal. Whole-token match ("inter" from "inter-season",
+# never inside "interesting").
+_SEASON_NAME_TOKENS = frozenset({"maha", "yala", "inter"})
+# Topic words that, when 2+ appear joined by "and", flag a multi-part question.
+_KNOWLEDGE_TOPIC_KEYWORDS = (
+    "yield",
+    "price",
+    "season",
+    "harvest",
+    "earn",
+    "cost",
+    "demand",
+    "rainfall",
+    "weather",
+    "fertilizer",
+    "fertiliser",
+)
+_LEVEL_INSTRUCTIONS = {
+    "beginner": (
+        "The farmer is a beginner. Follow these rules:\n"
+        "- Use the simplest possible language\n"
+        "- Define every farming term when you first use it\n"
+        "- Give practical advice, not just numbers\n"
+        "- After giving data, add one sentence explaining what it means "
+        "practically (e.g. 'This means you can fill about 160 bags of 50kg "
+        "each from one hectare')\n"
+        "- Keep answers short — 3-4 sentences maximum\n"
+        "- Don't show all three units — show only acres (most common for "
+        "small farmers)"
+    ),
+    "advanced": (
+        "The farmer is experienced. Follow these rules:\n"
+        "- Be concise and data-focused\n"
+        "- Skip basic term explanations\n"
+        "- Include comparative data when available\n"
+        "- Show all three units (ha, acres, perches)\n"
+        "- Use technical terms freely (yield, farmgate, cultivation)\n"
+        "- Longer, more detailed answers are fine"
+    ),
+    "intermediate": (
+        "The farmer has some farming knowledge. Follow these rules:\n"
+        "- Explain technical terms only the first time\n"
+        "- Balance data with practical advice\n"
+        "- Show all three units (ha, acres, perches)\n"
+        "- Medium-length answers — enough detail without overwhelming"
+    ),
+}
 # Client-safe error messages for streaming failures. Technical detail
 # (status codes, exception types) is logged server-side only.
 _STREAM_ERROR_MESSAGES = {
@@ -1731,6 +1836,13 @@ def _build_messages(system: str, context: dict, req: ChatRequest, message: str) 
     # the conversation and don't compete with the safety-critical rules in
     # the core prompt (see _FORMATTING_RULES).
     msgs.append({"role": "system", "content": _FORMATTING_RULES})
+    # Knowledge-level instruction — its own system message right after the
+    # formatting rules and before history, so it sits close to the
+    # conversation (well-attended) and OVERRIDES any conflicting Part B rule
+    # (e.g. beginner shows only acres, not "all three units"). See
+    # _detect_knowledge_level / _LEVEL_INSTRUCTIONS.
+    level = _detect_knowledge_level(message, req.conversation_history)
+    msgs.append({"role": "system", "content": _LEVEL_INSTRUCTIONS[level]})
     # "All crops" queries: top-k retrieval only surfaces 2-3 crops' worth of
     # chunks, so the LLM can't know the other crops exist at all. Inject the
     # full crop list from our own dataset metadata as extra context so it
@@ -1890,6 +2002,86 @@ def _question_type(message: str) -> str:
     if any(k in msg for k in _SEASON_TYPE_KEYWORDS):
         return "season"
     return "general"
+
+
+def _raw_level(message: str, is_first: bool) -> str:
+    """Score a single message's phrasing as beginner/intermediate/advanced
+    from the Step 2 signals, ignoring conversation history. 2+ signals on a
+    side wins; advanced breaks ties. History smoothing is layered on top by
+    _detect_knowledge_level."""
+    msg = message.lower()
+    tokens = set(re.findall(r"[a-z]+", msg))
+    word_count = len(message.split())
+    has_crop = _detect_crop_mention(message) is not None
+    has_district = _detect_district_mention(message) is not None
+    has_season = bool(tokens & _SEASON_NAME_TOKENS)
+
+    beginner = 0
+    if word_count < 6:
+        beginner += 1
+    if any(p in msg for p in _BEGINNER_DEFINITION_PATTERNS):
+        beginner += 1
+    if any(p in msg for p in _BEGINNER_SIMPLE_PATTERNS):
+        beginner += 1
+    if not (has_crop or has_district or has_season):
+        beginner += 1
+    if is_first:
+        beginner += 1
+    if tokens & _BEGINNER_INFORMAL_TOKENS:
+        beginner += 1
+
+    advanced = 0
+    if any(t in msg for t in _ADVANCED_TERMS):
+        advanced += 1
+    if any(p in msg for p in _ADVANCED_COMPARISON_PATTERNS):
+        advanced += 1
+    topic_hits = sum(1 for k in _KNOWLEDGE_TOPIC_KEYWORDS if k in msg)
+    if topic_hits >= 2 and " and " in msg:
+        advanced += 1
+    if has_season:
+        advanced += 1
+    if word_count > 15:
+        advanced += 1
+    if any(p in msg for p in _ADVANCED_DATA_PATTERNS) or re.search(
+        r"\d\s*(kg|lkr|%)", msg
+    ):
+        advanced += 1
+
+    if advanced >= 2:
+        return "advanced"
+    if beginner >= 2:
+        return "beginner"
+    return "intermediate"
+
+
+def _detect_knowledge_level(message: str, history: list | None = None) -> str:
+    """Detect the farmer's knowledge level — "beginner", "intermediate", or
+    "advanced" — from how the CURRENT message is phrased, smoothed by the
+    levels of earlier questions in the conversation.
+
+    Each message is scored by _raw_level. History rules (Step 6): default to
+    intermediate when unsure; never downgrade to beginner once the farmer has
+    shown advanced phrasing (one simple follow-up doesn't make an expert a
+    beginner); a consistently-advanced history stabilises an otherwise
+    ambiguous turn to advanced so the level doesn't flap. Deterministic in
+    (message, history), so the level injected into the prompt and the level
+    logged to analytics never diverge.
+    """
+    user_msgs = [
+        t.content for t in (history or []) if getattr(t, "role", None) == "user"
+    ]
+    current = _raw_level(message, is_first=not user_msgs)
+    prior = [_raw_level(m, is_first=(i == 0)) for i, m in enumerate(user_msgs)]
+
+    if "advanced" in prior and current == "beginner":
+        return "intermediate"
+    if (
+        current == "intermediate"
+        and len(prior) >= 2
+        and all(p == "advanced" for p in prior)
+    ):
+        return "advanced"
+    return current
 
 
 def _smart_followups(context: dict, message: str, req: ChatRequest) -> list:
@@ -2128,6 +2320,11 @@ def _run_analytics(
             "user_id": _anonymize_uid(req.user_id),
             "question": message[:200],
             "question_type": _question_type(message),
+            # Recomputed here (deterministic) — matches the level
+            # _build_messages injected into the prompt for this same turn.
+            "knowledge_level": _detect_knowledge_level(
+                message, req.conversation_history
+            ),
             "response_type": response_type,
             "confidence": confidence,
             "retrieval_score": float(ctx.get("score", 0.0) or 0.0),

@@ -79,3 +79,6 @@ frontend/build/*/.filecache
 frontend/macos/Flutter/GeneratedPluginRegistrant.swift
 frontend/windows/flutter/generated_plugin_registrant.cc
 frontend/windows/flutter/generated_plugins.cmake
+
+# Local planning / prompt docs — kept on-machine, not shared
+ADMIN_REDESIGN_PROMPT.md

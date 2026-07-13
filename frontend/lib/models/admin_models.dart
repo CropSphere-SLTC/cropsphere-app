@@ -184,3 +184,90 @@ class SuperadminConfig {
         enableAdminApi: json['enable_admin_api'] ?? true,
       );
 }
+
+// ── Security monitoring (GET /api/admin/security/*) ──────────────────────────
+
+class SecuritySummary {
+  final int failedLogins;
+  final int rateViolations;
+  final int bannedAttempts;
+  final int activeSessions;
+  final int windowHours;
+
+  SecuritySummary({
+    required this.failedLogins,
+    required this.rateViolations,
+    required this.bannedAttempts,
+    required this.activeSessions,
+    required this.windowHours,
+  });
+
+  factory SecuritySummary.fromJson(Map<String, dynamic> json) =>
+      SecuritySummary(
+        failedLogins: json['failed_logins'] ?? 0,
+        rateViolations: json['rate_violations'] ?? 0,
+        bannedAttempts: json['banned_attempts'] ?? 0,
+        activeSessions: json['active_sessions'] ?? 0,
+        windowHours: json['window_hours'] ?? 24,
+      );
+}
+
+class SecurityEvent {
+  final String id;
+  final String type; // failed_login | rate_limit_violation | banned_access_attempt
+  final String uid;
+  final String email;
+  final String ipAddress;
+  final String endpoint;
+  final Map<String, dynamic> details;
+  final String timestamp;
+
+  SecurityEvent({
+    required this.id,
+    required this.type,
+    required this.uid,
+    required this.email,
+    required this.ipAddress,
+    required this.endpoint,
+    required this.details,
+    required this.timestamp,
+  });
+
+  factory SecurityEvent.fromJson(Map<String, dynamic> json) => SecurityEvent(
+    id: json['id']?.toString() ?? '',
+    type: json['type'] ?? '',
+    uid: json['uid']?.toString() ?? '',
+    email: json['email']?.toString() ?? '',
+    ipAddress: json['ip_address']?.toString() ?? '',
+    endpoint: json['endpoint']?.toString() ?? '',
+    details: Map<String, dynamic>.from(json['details'] ?? {}),
+    timestamp: json['timestamp']?.toString() ?? '',
+  );
+}
+
+class ActiveSession {
+  final String uid;
+  final String email;
+  final String role;
+  final String deviceInfo;
+  final String sessionStart;
+  final String lastActivity;
+
+  ActiveSession({
+    required this.uid,
+    required this.email,
+    required this.role,
+    required this.deviceInfo,
+    required this.sessionStart,
+    required this.lastActivity,
+  });
+
+  factory ActiveSession.fromJson(Map<String, dynamic> json) => ActiveSession(
+    uid: json['uid']?.toString() ?? '',
+    email: json['email']?.toString() ?? '',
+    role: json['role']?.toString() ?? '',
+    deviceInfo: json['device_info']?.toString() ?? '',
+    sessionStart: json['session_start']?.toString() ?? '',
+    lastActivity: json['last_activity']?.toString() ?? '',
+  );
+}

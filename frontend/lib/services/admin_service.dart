@@ -139,4 +139,41 @@ class AdminService {
     );
     return GapReport.fromJson(response.data);
   }
+
+  // ── Security monitoring (require_admin — both admin and superadmin) ──────────
+
+  Future<SecuritySummary> getSecuritySummary() async {
+    final response = await _dio.get('/api/admin/security/summary');
+    return SecuritySummary.fromJson(response.data);
+  }
+
+  Future<List<SecurityEvent>> getFailedLogins() async {
+    final response = await _dio.get('/api/admin/security/failed-logins');
+    return _parseEvents(response.data);
+  }
+
+  Future<List<SecurityEvent>> getRateViolations() async {
+    final response = await _dio.get('/api/admin/security/rate-violations');
+    return _parseEvents(response.data);
+  }
+
+  Future<List<SecurityEvent>> getBannedAttempts() async {
+    final response = await _dio.get('/api/admin/security/banned-attempts');
+    return _parseEvents(response.data);
+  }
+
+  Future<List<ActiveSession>> getActiveSessions() async {
+    final response = await _dio.get('/api/admin/security/active-sessions');
+    final sessions = response.data['sessions'] as List? ?? [];
+    return sessions
+        .map((s) => ActiveSession.fromJson(Map<String, dynamic>.from(s)))
+        .toList();
+  }
+
+  List<SecurityEvent> _parseEvents(dynamic data) {
+    final events = data['events'] as List? ?? [];
+    return events
+        .map((e) => SecurityEvent.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+  }
 }

@@ -14,9 +14,7 @@ def get_current_uid(request: Request) -> str:
     return uid
 
 
-def require_user(
-    uid: str = Depends(get_current_uid), request: Request = None
-) -> str:
+def require_user(uid: str = Depends(get_current_uid), request: Request = None) -> str:
     """Allow any authenticated non-banned user.
 
     On a banned denial, records a banned_access_attempt security event

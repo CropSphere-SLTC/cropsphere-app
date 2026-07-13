@@ -9,8 +9,16 @@ from app.admin.services import gap_report_service as svc
 
 CAPS = {
     "crops": ["Carrot", "Maize", "Green gram", "Cowpea", "Finger millet", "Groundnut"],
-    "districts": ["Anuradhapura", "Ampara", "Badulla", "Batticaloa", "Hambantota",
-                  "Jaffna", "Monaragala", "Nuwara Eliya"],
+    "districts": [
+        "Anuradhapura",
+        "Ampara",
+        "Badulla",
+        "Batticaloa",
+        "Hambantota",
+        "Jaffna",
+        "Monaragala",
+        "Nuwara Eliya",
+    ],
 }
 _CAPS_TARGET = "app.user.services.chatbot_service._dataset_capabilities"
 
@@ -35,28 +43,46 @@ def _clear_cache():
 
 
 SAMPLE = [
-    {"response_type": "answer", "confidence": "High confidence",
-     "knowledge_level": "intermediate", "crop_mentioned": "Carrot",
-     "district_mentioned": "Badulla", "question": "carrot yield?",
-     "response_time_ms": 1000, "session_message_count": 3,
-     "followup_chip_tapped": True},
-    {"response_type": "refusal", "confidence": "Out of scope",
-     "knowledge_level": "beginner", "crop_mentioned": "rice",
-     "district_mentioned": "colombo", "question": "rice price in colombo",
-     "response_time_ms": 500, "session_message_count": 1,
-     "followup_chip_tapped": False},
-    {"response_type": "near_miss", "confidence": "Out of scope",
-     "knowledge_level": "beginner", "crop_mentioned": "rice",
-     "district_mentioned": "galle", "question": "rice price in colombo",
-     "response_time_ms": 300, "session_message_count": 2,
-     "followup_chip_tapped": False},
+    {
+        "response_type": "answer",
+        "confidence": "High confidence",
+        "knowledge_level": "intermediate",
+        "crop_mentioned": "Carrot",
+        "district_mentioned": "Badulla",
+        "question": "carrot yield?",
+        "response_time_ms": 1000,
+        "session_message_count": 3,
+        "followup_chip_tapped": True,
+    },
+    {
+        "response_type": "refusal",
+        "confidence": "Out of scope",
+        "knowledge_level": "beginner",
+        "crop_mentioned": "rice",
+        "district_mentioned": "colombo",
+        "question": "rice price in colombo",
+        "response_time_ms": 500,
+        "session_message_count": 1,
+        "followup_chip_tapped": False,
+    },
+    {
+        "response_type": "near_miss",
+        "confidence": "Out of scope",
+        "knowledge_level": "beginner",
+        "crop_mentioned": "rice",
+        "district_mentioned": "galle",
+        "question": "rice price in colombo",
+        "response_time_ms": 300,
+        "session_message_count": 2,
+        "followup_chip_tapped": False,
+    },
 ]
 
 
 def test_aggregates_sample():
-    with patch("app.utils.firestore.get_db",
-               return_value=_db_with([_doc(d) for d in SAMPLE])), \
-         patch(_CAPS_TARGET, return_value=CAPS):
+    with patch(
+        "app.utils.firestore.get_db", return_value=_db_with([_doc(d) for d in SAMPLE])
+    ), patch(_CAPS_TARGET, return_value=CAPS):
         report = svc.get_gap_report(7)
 
     assert report["period"] == "last_7_days"
@@ -65,7 +91,9 @@ def test_aggregates_sample():
     assert report["response_breakdown"]["refusal"] == 1
     assert report["response_breakdown"]["near_miss"] == 1
     assert report["top_refused_questions"][0] == {
-        "question": "rice price in colombo", "count": 2}
+        "question": "rice price in colombo",
+        "count": 2,
+    }
     assert {"crop": "rice", "request_count": 2} in report["missing_crops"]
     assert all(m["crop"] != "Carrot" for m in report["missing_crops"])
     assert {m["district"] for m in report["missing_districts"]} == {"colombo", "galle"}
@@ -77,8 +105,9 @@ def test_aggregates_sample():
 
 
 def test_empty_collection_returns_zeroed_report():
-    with patch("app.utils.firestore.get_db", return_value=_db_with([])), \
-         patch(_CAPS_TARGET, return_value=CAPS):
+    with patch("app.utils.firestore.get_db", return_value=_db_with([])), patch(
+        _CAPS_TARGET, return_value=CAPS
+    ):
         report = svc.get_gap_report(7)
     assert report["total_interactions"] == 0
     assert report["top_refused_questions"] == []
@@ -89,26 +118,35 @@ def test_empty_collection_returns_zeroed_report():
 
 
 def test_days_clamped_to_max_30():
-    with patch("app.utils.firestore.get_db", return_value=_db_with([])), \
-         patch(_CAPS_TARGET, return_value=CAPS):
+    with patch("app.utils.firestore.get_db", return_value=_db_with([])), patch(
+        _CAPS_TARGET, return_value=CAPS
+    ):
         report = svc.get_gap_report(999)
     assert report["period"] == "last_30_days"
 
 
 def test_result_cached_within_ttl():
-    with patch("app.utils.firestore.get_db",
-               return_value=_db_with([_doc(SAMPLE[0])])) as gdb, \
-         patch(_CAPS_TARGET, return_value=CAPS):
+    with patch(
+        "app.utils.firestore.get_db", return_value=_db_with([_doc(SAMPLE[0])])
+    ) as gdb, patch(_CAPS_TARGET, return_value=CAPS):
         svc.get_gap_report(7)
         svc.get_gap_report(7)
     assert gdb.call_count == 1  # second call served from cache
 
 
 def test_low_confidence_label_normalised():
-    docs = [_doc({"response_type": "answer", "knowledge_level": "advanced",
-                  "confidence": "Low confidence — please verify with an "
-                                "agricultural officer"})]
-    with patch("app.utils.firestore.get_db", return_value=_db_with(docs)), \
-         patch(_CAPS_TARGET, return_value=CAPS):
+    docs = [
+        _doc(
+            {
+                "response_type": "answer",
+                "knowledge_level": "advanced",
+                "confidence": "Low confidence — please verify with an "
+                "agricultural officer",
+            }
+        )
+    ]
+    with patch("app.utils.firestore.get_db", return_value=_db_with(docs)), patch(
+        _CAPS_TARGET, return_value=CAPS
+    ):
         report = svc.get_gap_report(7)
     assert report["confidence_distribution"] == {"Low confidence": 1}

@@ -561,8 +561,12 @@ def list_active_sessions(hours: int = 24, limit: int = 100) -> list:
                 "email": "",
                 "role": "",
                 "device_info": d.get("device_info", ""),
-                "session_start": start.isoformat() if hasattr(start, "isoformat") else None,
-                "last_activity": last.isoformat() if hasattr(last, "isoformat") else None,
+                "session_start": (
+                    start.isoformat() if hasattr(start, "isoformat") else None
+                ),
+                "last_activity": (
+                    last.isoformat() if hasattr(last, "isoformat") else None
+                ),
             }
         )
 

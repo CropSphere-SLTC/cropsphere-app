@@ -11,7 +11,6 @@ from fastapi import HTTPException
 
 from app.super_admin.services import superadmin_service
 
-
 # ═══════════════════════════════════════════════════════════════════════════
 # Service — force_logout
 # ═══════════════════════════════════════════════════════════════════════════

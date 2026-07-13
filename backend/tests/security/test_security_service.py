@@ -12,7 +12,6 @@ from fastapi import HTTPException
 
 from app.admin.services import security_service
 
-
 # ═══════════════════════════════════════════════════════════════════════════
 # get_security_summary
 # ═══════════════════════════════════════════════════════════════════════════
@@ -42,9 +41,9 @@ def test_summary_counts_events_by_type_and_reports_active_sessions():
 
 
 def test_summary_all_zero_when_no_events():
-    with patch(
-        "app.utils.firestore.get_security_events_since", return_value=[]
-    ), patch("app.utils.firestore.count_active_sessions", return_value=0):
+    with patch("app.utils.firestore.get_security_events_since", return_value=[]), patch(
+        "app.utils.firestore.count_active_sessions", return_value=0
+    ):
         result = security_service.get_security_summary()
 
     assert result["failed_logins"] == 0
@@ -108,9 +107,7 @@ def test_banned_attempts_filters_to_that_type_only():
 
 def test_recent_by_type_respects_limit():
     many = [{"type": "failed_login", "id": str(i)} for i in range(10)]
-    with patch(
-        "app.utils.firestore.query_recent_security_events", return_value=many
-    ):
+    with patch("app.utils.firestore.query_recent_security_events", return_value=many):
         result = security_service.get_failed_logins(limit=3)
 
     assert result["total"] == 3

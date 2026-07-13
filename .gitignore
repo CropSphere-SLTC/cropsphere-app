@@ -67,6 +67,10 @@ frontend/.packages
 *.json
 !package.json
 !tsconfig*.json
+# Structural config, not secrets — flutter_launcher_icons/flutter build write
+# into these; google-services.json (real credentials) stays ignored above.
+!frontend/web/manifest.json
+!frontend/ios/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json
 frontend/windows/flutter/ephemeral/
 backend/bandit_report.txt
 frontend/build/*.dill
@@ -75,3 +79,6 @@ frontend/build/*/.filecache
 frontend/macos/Flutter/GeneratedPluginRegistrant.swift
 frontend/windows/flutter/generated_plugin_registrant.cc
 frontend/windows/flutter/generated_plugins.cmake
+
+# Local planning / prompt docs — kept on-machine, not shared
+ADMIN_REDESIGN_PROMPT.md

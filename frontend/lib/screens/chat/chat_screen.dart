@@ -1,6 +1,9 @@
 // lib/screens/chat/chat_screen.dart
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../config/app_config.dart';
 import '../../services/service_factory.dart';
@@ -17,10 +20,16 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   static const double _wideBreakpoint = 900;
-  static const _defaultFollowups = [
-    'What should I plant this Maha season?',
-    'What is the expected yield for Carrot?',
-    'Which district has best prices?',
+  static const _logoAsset = 'assets/images/cropsphere_logo.png';
+  static const _onboardingFollowups = [
+    'Carrot yield in Badulla',
+    'Best season for maize in Anuradhapura',
+    'What crops do you cover?',
+  ];
+  static const _starterIcons = [
+    Icons.grass,
+    Icons.calendar_month,
+    Icons.list_alt,
   ];
 
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
@@ -50,7 +59,7 @@ class _ChatScreenState extends State<ChatScreen> {
   String? _conversationId; // null = new chat
   List<ConversationSummary> _conversations = [];
   bool _conversationsLoading = false;
-  List<String> _suggestedFollowups = List.of(_defaultFollowups);
+  List<String> _suggestedFollowups = [];
   String? _selectedDistrict;
   String? _selectedCrop;
   String _selectedModel = 'accurate';
@@ -134,7 +143,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _conversationId = null;
       _displayMessages.clear();
       _history.clear();
-      _suggestedFollowups = List.of(_defaultFollowups);
+      _suggestedFollowups = [];
     });
   }
 
@@ -636,7 +645,7 @@ class _ChatScreenState extends State<ChatScreen> {
               padding: EdgeInsets.zero,
               onPressed: () => _scaffoldKey.currentState?.openDrawer(),
             ),
-          const Icon(Icons.chat, color: Colors.white, size: 28),
+          _logo(28),
           const SizedBox(width: 12),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -814,24 +823,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _buildMessageList() {
     if (_displayMessages.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.chat_bubble_outline, size: 64, color: Colors.grey[300]),
-            const SizedBox(height: 16),
-            Text(
-              'Ask me anything about Sri Lanka agriculture',
-              style: TextStyle(color: Colors.grey[500], fontSize: 15),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Yield • Prices • Weather • Crop recommendations',
-              style: TextStyle(color: Colors.grey[400], fontSize: 12),
-            ),
-          ],
-        ),
-      );
+      return _buildEmptyState();
     }
     return ListView.builder(
       controller: _scrollController,
@@ -840,12 +832,108 @@ class _ChatScreenState extends State<ChatScreen> {
       itemBuilder: (ctx, i) {
         if (i == _displayMessages.length) return _buildTypingIndicator();
         final msg = _displayMessages[i];
-        return _buildMessageBubble(msg);
+        return _buildMessageBubble(msg, i);
       },
     );
   }
 
-  Widget _buildMessageBubble(Map<String, dynamic> msg) {
+  /// CropSphere logo, used at every size across the screen (header, bot
+  /// avatar, empty-state badge). ClipOval trims the source PNG's thin
+  /// square margin around the circle so no white corner/edge shows once
+  /// it's placed on a non-white background (e.g. the header gradient).
+  Widget _logo(double size) {
+    return ClipOval(
+      child: Image.asset(
+        _logoAsset,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+      ),
+    );
+  }
+
+  /// Modern centered empty state shown when a conversation has no messages
+  /// yet (fresh launch or "New Chat") — replaces the old placeholder text
+  /// and welcome bubble. Tapping a starter card sends it exactly like a
+  /// followup chip tap; the bottom chip row stays hidden the whole time
+  /// since _suggestedFollowups is empty until a real response arrives.
+  Widget _buildEmptyState() {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 600),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(vertical: 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _logo(72),
+              const SizedBox(height: 16),
+              Text(
+                'CropSphere',
+                style: TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.primary,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Text(
+                  'Ask about crops, yields, and prices for Sri Lankan '
+                  'agriculture',
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                ),
+              ),
+              const SizedBox(height: 24),
+              for (var i = 0; i < _onboardingFollowups.length; i++) ...[
+                _buildStarterCard(_starterIcons[i], _onboardingFollowups[i]),
+                if (i < _onboardingFollowups.length - 1)
+                  const SizedBox(height: 9),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStarterCard(IconData icon, String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: GestureDetector(
+        onTap: () => _sendMessage(text),
+        child: Container(
+          width: double.infinity,
+          height: 48,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey[200]!),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, size: 20, color: AppTheme.primary),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  text,
+                  style: const TextStyle(fontSize: 14, color: Colors.black87),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMessageBubble(Map<String, dynamic> msg, int index) {
     final isUser = msg['role'] == 'user';
     final isError = msg['role'] == 'error';
     final isMock = msg['isMock'] as bool? ?? false;
@@ -887,14 +975,7 @@ class _ChatScreenState extends State<ChatScreen> {
             : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (!isUser) ...[
-            CircleAvatar(
-              backgroundColor: const Color(0xFF37474F),
-              radius: 16,
-              child: const Icon(Icons.eco, color: Colors.white, size: 16),
-            ),
-            const SizedBox(width: 8),
-          ],
+          if (!isUser) ...[_logo(32), const SizedBox(width: 8)],
           Flexible(
             child: Container(
               padding: const EdgeInsets.all(12),
@@ -930,20 +1011,42 @@ class _ChatScreenState extends State<ChatScreen> {
                     const SizedBox(height: 6),
                   ],
                   // MIDDLE — answer text (reasoning split out for bot replies);
-                  // "..." placeholder while the stream is starting (Phase 1)
-                  Text(
-                    isStreamingMsg && parsed.answer.isEmpty
-                        ? '...'
-                        : parsed.answer,
-                    style: TextStyle(
-                      color: isUser
-                          ? Colors.white
-                          : isError
-                          ? Colors.red
-                          : Colors.black87,
-                      fontSize: 14,
-                    ),
-                  ),
+                  // "..." placeholder while the stream is starting (Phase 1).
+                  // Bot replies render as markdown (the model uses **bold**,
+                  // numbered/dash lists in math and multi-item answers) —
+                  // softLineBreak keeps single '\n's as real line breaks,
+                  // matching how our system prompt actually formats text
+                  // (single newlines between steps/list items, not blank
+                  // lines). User/error bubbles stay plain text.
+                  isBot
+                      ? MarkdownBody(
+                          data: isStreamingMsg && parsed.answer.isEmpty
+                              ? '...'
+                              : parsed.answer,
+                          softLineBreak: true,
+                          styleSheet: MarkdownStyleSheet(
+                            p: const TextStyle(
+                              color: Colors.black87,
+                              fontSize: 14,
+                            ),
+                            strong: const TextStyle(
+                              color: Colors.black87,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                            ),
+                            listBullet: const TextStyle(
+                              color: Colors.black87,
+                              fontSize: 14,
+                            ),
+                          ),
+                        )
+                      : Text(
+                          parsed.answer,
+                          style: TextStyle(
+                            color: isUser ? Colors.white : Colors.red,
+                            fontSize: 14,
+                          ),
+                        ),
                   // BOTTOM — muted XAI footer; hidden when empty (out-of-scope)
                   if (hasFooter)
                     wasStreamed
@@ -1000,6 +1103,16 @@ class _ChatScreenState extends State<ChatScreen> {
                         ),
                       ),
                     ),
+                  // Feedback (thumbs) — only on real, completed Groq answers.
+                  // Those carry retrieval sources; refusals, clarifications,
+                  // capability/context-ack replies, the welcome view and
+                  // reloaded-history bubbles all have empty sources, so this
+                  // gate hides thumbs on exactly the responses Step 7 lists.
+                  if (isBot &&
+                      !isStreamingMsg &&
+                      errorCode == null &&
+                      sources.isNotEmpty)
+                    _buildFeedbackRow(msg, index),
                 ],
               ),
             ),
@@ -1015,6 +1128,93 @@ class _ChatScreenState extends State<ChatScreen> {
         ],
       ),
     );
+  }
+
+  // Thumbs up/down on a bot answer. Once a vote is cast, the other button
+  // disappears and the selected one is disabled (one feedback per message).
+  Widget _buildFeedbackRow(Map<String, dynamic> msg, int index) {
+    final feedback = msg['feedback'] as String?;
+    return Align(
+      alignment: Alignment.centerRight,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (feedback == null || feedback == 'up')
+            _feedbackButton(
+              filled: feedback == 'up',
+              onIcon: Icons.thumb_up,
+              offIcon: Icons.thumb_up_outlined,
+              color: AppTheme.success,
+              tooltip: 'Helpful',
+              onTap: feedback == null
+                  ? () => _sendFeedback(msg, index, 'up')
+                  : null,
+            ),
+          if (feedback == null || feedback == 'down')
+            _feedbackButton(
+              filled: feedback == 'down',
+              onIcon: Icons.thumb_down,
+              offIcon: Icons.thumb_down_outlined,
+              color: AppTheme.accent, // orange
+              tooltip: 'Not helpful',
+              onTap: feedback == null
+                  ? () => _sendFeedback(msg, index, 'down')
+                  : null,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _feedbackButton({
+    required bool filled,
+    required IconData onIcon,
+    required IconData offIcon,
+    required Color color,
+    required String tooltip,
+    required VoidCallback? onTap,
+  }) {
+    return IconButton(
+      icon: Icon(
+        filled ? onIcon : offIcon,
+        size: 16,
+        color: filled ? color : Colors.grey[400],
+      ),
+      onPressed: onTap, // null once any vote is cast → disabled
+      tooltip: tooltip,
+      padding: EdgeInsets.zero,
+      visualDensity: VisualDensity.compact,
+      constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+    );
+  }
+
+  // Optimistic: fill the icon immediately, then fire the call in the
+  // background. If it fails, keep the UI as-is — the vote is lost silently
+  // (feedback must never block or slow the chat experience).
+  void _sendFeedback(Map<String, dynamic> msg, int index, String feedback) {
+    setState(() => msg['feedback'] = feedback);
+    unawaited(
+      ServiceFactory.getService()
+          .sendFeedback(
+            conversationId: _conversationId ?? '',
+            messageIndex: index,
+            feedback: feedback,
+            messageText: _questionForAnswer(index),
+          )
+          .catchError((_) {
+            /* best-effort — keep the UI as-is */
+          }),
+    );
+  }
+
+  // The user question this answer responds to → most_downvoted_questions.
+  String _questionForAnswer(int answerIndex) {
+    for (var i = answerIndex - 1; i >= 0; i--) {
+      if (_displayMessages[i]['role'] == 'user') {
+        return _displayMessages[i]['content'] as String? ?? '';
+      }
+    }
+    return '';
   }
 
   /// Splits a bot reply into (reasoning, answer). The backend instructs the
@@ -1091,6 +1291,10 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   /// One muted line in the XAI footer (reasoning / sources / advisory).
+  /// Renders as markdown defensively — the reasoning line is normally a
+  /// plain sentence, but if the model ever puts **bold** or a dash list in
+  /// there (e.g. a mis-split reformulation reply), it still renders
+  /// properly instead of showing raw asterisks/dashes.
   Widget _xaiFooterLine(IconData icon, String text) {
     return Padding(
       padding: const EdgeInsets.only(top: 2),
@@ -1100,12 +1304,26 @@ class _ChatScreenState extends State<ChatScreen> {
           Icon(icon, size: 12, color: Colors.grey[500]),
           const SizedBox(width: 4),
           Expanded(
-            child: Text(
-              text,
-              style: TextStyle(
-                fontSize: 11,
-                color: Colors.grey[600],
-                height: 1.3,
+            child: MarkdownBody(
+              data: text,
+              softLineBreak: true,
+              styleSheet: MarkdownStyleSheet(
+                p: TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey[600],
+                  height: 1.3,
+                ),
+                strong: TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey[600],
+                  height: 1.3,
+                  fontWeight: FontWeight.w700,
+                ),
+                listBullet: TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey[600],
+                  height: 1.3,
+                ),
               ),
             ),
           ),
@@ -1117,11 +1335,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget _buildTypingIndicator() {
     return Row(
       children: [
-        CircleAvatar(
-          backgroundColor: const Color(0xFF37474F),
-          radius: 16,
-          child: const Icon(Icons.eco, color: Colors.white, size: 16),
-        ),
+        _logo(32),
         const SizedBox(width: 8),
         Container(
           padding: const EdgeInsets.all(12),

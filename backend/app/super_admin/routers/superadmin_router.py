@@ -63,6 +63,24 @@ def get_audit_logs(request: Request, limit: int = 50):
     return superadmin_service.get_all_audit_logs(limit)
 
 
+# ── Force logout ──────────────────────────────────────────────────────────────
+
+
+@router.post("/security/force-logout/{uid}")
+@limiter.limit("10/minute")
+def force_logout(
+    request: Request,
+    uid: str,
+    actor_uid: str = Depends(require_superadmin),
+):
+    """Force-logout a user by revoking their Firebase refresh tokens.
+
+    Superadmin only — require_superadmin both gates the route (403 otherwise)
+    and yields the acting superadmin's uid for the audit trail.
+    """
+    return superadmin_service.force_logout(uid, actor_uid)
+
+
 # ── Session maintenance ───────────────────────────────────────────────────────
 
 

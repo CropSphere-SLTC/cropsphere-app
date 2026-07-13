@@ -1,22 +1,24 @@
-// lib/screens/admin/gap_report_screen.dart
-// Admin-only Gap Report — visualises chat_analytics aggregates to reveal what
-// data users ask for that CropSphere can't answer yet. Native widgets only
-// (proportional Container bars) — no charting package.
+// lib/screens/admin/shared/pages/gap_report_page.dart
+// Gap Report — visualises chat_analytics aggregates to reveal what data users
+// ask for that CropSphere can't answer yet. Relocated from the old
+// gap_report_screen.dart: same content and charts, now a shell page (no
+// Scaffold/AppBar — the day selector moved into the page header). Both roles.
 
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
-import '../../models/admin_models.dart';
-import '../../services/admin_service.dart';
-import '../../widgets/app_theme.dart';
+import '../../../../models/admin_models.dart';
+import '../../../../services/admin_service.dart';
+import '../../../../widgets/app_theme.dart';
+import '../admin_ui.dart';
+import '../widgets/stat_card.dart';
 
-class GapReportScreen extends StatefulWidget {
-  const GapReportScreen({super.key});
+class GapReportPage extends StatefulWidget {
+  const GapReportPage({super.key});
 
   @override
-  State<GapReportScreen> createState() => _GapReportScreenState();
+  State<GapReportPage> createState() => _GapReportPageState();
 }
 
-class _GapReportScreenState extends State<GapReportScreen> {
+class _GapReportPageState extends State<GapReportPage> {
   final _admin = AdminService();
   int _days = 7;
   bool _loading = true;
@@ -38,7 +40,7 @@ class _GapReportScreenState extends State<GapReportScreen> {
       final report = await _admin.getGapReport(days: _days);
       if (mounted) setState(() => _report = report);
     } catch (e) {
-      if (mounted) setState(() => _error = _errorMessage(e));
+      if (mounted) setState(() => _error = adminErrorMessage(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -50,44 +52,44 @@ class _GapReportScreenState extends State<GapReportScreen> {
     await _load();
   }
 
-  String _errorMessage(Object e) {
-    if (e is DioException) {
-      final detail = e.response?.data is Map ? e.response?.data['detail'] : null;
-      if (detail is String) return detail;
-      if (e.response?.statusCode == 403) return 'Admin access required';
-    }
-    return 'Failed to load gap report';
-  }
-
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppTheme.background,
-      appBar: AppBar(
-        title: const Text('Gap Report'),
-        backgroundColor: AppTheme.primary,
-        foregroundColor: Colors.white,
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<int>(
-                value: _days,
-                dropdownColor: AppTheme.primary,
-                iconEnabledColor: Colors.white,
-                style: const TextStyle(color: Colors.white, fontSize: 14),
-                items: const [
-                  DropdownMenuItem(value: 7, child: Text('7 days')),
-                  DropdownMenuItem(value: 14, child: Text('14 days')),
-                  DropdownMenuItem(value: 30, child: Text('30 days')),
-                ],
-                onChanged: _loading ? null : _changeDays,
-              ),
-            ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+          child: AdminPageHeader(
+            title: 'Gap report',
+            subtitle: 'Chatbot usage & missing-data insights',
+            actions: [_buildDaySelector()],
           ),
-        ],
+        ),
+        Expanded(child: _buildBody()),
+      ],
+    );
+  }
+
+  Widget _buildDaySelector() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        color: AppTheme.background,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE0EBE0)),
       ),
-      body: _buildBody(),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<int>(
+          value: _days,
+          isDense: true,
+          items: const [
+            DropdownMenuItem(value: 7, child: Text('7 days')),
+            DropdownMenuItem(value: 14, child: Text('14 days')),
+            DropdownMenuItem(value: 30, child: Text('30 days')),
+          ],
+          onChanged: _loading ? null : _changeDays,
+        ),
+      ),
     );
   }
 
@@ -155,51 +157,40 @@ class _GapReportScreenState extends State<GapReportScreen> {
     );
   }
 
-  // ── Summary cards ─────────────────────────────────────────────────────────
   Widget _buildSummaryCards(GapReport report) {
     final total = report.totalInteractions;
     final answers = report.responseBreakdown['answer'] ?? 0;
     final answerRate = total == 0 ? 0 : (answers / total * 100).round();
-    final cards = [
-      _SummaryCard(
-        label: 'Total interactions',
-        value: '$total',
-        icon: Icons.chat_bubble_outline,
-        color: AppTheme.primary,
-      ),
-      _SummaryCard(
-        label: 'Answer rate',
-        value: '$answerRate%',
-        icon: Icons.check_circle_outline,
-        color: AppTheme.success,
-      ),
-      _SummaryCard(
-        label: 'Avg response time',
-        value: _formatMs(report.avgResponseTimeMs),
-        icon: Icons.timer_outlined,
-        color: AppTheme.info,
-      ),
-      _SummaryCard(
-        label: 'Chip tap rate',
-        value: '${(report.chipTapRate * 100).round()}%',
-        icon: Icons.touch_app_outlined,
-        color: AppTheme.accent,
-      ),
-    ];
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final perRow = constraints.maxWidth < 600 ? 2 : 4;
-        final w = (constraints.maxWidth - (perRow - 1) * 12) / perRow;
-        return Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: cards.map((c) => SizedBox(width: w, child: c)).toList(),
-        );
-      },
+    return StatCardGrid(
+      cards: [
+        StatCard(
+          label: 'Total interactions',
+          value: '$total',
+          icon: Icons.chat_bubble_outline,
+          color: AppTheme.primary,
+        ),
+        StatCard(
+          label: 'Answer rate',
+          value: '$answerRate%',
+          icon: Icons.check_circle_outline,
+          color: AppTheme.success,
+        ),
+        StatCard(
+          label: 'Avg response time',
+          value: _formatMs(report.avgResponseTimeMs),
+          icon: Icons.timer_outlined,
+          color: AppTheme.info,
+        ),
+        StatCard(
+          label: 'Chip tap rate',
+          value: '${(report.chipTapRate * 100).round()}%',
+          icon: Icons.touch_app_outlined,
+          color: AppTheme.accent,
+        ),
+      ],
     );
   }
 
-  // ── Missing crops & districts, side by side ───────────────────────────────
   Widget _buildMissingRow(GapReport report) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -246,30 +237,8 @@ class _GapReportScreenState extends State<GapReportScreen> {
     );
   }
 
-  // ── Reusable pieces ───────────────────────────────────────────────────────
   Widget _sectionCard(String title, Widget child) {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.bold,
-                color: AppTheme.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 12),
-            child,
-          ],
-        ),
-      ),
-    );
+    return AdminSectionCard(title: title, child: child);
   }
 
   Widget _barList(Map<String, int> data, Color Function(String) colorFn) {
@@ -294,10 +263,7 @@ class _GapReportScreenState extends State<GapReportScreen> {
             width: 110,
             child: Text(
               label,
-              style: const TextStyle(
-                fontSize: 12,
-                color: AppTheme.textSecondary,
-              ),
+              style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -352,10 +318,7 @@ class _GapReportScreenState extends State<GapReportScreen> {
               child: Row(
                 children: [
                   Expanded(
-                    child: Text(
-                      q.question,
-                      style: const TextStyle(fontSize: 13),
-                    ),
+                    child: Text(q.question, style: const TextStyle(fontSize: 13)),
                   ),
                   const SizedBox(width: 8),
                   _countBadge(q.count),
@@ -433,10 +396,7 @@ class _GapReportScreenState extends State<GapReportScreen> {
             Text(
               text,
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 14,
-                color: AppTheme.textSecondary,
-              ),
+              style: const TextStyle(fontSize: 14, color: AppTheme.textSecondary),
             ),
             if (retry) ...[
               const SizedBox(height: 16),
@@ -512,53 +472,5 @@ class _GapReportScreenState extends State<GapReportScreen> {
       default:
         return AppTheme.textMuted;
     }
-  }
-}
-
-class _SummaryCard extends StatelessWidget {
-  final String label;
-  final String value;
-  final IconData icon;
-  final Color color;
-
-  const _SummaryCard({
-    required this.label,
-    required this.value,
-    required this.icon,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, color: color, size: 22),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: AppTheme.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 12,
-                color: AppTheme.textSecondary,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }

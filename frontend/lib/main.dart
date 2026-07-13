@@ -23,15 +23,14 @@ import 'screens/weather/weather_screen.dart';
 import 'screens/demand/demand_screen.dart';
 import 'screens/recommend/recommend_screen.dart';
 import 'screens/chat/chat_screen.dart';
-import 'screens/admin/admin_dashboard_screen.dart';
-import 'screens/super_admin/superadmin_dashboard_screen.dart';
+import 'screens/admin/admin_shell.dart';
 import 'screens/profile/account_settings_screen.dart';
 import 'screens/profile/change_password_screen.dart';
 import 'services/admin_service.dart';
 import 'services/profile_service.dart';
 import 'services/session_service.dart';
 import 'models/profile_models.dart';
-import 'widgets/profile_popup.dart';
+import 'widgets/profile_avatar_button.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -97,9 +96,14 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   int _selectedIndex = 0;
   bool _isAdmin = false;
+  // False until the first checkAdminAccess() resolves — the shell is gated on
+  // this so an admin never sees the user home before being routed to the panel.
+  bool _adminChecked = false;
   UserProfile? _profile;
 
-  late final List<Widget> _baseScreens = [
+  // The user-facing bottom-nav screens. Admins don't use this layout — they get
+  // AdminShell (which hosts these same screens in its "App" sidebar section).
+  late final List<Widget> _screens = [
     DashboardScreen(onNavigate: _navigateTo), // 0
     YieldScreen(onNavigate: _navigateTo), // 1
     const PriceScreen(), // 2
@@ -107,18 +111,6 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     const RecommendScreen(), // 4
     const DemandScreen(), // 5
     const ChatScreen(), // 6
-  ];
-
-  // Both roles pass the same checkAdminAccess() gate (backend's
-  // require_admin allows admin or superadmin) — the actual role from the
-  // loaded profile decides which of the two screens fills that slot.
-  List<Widget> get _screens => [
-    ..._baseScreens,
-    if (_isAdmin)
-      if (_profile?.role == 'superadmin')
-        const SuperadminDashboardScreen()
-      else
-        const AdminDashboardScreen(), // 7 — admin/superadmin only
   ];
 
   @override
@@ -178,7 +170,12 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
   Future<void> _checkAdminAccess() async {
     final isAdmin = await AdminService().checkAdminAccess();
-    if (mounted) setState(() => _isAdmin = isAdmin);
+    if (mounted) {
+      setState(() {
+        _isAdmin = isAdmin;
+        _adminChecked = true;
+      });
+    }
   }
 
   void _navigateTo(int index) {
@@ -189,109 +186,49 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _showProfilePopup() async {
-    final profile = _profile;
-    if (profile == null) return;
-
-    await showGeneralDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: 'Profile',
-      barrierColor: Colors.black.withValues(alpha: 0.05),
-      transitionDuration: const Duration(milliseconds: 150),
-      pageBuilder: (dialogContext, _, _) {
-        return SafeArea(
-          child: Align(
-            alignment: Alignment.topRight,
-            child: Padding(
-              padding: const EdgeInsets.only(top: 8, right: 12),
-              child: Material(
-                color: Colors.transparent,
-                child: ProfilePopup(
-                  profile: profile,
-                  onProfileUpdated: (updated) {
-                    if (mounted) setState(() => _profile = updated);
-                  },
-                  onOpenSettings: () {
-                    Navigator.of(dialogContext).pop();
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const AccountSettingsScreen(),
-                      ),
-                    );
-                  },
-                  onOpenChangePassword: () {
-                    Navigator.of(dialogContext).pop();
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const ChangePasswordScreen(),
-                      ),
-                    );
-                  },
-                  onLogout: () async {
-                    Navigator.of(dialogContext).pop();
-                    await SessionService.logout();
-                  },
-                ),
-              ),
-            ),
-          ),
-        );
-      },
+  void _openSettings() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const AccountSettingsScreen()),
     );
   }
 
-  // Single-letter fallback shown in the app-bar avatar when there's no
-  // photo (or it fails to load) — ProfilePopup uses a bigger two-letter
-  // version of its own since its avatar is larger.
-  String get _avatarInitial {
-    final name = _profile?.name.trim() ?? '';
-    return name.isNotEmpty ? name[0].toUpperCase() : '?';
+  void _openChangePassword() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const ChangePasswordScreen()),
+    );
   }
 
-  Widget _buildAppBarAvatar() {
-    final photoUrl = _profile?.photoUrl;
-    final hasPhoto = photoUrl != null && photoUrl.isNotEmpty;
-    const diameter = 36.0;
-
-    final initial = Text(
-      _avatarInitial,
-      style: const TextStyle(
-        color: Colors.white,
-        fontWeight: FontWeight.w700,
-        fontSize: 15,
-      ),
-    );
-
-    return GestureDetector(
-      onTap: _profile == null ? null : _showProfilePopup,
-      child: CircleAvatar(
-        radius: diameter / 2,
-        backgroundColor: Colors.white24,
-        // Image.network (not CircleAvatar's own backgroundImage) — same
-        // pattern as ProfilePopup._buildAvatar, since errorBuilder only
-        // exists on the Image widget, not on ImageProvider.
-        child: hasPhoto
-            ? ClipOval(
-                child: Image.network(
-                  photoUrl,
-                  width: diameter,
-                  height: diameter,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => initial,
-                ),
-              )
-            : initial,
-      ),
-    );
+  void _onProfileUpdated(UserProfile updated) {
+    if (mounted) setState(() => _profile = updated);
   }
 
   @override
   Widget build(BuildContext context) {
+    // Hold the shell until we know whether this account is an admin, so an
+    // admin is never shown the user home before being routed to the panel.
+    if (!_adminChecked) {
+      return const Scaffold(
+        backgroundColor: Color(0xFFFAFFF5),
+        body: Center(child: CircularProgressIndicator(color: Color(0xFF4CAF50))),
+      );
+    }
+
+    // Admins/superadmins land directly in the admin panel; the user app lives
+    // in the panel's "App" sidebar section.
+    if (_isAdmin) {
+      return AdminShell(
+        // checkAdminAccess() only confirms admin-or-above; the loaded profile
+        // decides the tier. Default to 'admin' until the profile arrives.
+        role: _profile?.role == 'superadmin' ? 'superadmin' : 'admin',
+        profile: _profile,
+        onProfileUpdated: _onProfileUpdated,
+        onOpenSettings: _openSettings,
+        onOpenChangePassword: _openChangePassword,
+      );
+    }
+
     // Rebuild nav labels when language changes
     final lang = AppLangProvider.lang(context);
-    // Selected index may point past the Admin tab if role finishes loading
-    // after a later tab was chosen — clamp defensively.
     final safeIndex = _selectedIndex < _screens.length ? _selectedIndex : 0;
 
     return Scaffold(
@@ -305,7 +242,13 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
           actions: [
             Padding(
               padding: const EdgeInsets.only(right: 12),
-              child: _buildAppBarAvatar(),
+              child: ProfileAvatarButton(
+                profile: _profile,
+                onProfileUpdated: _onProfileUpdated,
+                onOpenSettings: _openSettings,
+                onOpenChangePassword: _openChangePassword,
+                onLogout: SessionService.logout,
+              ),
             ),
           ],
         ),
@@ -315,7 +258,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         selectedIndex: safeIndex,
         onTap: _navigateTo,
         lang: lang,
-        showAdmin: _isAdmin,
+        showAdmin: false,
       ),
     );
   }

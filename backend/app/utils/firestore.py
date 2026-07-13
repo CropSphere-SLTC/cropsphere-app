@@ -417,3 +417,167 @@ def audit_log(user_id: str, endpoint: str, input_data: Dict[str, Any]) -> None:
             endpoint,
             exc,
         )
+
+
+# ── Security events (monitoring) ──────────────────────────────────────────────
+
+# The three event types persisted to the security_events collection. Kept as a
+# tuple so callers (services, tests) can validate/iterate without hard-coding
+# the strings in multiple places.
+SECURITY_EVENT_TYPES = (
+    "failed_login",
+    "rate_limit_violation",
+    "banned_access_attempt",
+)
+
+
+def write_security_event(
+    event_type: str,
+    uid: str = "",
+    email: str = "",
+    ip_address: str = "",
+    endpoint: str = "",
+    details: Dict[str, Any] = None,
+) -> None:
+    """Persist a security-monitoring event to the security_events collection.
+
+    Called from the request path (auth failures, 429s, banned access) so it is
+    strictly best-effort: any failure — including Firestore being unreachable
+    or uninitialised — is logged and swallowed, never propagated to the caller.
+    Empty string fields are normalised to None so the stored document is clean.
+    """
+    try:
+        db = get_db()
+        db.collection("security_events").add(
+            {
+                "type": event_type,
+                "uid": uid or None,
+                "email": email or None,
+                "ip_address": ip_address or None,
+                "endpoint": endpoint or None,
+                "details": details or {},
+                "timestamp": datetime.now(timezone.utc),
+            }
+        )
+    except Exception as exc:
+        logger.error("write_security_event failed (type=%s): %s", event_type, exc)
+
+
+def query_recent_security_events(limit: int = 200) -> list:
+    """Return the most recent security_events, newest first.
+
+    Ordered by the single `timestamp` field only — Firestore auto-creates that
+    single-field index, so callers that need per-type slices filter in Python.
+    This deliberately avoids a composite (type + timestamp) index so the feature
+    works with zero manual Firestore console setup, which is acceptable at this
+    project's event volume. timestamp is returned as an ISO-8601 string.
+    """
+    from google.cloud import firestore as gcf
+
+    db = get_db()
+    docs = (
+        db.collection("security_events")
+        .order_by("timestamp", direction=gcf.Query.DESCENDING)
+        .limit(limit)
+        .stream()
+    )
+    out = []
+    for doc in docs:
+        data = doc.to_dict()
+        data["id"] = doc.id
+        ts = data.get("timestamp")
+        if hasattr(ts, "isoformat"):
+            data["timestamp"] = ts.isoformat()
+        out.append(data)
+    return out
+
+
+def get_security_events_since(cutoff: datetime) -> list:
+    """Return all security_events with timestamp >= cutoff (as raw dicts).
+
+    A single-field range filter, so it needs no composite index. Used for the
+    24h summary counts, where exact totals matter more than ordering.
+    """
+    from google.cloud.firestore_v1.base_query import FieldFilter
+
+    db = get_db()
+    docs = (
+        db.collection("security_events")
+        .where(filter=FieldFilter("timestamp", ">=", cutoff))
+        .stream()
+    )
+    return [doc.to_dict() for doc in docs]
+
+
+# ── Active sessions (security view) ───────────────────────────────────────────
+
+
+def count_active_sessions(hours: int = 24) -> int:
+    """Count session documents whose last_active falls within the past `hours`.
+
+    Single-field range filter — no composite index required.
+    """
+    from google.cloud.firestore_v1.base_query import FieldFilter
+
+    db = get_db()
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    docs = (
+        db.collection("sessions")
+        .where(filter=FieldFilter("last_active", ">=", cutoff))
+        .stream()
+    )
+    return sum(1 for _ in docs)
+
+
+def list_active_sessions(hours: int = 24, limit: int = 100) -> list:
+    """Return active sessions (last_active within `hours`), newest first.
+
+    Each row is enriched with the user's email/role from the users collection.
+    Ordering on the same field as the range filter keeps this on a single-field
+    index. The users lookup is a one-off collection read (fine at this project's
+    scale); timestamps are returned as ISO-8601 strings.
+    """
+    from google.cloud import firestore as gcf
+    from google.cloud.firestore_v1.base_query import FieldFilter
+
+    db = get_db()
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    docs = (
+        db.collection("sessions")
+        .where(filter=FieldFilter("last_active", ">=", cutoff))
+        .order_by("last_active", direction=gcf.Query.DESCENDING)
+        .limit(limit)
+        .stream()
+    )
+
+    sessions = []
+    for doc in docs:
+        d = doc.to_dict()
+        start = d.get("created_at")
+        last = d.get("last_active")
+        sessions.append(
+            {
+                "uid": d.get("uid", ""),
+                "email": "",
+                "role": "",
+                "device_info": d.get("device_info", ""),
+                "session_start": start.isoformat() if hasattr(start, "isoformat") else None,
+                "last_activity": last.isoformat() if hasattr(last, "isoformat") else None,
+            }
+        )
+
+    # Enrich with email/role in a single pass over the users collection.
+    if sessions:
+        uids = {s["uid"] for s in sessions if s["uid"]}
+        user_map = {}
+        for user_doc in db.collection("users").stream():
+            data = user_doc.to_dict()
+            if data.get("uid") in uids:
+                user_map[data["uid"]] = data
+        for s in sessions:
+            u = user_map.get(s["uid"])
+            if u:
+                s["email"] = u.get("email", "")
+                s["role"] = u.get("role", "user")
+
+    return sessions

@@ -6,13 +6,12 @@ from datetime import date
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import _rate_limit_exceeded_handler
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.errors import RateLimitExceeded
 
 from app.config import get_settings
 from app.middleware.auth import FirebaseAuthMiddleware
-from app.middleware.rate_limit import limiter
+from app.middleware.rate_limit import limiter, rate_limit_exceeded_handler
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.models.loader import model_loader
 from app.user.routers import (
@@ -26,7 +25,7 @@ from app.user.routers import (
     weather_router,
     yield_router,
 )
-from app.admin.routers import admin_router
+from app.admin.routers import admin_router, security_router
 from app.super_admin.routers import superadmin_router
 from app.utils.firestore import init_firestore
 from app.utils.logger import setup_logging
@@ -303,7 +302,7 @@ def create_app() -> FastAPI:
 
     # ── Rate limiter ──────────────────────────────────────────────────────────
     app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
     # ── Routers ───────────────────────────────────────────────────────────────
     app.include_router(health_router.router)
@@ -317,6 +316,7 @@ def create_app() -> FastAPI:
     app.include_router(profile_router.router)
     if settings.ENABLE_ADMIN_API:
         app.include_router(admin_router.router)
+        app.include_router(security_router.router)
         app.include_router(superadmin_router.router)
         app.include_router(superadmin_router.legacy_router)
 

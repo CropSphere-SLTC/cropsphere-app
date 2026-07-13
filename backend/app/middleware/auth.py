@@ -41,6 +41,7 @@ class FirebaseAuthMiddleware(BaseHTTPMiddleware):
 
         token = _extract_bearer(request)
         if token is None:
+            _record_failed_login(request, "missing_or_malformed_authorization_header")
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Authorization header missing or malformed"},
@@ -48,6 +49,7 @@ class FirebaseAuthMiddleware(BaseHTTPMiddleware):
 
         uid = _verify(token)
         if uid is None:
+            _record_failed_login(request, "token_invalid_or_expired")
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Token invalid or expired"},
@@ -64,6 +66,28 @@ def _is_public(path: str) -> bool:
     return (
         path in _PUBLIC_PATHS or path.startswith("/docs") or path.startswith("/redoc")
     )
+
+
+def _record_failed_login(request: Request, reason: str) -> None:
+    """Best-effort persistence of an authentication failure to security_events.
+
+    Never raises — auth rejection must proceed regardless of Firestore state.
+    Note: this runs on every rejected request, but SlowAPIMiddleware (outer)
+    caps requests per IP before they reach here, bounding write amplification
+    from a flood of invalid tokens.
+    """
+    try:
+        from slowapi.util import get_remote_address
+
+        from app.utils.security_logger import record_failed_login
+
+        record_failed_login(
+            endpoint=request.url.path,
+            ip_address=get_remote_address(request),
+            reason=reason,
+        )
+    except Exception as exc:
+        logger.debug("failed_login event not recorded: %s", exc)
 
 
 def _extract_bearer(request: Request) -> Optional[str]:

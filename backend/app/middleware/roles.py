@@ -14,12 +14,22 @@ def get_current_uid(request: Request) -> str:
     return uid
 
 
-def require_user(uid: str = Depends(get_current_uid)) -> str:
-    """Allow any authenticated non-banned user."""
+def require_user(
+    uid: str = Depends(get_current_uid), request: Request = None
+) -> str:
+    """Allow any authenticated non-banned user.
+
+    On a banned denial, records a banned_access_attempt security event
+    (best-effort) before returning 403. `request` is injected by FastAPI (by
+    type annotation, regardless of position); it is None only when the
+    dependency is unit-tested by direct call, in which case logging is skipped.
+    """
     from app.utils.firestore import is_user_banned
 
     try:
         if is_user_banned(uid):
+            if request is not None:
+                _record_banned_access(request, uid)
             raise HTTPException(status_code=403, detail="Account banned")
     except HTTPException:
         raise
@@ -27,6 +37,22 @@ def require_user(uid: str = Depends(get_current_uid)) -> str:
         logger.exception("Ban-status check failed for uid=%s", uid)
         raise HTTPException(status_code=503, detail="Unable to verify account status")
     return uid
+
+
+def _record_banned_access(request: Request, uid: str) -> None:
+    """Best-effort persistence of a banned-access attempt to security_events."""
+    try:
+        from slowapi.util import get_remote_address
+
+        from app.utils.security_logger import record_banned_access_attempt
+
+        record_banned_access_attempt(
+            endpoint=request.url.path,
+            ip_address=get_remote_address(request),
+            uid=uid,
+        )
+    except Exception as exc:
+        logger.debug("banned_access_attempt event not recorded: %s", exc)
 
 
 def require_admin(uid: str = Depends(get_current_uid)) -> str:

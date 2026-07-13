@@ -83,6 +83,36 @@ def get_all_audit_logs(limit: int) -> dict:
         raise HTTPException(status_code=500, detail="Failed to fetch audit logs")
 
 
+def force_logout(uid: str, actor_uid: str) -> dict:
+    """Force-logout a user by revoking their Firebase refresh tokens.
+
+    Superadmin only. Uses the Firebase Admin SDK's revoke_refresh_tokens, which
+    invalidates all refresh tokens for the uid — the user cannot silently renew
+    a session. Caveat: already-issued ID tokens remain valid until they expire
+    (~1h) unless verify_id_token is called with check_revoked=True; the auth
+    middleware does not currently do that (it would add a certs/Firestore round
+    trip per request), so full revocation takes effect within the token TTL.
+
+    The action is recorded in the admin audit trail.
+    """
+    from firebase_admin import auth as fb_auth
+
+    from app.utils.firestore import admin_audit_log
+
+    try:
+        fb_auth.revoke_refresh_tokens(uid)
+        admin_audit_log(
+            actor_uid=actor_uid,
+            actor_role="superadmin",
+            action="force_logout",
+            target_uid=uid,
+        )
+        return {"message": "User sessions revoked", "uid": uid}
+    except Exception as exc:
+        logger.error(f"force_logout failed for uid={uid}: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to force logout user")
+
+
 def cleanup_old_sessions() -> dict:
     """Delete session documents older than 30 days. Superadmin only."""
     try:

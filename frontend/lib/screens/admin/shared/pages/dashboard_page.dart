@@ -153,9 +153,7 @@ class _DashboardPageState extends State<DashboardPage> {
         final server = _buildServerCard();
         final pills = _buildModelPillsCard();
         if (narrow) {
-          return Column(
-            children: [server, const SizedBox(height: 12), pills],
-          );
+          return Column(children: [server, const SizedBox(height: 12), pills]);
         }
         return Row(
           crossAxisAlignment: CrossAxisAlignment.start,

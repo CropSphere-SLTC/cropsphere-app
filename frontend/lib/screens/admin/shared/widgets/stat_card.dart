@@ -92,8 +92,7 @@ class StatCardGrid extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final perRow = constraints.maxWidth < 600 ? 2 : widePerRow;
-        final cardWidth =
-            (constraints.maxWidth - (perRow - 1) * 12) / perRow;
+        final cardWidth = (constraints.maxWidth - (perRow - 1) * 12) / perRow;
         return Wrap(
           spacing: 12,
           runSpacing: 12,

@@ -187,15 +187,15 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   }
 
   void _openSettings() {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const AccountSettingsScreen()),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const AccountSettingsScreen()));
   }
 
   void _openChangePassword() {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const ChangePasswordScreen()),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const ChangePasswordScreen()));
   }
 
   void _onProfileUpdated(UserProfile updated) {
@@ -209,7 +209,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     if (!_adminChecked) {
       return const Scaffold(
         backgroundColor: Color(0xFFFAFFF5),
-        body: Center(child: CircularProgressIndicator(color: Color(0xFF4CAF50))),
+        body: Center(
+          child: CircularProgressIndicator(color: Color(0xFF4CAF50)),
+        ),
       );
     }
 

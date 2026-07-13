@@ -91,12 +91,15 @@ class _PredictionLogsPageState extends State<PredictionLogsPage> {
         final dt = DateTime.tryParse(_s(l, 'timestamp'))?.toLocal();
         if (dt == null) return false;
         final day = DateTime(dt.year, dt.month, dt.day);
-        return !day.isBefore(_dateRange!.start) && !day.isAfter(_dateRange!.end);
+        return !day.isBefore(_dateRange!.start) &&
+            !day.isAfter(_dateRange!.end);
       }).toList();
     }
     if (_query.isNotEmpty) {
       final q = _query.toLowerCase();
-      list = list.where((l) => _s(l, 'user_id').toLowerCase().contains(q)).toList();
+      list = list
+          .where((l) => _s(l, 'user_id').toLowerCase().contains(q))
+          .toList();
     }
     return list;
   }

@@ -41,8 +41,9 @@ class _UserManagementPageState extends State<UserManagementPage> {
 
   bool get _isSuper => widget.role == 'superadmin';
 
-  List<String> get _roleOptions =>
-      _isSuper ? const ['user', 'admin', 'superadmin'] : const ['user', 'admin'];
+  List<String> get _roleOptions => _isSuper
+      ? const ['user', 'admin', 'superadmin']
+      : const ['user', 'admin'];
 
   @override
   void initState() {
@@ -167,7 +168,9 @@ class _UserManagementPageState extends State<UserManagementPage> {
     setState(() => _busyUids.add(user.uid));
     try {
       await _admin.setUserBanned(user.uid, nextBanned);
-      _showSnack(nextBanned ? '${user.email} banned' : '${user.email} unbanned');
+      _showSnack(
+        nextBanned ? '${user.email} banned' : '${user.email} unbanned',
+      );
       await _fetch();
     } catch (e) {
       _showSnack(adminErrorMessage(e), isError: true);
@@ -303,10 +306,7 @@ class _UserManagementPageState extends State<UserManagementPage> {
           cells: [
             DataCell(Text('$rowNumber')),
             DataCell(
-              Tooltip(
-                message: user.uid,
-                child: Text(adminTruncate(user.uid)),
-              ),
+              Tooltip(message: user.uid, child: Text(adminTruncate(user.uid))),
             ),
             DataCell(Text(user.email)),
             DataCell(_roleCell(user, busy, isSelf)),
@@ -353,7 +353,9 @@ class _UserManagementPageState extends State<UserManagementPage> {
         TextButton(
           onPressed: (busy || isSelf) ? null : () => _toggleBan(user),
           style: TextButton.styleFrom(
-            foregroundColor: user.isBanned ? AppTheme.success : AppTheme.warning,
+            foregroundColor: user.isBanned
+                ? AppTheme.success
+                : AppTheme.warning,
           ),
           child: Text(user.isBanned ? 'Unban' : 'Ban'),
         ),

@@ -162,6 +162,25 @@ class ApiService {
     return 'network'; // timeout / connection refused / no internet
   }
 
+  /// Records a thumbs up/down on a bot reply. Fire-and-forget — the caller
+  /// does not await this in the UI and silently ignores failures.
+  Future<void> sendFeedback({
+    required String conversationId,
+    required int messageIndex,
+    required String feedback,
+    required String messageText,
+  }) async {
+    await _dio.post(
+      '/api/chat/feedback',
+      data: {
+        'conversation_id': conversationId,
+        'message_index': messageIndex,
+        'feedback': feedback,
+        'message_text': messageText,
+      },
+    );
+  }
+
   Future<bool> checkHealth() async {
     try {
       final response = await _dio.get('/api/health');

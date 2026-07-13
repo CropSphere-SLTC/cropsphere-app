@@ -56,11 +56,7 @@ const List<_NavSection> _sections = [
   ]),
   _NavSection('Logs', [
     _NavItem(AdminPage.auditLogs, Icons.history, 'Audit logs'),
-    _NavItem(
-      AdminPage.predictionLogs,
-      Icons.model_training,
-      'Prediction logs',
-    ),
+    _NavItem(AdminPage.predictionLogs, Icons.model_training, 'Prediction logs'),
   ]),
   _NavSection('Security', [
     _NavItem(AdminPage.security, Icons.shield_outlined, 'Security'),
@@ -198,11 +194,7 @@ class _AdminSidebarState extends State<AdminSidebar> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(
-            Icons.admin_panel_settings,
-            color: Colors.white,
-            size: 30,
-          ),
+          const Icon(Icons.admin_panel_settings, color: Colors.white, size: 30),
           const SizedBox(height: 8),
           Text(
             _isSuper ? 'Superadmin Panel' : 'Admin Panel',
@@ -237,8 +229,9 @@ class _AdminSidebarState extends State<AdminSidebar> {
   List<Widget> _buildSection(_NavSection section) {
     // Hide the whole section if every item in it is gated to superadmin and
     // the current role is admin.
-    final visibleItems =
-        section.items.where((i) => _isSuper || !i.superOnly).toList();
+    final visibleItems = section.items
+        .where((i) => _isSuper || !i.superOnly)
+        .toList();
     if (visibleItems.isEmpty) return [];
 
     return [
@@ -359,7 +352,11 @@ class _AdminSidebarState extends State<AdminSidebar> {
       leading: Icon(icon, size: 20, color: color),
       title: Text(
         label,
-        style: TextStyle(fontSize: 14, color: color, fontWeight: FontWeight.w600),
+        style: TextStyle(
+          fontSize: 14,
+          color: color,
+          fontWeight: FontWeight.w600,
+        ),
       ),
       onTap: onTap,
     );

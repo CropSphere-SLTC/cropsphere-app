@@ -110,7 +110,8 @@ class _AuditLogsPageState extends State<AuditLogsPage> {
         final dt = DateTime.tryParse(l.timestamp)?.toLocal();
         if (dt == null) return false;
         final day = DateTime(dt.year, dt.month, dt.day);
-        return !day.isBefore(_dateRange!.start) && !day.isAfter(_dateRange!.end);
+        return !day.isBefore(_dateRange!.start) &&
+            !day.isAfter(_dateRange!.end);
       }).toList();
     }
     if (_query.isNotEmpty) {

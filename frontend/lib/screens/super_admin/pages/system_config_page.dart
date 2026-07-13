@@ -55,8 +55,10 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
     } catch (e) {
       if (mounted) {
         setState(
-          () => _error =
-              adminErrorMessage(e, access: 'Superadmin access required'),
+          () => _error = adminErrorMessage(
+            e,
+            access: 'Superadmin access required',
+          ),
         );
       }
     } finally {
@@ -82,7 +84,10 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
       _showSnack('Rate limits must be whole numbers', isError: true);
       return;
     }
-    if (adminLimit < 1 || adminLimit > 1000 || superLimit < 1 || superLimit > 1000) {
+    if (adminLimit < 1 ||
+        adminLimit > 1000 ||
+        superLimit < 1 ||
+        superLimit > 1000) {
       _showSnack('Rate limits must be between 1 and 1000', isError: true);
       return;
     }
@@ -162,9 +167,7 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
           final admin = _numberField('Admin', _adminLimitController);
           final sup = _numberField('Superadmin', _superLimitController);
           if (narrow) {
-            return Column(
-              children: [admin, const SizedBox(height: 12), sup],
-            );
+            return Column(children: [admin, const SizedBox(height: 12), sup]);
           }
           return Row(
             children: [

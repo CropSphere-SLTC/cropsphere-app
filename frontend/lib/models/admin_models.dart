@@ -96,6 +96,7 @@ class GapReport {
   final int avgResponseTimeMs;
   final double chipTapRate;
   final double avgSessionLength;
+  final FeedbackSummary feedbackSummary;
 
   GapReport({
     required this.period,
@@ -109,6 +110,7 @@ class GapReport {
     required this.avgResponseTimeMs,
     required this.chipTapRate,
     required this.avgSessionLength,
+    required this.feedbackSummary,
   });
 
   factory GapReport.fromJson(Map<String, dynamic> json) => GapReport(
@@ -135,6 +137,37 @@ class GapReport {
     avgResponseTimeMs: json['avg_response_time_ms'] ?? 0,
     chipTapRate: (json['chip_tap_rate'] as num? ?? 0).toDouble(),
     avgSessionLength: (json['avg_session_length'] as num? ?? 0).toDouble(),
+    feedbackSummary: FeedbackSummary.fromJson(
+      Map<String, dynamic>.from(json['feedback_summary'] ?? {}),
+    ),
+  );
+}
+
+class FeedbackSummary {
+  final int totalFeedback;
+  final int thumbsUp;
+  final int thumbsDown;
+  final double satisfactionRate;
+  final List<RefusedQuestion> mostDownvotedQuestions; // {question, count}
+
+  FeedbackSummary({
+    required this.totalFeedback,
+    required this.thumbsUp,
+    required this.thumbsDown,
+    required this.satisfactionRate,
+    required this.mostDownvotedQuestions,
+  });
+
+  factory FeedbackSummary.fromJson(
+    Map<String, dynamic> json,
+  ) => FeedbackSummary(
+    totalFeedback: json['total_feedback'] ?? 0,
+    thumbsUp: json['thumbs_up'] ?? 0,
+    thumbsDown: json['thumbs_down'] ?? 0,
+    satisfactionRate: (json['satisfaction_rate'] as num? ?? 0).toDouble(),
+    mostDownvotedQuestions: ((json['most_downvoted_questions'] ?? []) as List)
+        .map((e) => RefusedQuestion.fromJson(Map<String, dynamic>.from(e)))
+        .toList(),
   );
 }
 
@@ -214,7 +247,8 @@ class SecuritySummary {
 
 class SecurityEvent {
   final String id;
-  final String type; // failed_login | rate_limit_violation | banned_access_attempt
+  final String
+  type; // failed_login | rate_limit_violation | banned_access_attempt
   final String uid;
   final String email;
   final String ipAddress;

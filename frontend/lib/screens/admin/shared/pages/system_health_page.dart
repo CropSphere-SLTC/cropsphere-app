@@ -113,9 +113,7 @@ class _SystemHealthPageState extends State<SystemHealthPage> {
         final cpu = _cpuCard(stats, cpuColor);
         final ram = _ramCard(stats);
         if (narrow) {
-          return Column(
-            children: [cpu, const SizedBox(height: 12), ram],
-          );
+          return Column(children: [cpu, const SizedBox(height: 12), ram]);
         }
         return Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -224,10 +222,7 @@ class _SystemHealthPageState extends State<SystemHealthPage> {
           rows: counts
               .map(
                 (e) => DataRow(
-                  cells: [
-                    DataCell(Text(e.key)),
-                    DataCell(Text('${e.value}')),
-                  ],
+                  cells: [DataCell(Text(e.key)), DataCell(Text('${e.value}'))],
                 ),
               )
               .toList(),

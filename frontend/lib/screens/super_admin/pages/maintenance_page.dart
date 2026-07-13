@@ -135,7 +135,11 @@ class _MaintenancePageState extends State<MaintenancePage> {
         children: [
           Row(
             children: const [
-              Icon(Icons.warning_amber_rounded, color: AppTheme.error, size: 20),
+              Icon(
+                Icons.warning_amber_rounded,
+                color: AppTheme.error,
+                size: 20,
+              ),
               SizedBox(width: 8),
               Text(
                 'Dangerous actions',
@@ -223,7 +227,10 @@ class _MaintenancePageState extends State<MaintenancePage> {
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(fontSize: 14, color: AppTheme.textSecondary),
+              style: const TextStyle(
+                fontSize: 14,
+                color: AppTheme.textSecondary,
+              ),
             ),
           ),
           const Text(

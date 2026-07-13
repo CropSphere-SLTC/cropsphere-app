@@ -278,6 +278,14 @@ class MockService {
     yield {'type': 'done'};
   }
 
+  // Mock mode: feedback is a no-op — nothing to persist locally.
+  Future<void> sendFeedback({
+    required String conversationId,
+    required int messageIndex,
+    required String feedback,
+    required String messageText,
+  }) async {}
+
   String _addWeeks(String dateStr, int weeks) {
     try {
       final date = DateTime.parse(dateStr);

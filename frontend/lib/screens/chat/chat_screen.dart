@@ -1,5 +1,7 @@
 // lib/screens/chat/chat_screen.dart
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -830,7 +832,7 @@ class _ChatScreenState extends State<ChatScreen> {
       itemBuilder: (ctx, i) {
         if (i == _displayMessages.length) return _buildTypingIndicator();
         final msg = _displayMessages[i];
-        return _buildMessageBubble(msg);
+        return _buildMessageBubble(msg, i);
       },
     );
   }
@@ -931,7 +933,7 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _buildMessageBubble(Map<String, dynamic> msg) {
+  Widget _buildMessageBubble(Map<String, dynamic> msg, int index) {
     final isUser = msg['role'] == 'user';
     final isError = msg['role'] == 'error';
     final isMock = msg['isMock'] as bool? ?? false;
@@ -1101,6 +1103,16 @@ class _ChatScreenState extends State<ChatScreen> {
                         ),
                       ),
                     ),
+                  // Feedback (thumbs) — only on real, completed Groq answers.
+                  // Those carry retrieval sources; refusals, clarifications,
+                  // capability/context-ack replies, the welcome view and
+                  // reloaded-history bubbles all have empty sources, so this
+                  // gate hides thumbs on exactly the responses Step 7 lists.
+                  if (isBot &&
+                      !isStreamingMsg &&
+                      errorCode == null &&
+                      sources.isNotEmpty)
+                    _buildFeedbackRow(msg, index),
                 ],
               ),
             ),
@@ -1116,6 +1128,93 @@ class _ChatScreenState extends State<ChatScreen> {
         ],
       ),
     );
+  }
+
+  // Thumbs up/down on a bot answer. Once a vote is cast, the other button
+  // disappears and the selected one is disabled (one feedback per message).
+  Widget _buildFeedbackRow(Map<String, dynamic> msg, int index) {
+    final feedback = msg['feedback'] as String?;
+    return Align(
+      alignment: Alignment.centerRight,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (feedback == null || feedback == 'up')
+            _feedbackButton(
+              filled: feedback == 'up',
+              onIcon: Icons.thumb_up,
+              offIcon: Icons.thumb_up_outlined,
+              color: AppTheme.success,
+              tooltip: 'Helpful',
+              onTap: feedback == null
+                  ? () => _sendFeedback(msg, index, 'up')
+                  : null,
+            ),
+          if (feedback == null || feedback == 'down')
+            _feedbackButton(
+              filled: feedback == 'down',
+              onIcon: Icons.thumb_down,
+              offIcon: Icons.thumb_down_outlined,
+              color: AppTheme.accent, // orange
+              tooltip: 'Not helpful',
+              onTap: feedback == null
+                  ? () => _sendFeedback(msg, index, 'down')
+                  : null,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _feedbackButton({
+    required bool filled,
+    required IconData onIcon,
+    required IconData offIcon,
+    required Color color,
+    required String tooltip,
+    required VoidCallback? onTap,
+  }) {
+    return IconButton(
+      icon: Icon(
+        filled ? onIcon : offIcon,
+        size: 16,
+        color: filled ? color : Colors.grey[400],
+      ),
+      onPressed: onTap, // null once any vote is cast → disabled
+      tooltip: tooltip,
+      padding: EdgeInsets.zero,
+      visualDensity: VisualDensity.compact,
+      constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+    );
+  }
+
+  // Optimistic: fill the icon immediately, then fire the call in the
+  // background. If it fails, keep the UI as-is — the vote is lost silently
+  // (feedback must never block or slow the chat experience).
+  void _sendFeedback(Map<String, dynamic> msg, int index, String feedback) {
+    setState(() => msg['feedback'] = feedback);
+    unawaited(
+      ServiceFactory.getService()
+          .sendFeedback(
+            conversationId: _conversationId ?? '',
+            messageIndex: index,
+            feedback: feedback,
+            messageText: _questionForAnswer(index),
+          )
+          .catchError((_) {
+            /* best-effort — keep the UI as-is */
+          }),
+    );
+  }
+
+  // The user question this answer responds to → most_downvoted_questions.
+  String _questionForAnswer(int answerIndex) {
+    for (var i = answerIndex - 1; i >= 0; i--) {
+      if (_displayMessages[i]['role'] == 'user') {
+        return _displayMessages[i]['content'] as String? ?? '';
+      }
+    }
+    return '';
   }
 
   /// Splits a bot reply into (reasoning, answer). The backend instructs the

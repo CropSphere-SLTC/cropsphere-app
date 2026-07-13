@@ -354,7 +354,9 @@ class _SecurityPageState extends State<SecurityPage> {
                 ),
               ),
               DataCell(Text(s.email.isEmpty ? '—' : s.email)),
-              DataCell(s.role.isEmpty ? const Text('—') : adminRoleBadge(s.role)),
+              DataCell(
+                s.role.isEmpty ? const Text('—') : adminRoleBadge(s.role),
+              ),
               DataCell(Text(adminFormatTimestamp(s.lastActivity))),
               DataCell(Text(adminFormatTimestamp(s.sessionStart))),
               if (_isSuper)
@@ -460,7 +462,10 @@ class _SecurityPageState extends State<SecurityPage> {
                 ),
                 Text(
                   adminFormatTimestamp(e.timestamp),
-                  style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: AppTheme.textMuted,
+                  ),
                 ),
               ],
             ),

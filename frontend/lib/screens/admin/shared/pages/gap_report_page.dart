@@ -263,7 +263,10 @@ class _GapReportPageState extends State<GapReportPage> {
             width: 110,
             child: Text(
               label,
-              style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppTheme.textSecondary,
+              ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -318,7 +321,10 @@ class _GapReportPageState extends State<GapReportPage> {
               child: Row(
                 children: [
                   Expanded(
-                    child: Text(q.question, style: const TextStyle(fontSize: 13)),
+                    child: Text(
+                      q.question,
+                      style: const TextStyle(fontSize: 13),
+                    ),
                   ),
                   const SizedBox(width: 8),
                   _countBadge(q.count),
@@ -396,7 +402,10 @@ class _GapReportPageState extends State<GapReportPage> {
             Text(
               text,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 14, color: AppTheme.textSecondary),
+              style: const TextStyle(
+                fontSize: 14,
+                color: AppTheme.textSecondary,
+              ),
             ),
             if (retry) ...[
               const SizedBox(height: 16),

@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
 from app.admin.services import admin_service
+from app.admin.services import gap_report_service
 from app.middleware.rate_limit import limiter
 from app.middleware.roles import require_admin, get_current_role
 
@@ -115,3 +116,18 @@ def get_prediction_logs(
 ):
     """Return prediction audit logs from audit_logs collection."""
     return admin_service.get_prediction_logs(limit)
+
+
+# ── Gap report ────────────────────────────────────────────────────────────────
+
+
+@router.get("/gap-report", dependencies=[Depends(require_admin)])
+@limiter.limit("10/minute")
+def gap_report(request: Request, days: int = 7):
+    """Aggregated chatbot analytics for the Gap Report dashboard.
+
+    Admin-only. `days` (1..30, default 7) selects the look-back window; values
+    outside the range are clamped. Reads chat_analytics and aggregates in
+    Python (cached 5 min). See app.admin.services.gap_report_service.
+    """
+    return gap_report_service.get_gap_report(days)

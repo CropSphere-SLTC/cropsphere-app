@@ -39,6 +39,7 @@ def _empty_db():
         ("get", "/api/admin/stats"),
         ("get", "/api/admin/audit-logs"),
         ("get", "/api/admin/prediction-logs"),
+        ("get", "/api/admin/gap-report"),
         ("patch", "/api/admin/users/some-uid/role"),
         ("patch", "/api/admin/users/some-uid/ban"),
         ("delete", "/api/admin/users/some-uid"),
@@ -107,6 +108,22 @@ def test_admin_stats_returns_200(client, mock_valid_token, valid_auth_header):
     body = resp.json()
     assert "cpu_percent" in body
     assert "models_loaded" in body
+
+
+def test_non_admin_gets_403_on_gap_report(client, mock_valid_token, valid_auth_header):
+    with patch("app.utils.firestore.get_user_role", return_value="user"):
+        resp = client.get("/api/admin/gap-report", headers=valid_auth_header)
+    assert resp.status_code == 403
+
+
+def test_admin_gap_report_returns_200(client, mock_valid_token, valid_auth_header):
+    fake = {"period": "last_7_days", "total_interactions": 5}
+    with patch("app.utils.firestore.get_user_role", return_value="admin"), patch(
+        "app.admin.services.gap_report_service.get_gap_report", return_value=fake
+    ):
+        resp = client.get("/api/admin/gap-report?days=7", headers=valid_auth_header)
+    assert resp.status_code == 200
+    assert resp.json()["total_interactions"] == 5
 
 
 # mock_valid_token resolves the authenticated actor to uid "test-user-123"

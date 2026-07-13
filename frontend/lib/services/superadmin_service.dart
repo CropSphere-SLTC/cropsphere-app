@@ -64,7 +64,7 @@ class SuperadminService {
   // Only rate limits are actually mutable server-side right now —
   // enable_admin_api is sourced from an env var on the backend and isn't
   // accepted by PATCH /api/superadmin/config, so there's no parameter for
-  // it here. See SuperadminDashboardScreen for how that's surfaced in the UI.
+  // it here. See SystemConfigPage for how that's surfaced in the UI.
   Future<SuperadminConfig> updateConfig({
     int? adminRateLimitPerMinute,
     int? superadminRateLimitPerMinute,
@@ -88,5 +88,12 @@ class SuperadminService {
   Future<Map<String, dynamic>> cleanupOldSessions() async {
     final response = await _dio.delete('/api/admin/sessions/cleanup-old');
     return Map<String, dynamic>.from(response.data);
+  }
+
+  // Revokes the target user's Firebase refresh tokens server-side. Their
+  // already-issued ID token stays valid until it expires (~1h), per the
+  // backend's force_logout docstring.
+  Future<void> forceLogout(String uid) async {
+    await _dio.post('/api/superadmin/security/force-logout/$uid');
   }
 }

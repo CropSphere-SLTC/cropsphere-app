@@ -52,6 +52,21 @@ def reset_rate_limit(app):
     yield
 
 
+@pytest.fixture(autouse=True)
+def _no_background_analytics():
+    """Neutralise the fire-and-forget analytics spawn for every test.
+
+    chat()/chat_stream() log analytics on a daemon thread (_emit_analytics).
+    Those threads outlive the test that spawned them and race with later
+    assertions — e.g. a stray thread calling a freshly-patched get_db()
+    pollutes another test's call count. Patching the spawn to a no-op makes
+    the suite deterministic; the analytics path itself is covered directly in
+    tests/unit/analytics_test (log_chat_interaction and the helpers).
+    """
+    with patch("app.user.services.chatbot_service._emit_analytics"):
+        yield
+
+
 @pytest.fixture
 def valid_auth_header():
     """Authorization header carrying a mock valid token."""

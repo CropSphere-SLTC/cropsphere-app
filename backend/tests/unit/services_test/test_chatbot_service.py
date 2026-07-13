@@ -426,13 +426,13 @@ def test_system_prompt_without_district_or_crop():
 
 def test_followups_uses_crop_and_district():
     req = _make_request(district="Badulla", crop="Carrot")
-    fu = cs._followups(req)
+    fu = cs._default_followups(req)
     assert len(fu) == 3 and "Carrot" in fu[0] and "Badulla" in fu[0]
 
 
 def test_followups_defaults_when_missing():
     req = _make_request()
-    fu = cs._followups(req)
+    fu = cs._default_followups(req)
     assert "crops" in fu[0] and "your area" in fu[0]
 
 
@@ -907,3 +907,56 @@ def test_chat_stream_persistence_failure_is_swallowed():
     # conv_id falls back to "" but stream still completes with metadata
     assert events[-1]["type"] == "metadata"
     assert events[-1]["conversation_id"] == ""
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# _detect_knowledge_level
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_detect_level_beginner_short_definition_first_message():
+    assert cs._detect_knowledge_level("what is yield?", []) == "beginner"
+
+
+def test_detect_level_advanced_comparison_technical():
+    msg = "compare inter-season yields across upcountry districts for Maha"
+    assert cs._detect_knowledge_level(msg, []) == "advanced"
+
+
+def test_detect_level_intermediate_default():
+    msg = "How much carrot yield can I expect in Nuwara Eliya?"
+    assert cs._detect_knowledge_level(msg, []) == "intermediate"
+
+
+def test_detect_level_never_downgrades_advanced_to_beginner():
+    history = [
+        ConversationTurn(
+            role="user",
+            content="compare inter-season farmgate prices, Maha vs Yala, per-hectare",
+        ),
+        ConversationTurn(role="assistant", content="Reasoning: ..."),
+    ]
+    # A bare beginner-style follow-up must not drop an expert to "beginner".
+    assert cs._detect_knowledge_level("what is yield?", history) == "intermediate"
+
+
+def test_detect_level_stabilises_to_advanced_after_consistent_history():
+    history = [
+        ConversationTurn(
+            role="user", content="compare Maha vs Yala yields per-hectare"
+        ),
+        ConversationTurn(role="assistant", content="Reasoning: ..."),
+        ConversationTurn(
+            role="user", content="difference between farmgate and retail, kg/ha"
+        ),
+        ConversationTurn(role="assistant", content="Reasoning: ..."),
+    ]
+    # Ambiguous follow-up ("what about maize") stabilises up, not back to mid.
+    assert cs._detect_knowledge_level("what about maize", history) == "advanced"
+
+
+def test_build_messages_injects_level_instruction():
+    req = _make_request(message="what is yield?", conversation_history=[])
+    context = {"chunks": [], "sources": [], "score": 0.0}
+    msgs = cs._build_messages("system", context, req, "what is yield?")
+    assert any(m["content"] == cs._LEVEL_INSTRUCTIONS["beginner"] for m in msgs)

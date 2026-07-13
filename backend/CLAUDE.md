@@ -92,13 +92,21 @@ utils/
 [firestore.py](http://firestore.py/)[logger.py](http://logger.py/)
 
 tests/
+integration/
 test_yield.py
 test_weather.py
 test_price.py
 test_demand.py
 test_recommend.py
 test_chat.py
+security/
 test_auth.py
+unit/
+ml/
+load/
+admin_test/
+user_test/
+superadmin_test/
 
 [conftest.py](http://conftest.py/)
 Dockerfile

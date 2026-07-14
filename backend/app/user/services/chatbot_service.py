@@ -567,7 +567,12 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
                 req, clean, saved_crop, saved_district
             )
             _emit_analytics(
-                req, clean, "clarification", "Moderate confidence", context, start,
+                req,
+                clean,
+                "clarification",
+                "Moderate confidence",
+                context,
+                start,
                 used_saved_context=True,
             )
             return ChatResponse(
@@ -880,7 +885,12 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
         confidence = "Moderate confidence"
         yield _metadata(conv_id)
         _emit_analytics(
-            req, clean, "clarification", "Moderate confidence", context, start,
+            req,
+            clean,
+            "clarification",
+            "Moderate confidence",
+            context,
+            start,
             used_saved_context=True,
         )
         return
@@ -1862,7 +1872,9 @@ def _should_confirm_saved_context(req, message, saved_crop, saved_district) -> b
     msg_crop, msg_district = _extract_context_terms(message)
     crop = (req.crop.value if req.crop else None) or msg_crop or eff_saved_crop
     district = (
-        (req.district.value if req.district else None) or msg_district or eff_saved_district
+        (req.district.value if req.district else None)
+        or msg_district
+        or eff_saved_district
     )
     filled = (not (req.crop or msg_crop) and eff_saved_crop) or (
         not (req.district or msg_district) and eff_saved_district

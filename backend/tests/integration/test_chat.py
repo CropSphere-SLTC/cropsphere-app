@@ -230,9 +230,7 @@ FEEDBACK_VALID = {
 
 def test_feedback_valid_returns_200(client, mock_valid_token, valid_auth_header):
     with patch("app.user.routers.chat_router.log_feedback") as mock_log:
-        resp = client.post(
-            FEEDBACK_URL, json=FEEDBACK_VALID, headers=valid_auth_header
-        )
+        resp = client.post(FEEDBACK_URL, json=FEEDBACK_VALID, headers=valid_auth_header)
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok"}
     mock_log.assert_called_once()

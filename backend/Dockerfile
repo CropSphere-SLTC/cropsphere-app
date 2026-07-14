@@ -122,9 +122,10 @@ SentenceTransformer('all-MiniLM-L6-v2', cache_folder='/app/hf_cache')"
 ENV HF_HUB_OFFLINE=1 \
     TRANSFORMERS_OFFLINE=1
 
-# Copy application code and ML model files
+# Copy application code, ML model files, and build-time scripts
 COPY app/ ./app/
 COPY models/ ./models/
+COPY scripts/ ./scripts/
 
 RUN chown -R cropsphere:cropsphere /app
 

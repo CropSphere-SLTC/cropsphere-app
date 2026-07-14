@@ -8,6 +8,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../config/app_config.dart';
 import '../../services/service_factory.dart';
 import '../../services/chat_history_service.dart';
+import '../../services/profile_service.dart';
 import '../../models/api_models.dart';
 import '../../models/chat_history_models.dart';
 import '../../widgets/app_theme.dart';
@@ -64,6 +65,11 @@ class _ChatScreenState extends State<ChatScreen> {
   String? _selectedCrop;
   String _selectedModel = 'accurate';
 
+  // Saved profile context — used only to personalize the empty state (starter
+  // cards + welcome subtitle). The backend applies saved context to answers.
+  String? _savedDistrict;
+  String? _savedCrop;
+
   final List<String> _districts = [
     'Nuwara Eliya',
     'Badulla',
@@ -86,7 +92,25 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
-    if (!AppConfig.useMockServices) _loadConversations();
+    if (!AppConfig.useMockServices) {
+      _loadConversations();
+      _loadSavedPreferences();
+    }
+  }
+
+  // Load the farmer's saved area/crop to personalize the empty state. Silent
+  // best-effort — a failure just means generic starter cards.
+  Future<void> _loadSavedPreferences() async {
+    try {
+      final prefs = await ProfileService().getPreferences();
+      if (!mounted) return;
+      setState(() {
+        _savedDistrict = prefs.preferredDistrict;
+        _savedCrop = prefs.preferredCrop;
+      });
+    } catch (_) {
+      /* personalization is optional */
+    }
   }
 
   Future<void> _loadConversations() async {
@@ -879,6 +903,18 @@ class _ChatScreenState extends State<ChatScreen> {
   /// and welcome bubble. Tapping a starter card sends it exactly like a
   /// followup chip tap; the bottom chip row stays hidden the whole time
   /// since _suggestedFollowups is empty until a real response arrives.
+  // Starter prompts, personalized to the saved area/crop when we have them.
+  List<String> get _starterPrompts {
+    final d = _savedDistrict;
+    if (d == null || d.isEmpty) return _onboardingFollowups;
+    final c = _savedCrop ?? 'Carrot';
+    return [
+      '$c yield in $d',
+      'Best season for $c in $d',
+      'What crops do you cover?',
+    ];
+  }
+
   Widget _buildEmptyState() {
     return Center(
       child: ConstrainedBox(
@@ -909,11 +945,22 @@ class _ChatScreenState extends State<ChatScreen> {
                   style: TextStyle(fontSize: 14, color: Colors.grey[600]),
                 ),
               ),
+              if (_savedDistrict != null && _savedDistrict!.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'Welcome back! Your area: ${_savedDistrict!}',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.primary,
+                  ),
+                ),
+              ],
               const SizedBox(height: 24),
-              for (var i = 0; i < _onboardingFollowups.length; i++) ...[
-                _buildStarterCard(_starterIcons[i], _onboardingFollowups[i]),
-                if (i < _onboardingFollowups.length - 1)
-                  const SizedBox(height: 9),
+              for (var i = 0; i < _starterPrompts.length; i++) ...[
+                _buildStarterCard(_starterIcons[i], _starterPrompts[i]),
+                if (i < _starterPrompts.length - 1) const SizedBox(height: 9),
               ],
             ],
           ),

@@ -437,6 +437,14 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
 
     _safe_audit(req.user_id, clean)
 
+    # Load the farmer's saved area/crop only for a brand-new conversation, to
+    # confirm ambiguous questions later (see _should_confirm_saved_context).
+    saved_crop = saved_district = None
+    if not req.conversation_history:
+        _prefs = _safe_get_preferences(req.user_id)
+        saved_crop = _prefs.get("preferred_crop")
+        saved_district = _prefs.get("preferred_district")
+
     # Bare land-unit reply to the bot's own clarifying question (e.g. the
     # user just replies "perches") — rebuilt into a real query for retrieval
     # only, before any capability/gazetteer check or retrieval itself runs.
@@ -459,6 +467,9 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
         # the gazetteer, so naming an uncovered district here is just
         # small talk, not a refusal.
         if _is_context_statement(clean):
+            _ctx_crop, _ctx_district = _extract_context_terms(clean)
+            if _ctx_crop or _ctx_district:
+                _save_context_async(req.user_id, _ctx_crop, _ctx_district)
             reply, cq_followups = _build_context_ack(clean)
             _emit_analytics(req, clean, "context_ack", "High confidence", None, start)
             return ChatResponse(
@@ -546,6 +557,25 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
             history=req.conversation_history,
         )
         confidence = _confidence_label(context)
+
+        # Saved-context confirmation — a fresh, dropdown-free query that omits a
+        # crop or district our saved profile can fill: confirm ("Do you mean
+        # carrot in Jaffna?") rather than silently assuming. Runs before the
+        # other clarifications so the saved-context prompt takes precedence.
+        if _should_confirm_saved_context(req, clean, saved_crop, saved_district):
+            reply, cq_followups = _build_context_confirmation(
+                req, clean, saved_crop, saved_district
+            )
+            _emit_analytics(
+                req, clean, "clarification", "Moderate confidence", context, start,
+                used_saved_context=True,
+            )
+            return ChatResponse(
+                reply=reply,
+                sources_used=[],
+                suggested_followups=cq_followups,
+                confidence="Moderate confidence",
+            )
 
         # Vague-but-agricultural query ("how much can I earn?") — ask a
         # clarifying question instead of refusing as out of scope. Runs
@@ -666,6 +696,13 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
     _safe_audit(req.user_id, clean)
     groq_model = _GROQ_MODELS.get(req.model, _GROQ_MODELS["accurate"])
 
+    # Saved area/crop for a brand-new conversation — same as chat().
+    saved_crop = saved_district = None
+    if not req.conversation_history:
+        _prefs = _safe_get_preferences(req.user_id)
+        saved_crop = _prefs.get("preferred_crop")
+        saved_district = _prefs.get("preferred_district")
+
     # Bare land-unit reply to the bot's own clarifying question — rebuilt
     # into a real query for retrieval only. See _expand_clarifying_reply.
     retrieval_query = _expand_clarifying_reply(clean, req.conversation_history)
@@ -685,6 +722,9 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
     # Introductory/context-setting statement — same handling as chat(),
     # adapted to streaming. See chat() for why this runs first.
     if _is_context_statement(clean):
+        _ctx_crop, _ctx_district = _extract_context_terms(clean)
+        if _ctx_crop or _ctx_district:
+            _save_context_async(req.user_id, _ctx_crop, _ctx_district)
         reply, cq_followups = _build_context_ack(clean)
         yield {"type": "text", "content": reply}
         conv_id = _persist(reply)
@@ -826,6 +866,24 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
             "suggested_followups": followups,
             "conversation_id": conv_id,
         }
+
+    # Saved-context confirmation — same as chat(): confirm an ambiguous fresh
+    # query against the farmer's saved area/crop instead of assuming it.
+    if _should_confirm_saved_context(req, clean, saved_crop, saved_district):
+        reply, cq_followups = _build_context_confirmation(
+            req, clean, saved_crop, saved_district
+        )
+        followups = cq_followups
+        yield {"type": "text", "content": reply}
+        conv_id = _persist(reply)
+        logger.info("[STREAM COMPLETE] conv=%s len=%d", conv_id, len(reply))
+        confidence = "Moderate confidence"
+        yield _metadata(conv_id)
+        _emit_analytics(
+            req, clean, "clarification", "Moderate confidence", context, start,
+            used_saved_context=True,
+        )
+        return
 
     # Vague-but-agricultural query — same clarifying-question handling as
     # chat(), adapted to streaming, runs before the grounding guard. See
@@ -1740,6 +1798,93 @@ def _build_context_ack(message: str) -> tuple:
     return reply, followups
 
 
+# ── Saved profile context ─────────────────────────────────────────────────────
+# Persist the farmer's explicitly-stated area/crop ("I'm from Jaffna") to their
+# profile, and on a fresh conversation use it to CONFIRM an ambiguous question
+# ("Do you mean carrot in Jaffna?") rather than silently assuming it. Retrieval
+# and the system prompt are deliberately untouched — saved context only powers
+# this confirmation and the client's UI personalisation.
+
+
+def _extract_context_terms(message: str) -> tuple:
+    """Covered (crop, district) named in the message — enum values or None.
+    The same extraction _build_context_ack uses, factored out so saving and
+    confirming stay in sync with what retrieval can actually use."""
+    caps = _dataset_capabilities()
+    msg = message.lower()
+    crop = next((c for c in caps["crops"] if c.lower() in msg), None)
+    district = next((d for d in caps["districts"] if d.lower() in msg), None)
+    return crop, district
+
+
+def _save_context_async(user_id: str, crop, district) -> None:
+    """Persist explicit context to the user's profile in a daemon thread — the
+    write must never slow or break the chat response (fire-and-forget)."""
+
+    def _run():
+        try:
+            from app.utils.firestore import update_user_context
+
+            update_user_context(
+                user_id, preferred_crop=crop, preferred_district=district
+            )
+        except Exception as exc:
+            logger.warning("save context failed: %s", exc)
+
+    try:
+        threading.Thread(target=_run, daemon=True).start()
+    except Exception as exc:
+        logger.warning("save context thread spawn failed: %s", exc)
+
+
+def _safe_get_preferences(user_id: str) -> dict:
+    """Read saved preferences for a fresh conversation. Never raises — returns
+    {} on any failure so chat proceeds without saved context."""
+    try:
+        from app.utils.firestore import get_user_preferences
+
+        return get_user_preferences(user_id) or {}
+    except Exception as exc:
+        logger.warning("load preferences failed: %s", exc)
+        return {}
+
+
+def _should_confirm_saved_context(req, message, saved_crop, saved_district) -> bool:
+    """True when a fresh, dropdown-free query omits a crop OR district that the
+    saved profile can supply — so we confirm ("Do you mean … in Jaffna?")
+    instead of silently assuming. Dropdown selections always win, so a
+    dimension the user set in the dropdown is never filled from saved context.
+    """
+    eff_saved_crop = None if req.crop else saved_crop
+    eff_saved_district = None if req.district else saved_district
+    if not (eff_saved_crop or eff_saved_district):
+        return False
+    msg_crop, msg_district = _extract_context_terms(message)
+    crop = (req.crop.value if req.crop else None) or msg_crop or eff_saved_crop
+    district = (
+        (req.district.value if req.district else None) or msg_district or eff_saved_district
+    )
+    filled = (not (req.crop or msg_crop) and eff_saved_crop) or (
+        not (req.district or msg_district) and eff_saved_district
+    )
+    return bool(crop and district and filled and _has_agricultural_intent(message))
+
+
+def _build_context_confirmation(req, message, saved_crop, saved_district) -> tuple:
+    """Confirmation reply + a tappable resolved-topic chip. Deterministic; no
+    Groq. Precedence for each dimension: dropdown, then message, then saved."""
+    msg_crop, msg_district = _extract_context_terms(message)
+    crop = (req.crop.value if req.crop else None) or msg_crop or saved_crop
+    district = (
+        (req.district.value if req.district else None) or msg_district or saved_district
+    )
+    reply = (
+        f"Do you mean {crop} in {district}? I've used what you told me "
+        "earlier — tap to confirm, or type a different crop or district."
+    )
+    return reply, [f"{crop} in {district}", "A different crop or district"]
+
+
 def _is_capability_question(message: str) -> bool:
     """True when the user asks what the bot covers (crops/districts/skills)."""
     msg = message.lower()
@@ -2275,6 +2420,7 @@ def _emit_analytics(
     context: dict | None,
     start: float,
     near_miss_type: str | None = None,
+    used_saved_context: bool = False,
 ) -> None:
     """Fire-and-forget: record one chat_analytics document for this turn.
 
@@ -2296,6 +2442,7 @@ def _emit_analytics(
                 context,
                 near_miss_type,
                 elapsed_ms,
+                used_saved_context,
             ),
             daemon=True,
         ).start()
@@ -2311,6 +2458,7 @@ def _run_analytics(
     context: dict | None,
     near_miss_type: str | None,
     elapsed_ms: int,
+    used_saved_context: bool = False,
 ) -> None:
     """Background-thread body: reconstruct chip context, assemble the record,
     hand it to log_chat_interaction. Errors are swallowed."""
@@ -2338,6 +2486,7 @@ def _run_analytics(
             "session_message_count": len(req.conversation_history) + 1,
             "model_used": req.model,
             "response_time_ms": elapsed_ms,
+            "used_saved_context": used_saved_context,
         }
         log_chat_interaction(data)
     except Exception as exc:

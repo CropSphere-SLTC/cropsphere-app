@@ -298,6 +298,8 @@ class NotificationPreferences(BaseModel):
 class UserPreferencesResponse(BaseModel):
     language: str = Field(default="en", pattern="^(en|si|ta)$")
     notifications: NotificationPreferences
+    preferred_district: Optional[str] = None
+    preferred_crop: Optional[str] = None
 
 
 class UpdatePreferencesRequest(BaseModel):

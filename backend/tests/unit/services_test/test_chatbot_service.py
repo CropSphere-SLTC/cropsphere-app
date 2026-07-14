@@ -960,3 +960,68 @@ def test_build_messages_injects_level_instruction():
     context = {"chunks": [], "sources": [], "score": 0.0}
     msgs = cs._build_messages("system", context, req, "what is yield?")
     assert any(m["content"] == cs._LEVEL_INSTRUCTIONS["beginner"] for m in msgs)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Saved-context confirmation
+# ═══════════════════════════════════════════════════════════════════════════
+
+_CTX_CAPS = {
+    "crops": ["Carrot", "Maize", "Green gram", "Cowpea", "Finger millet", "Groundnut"],
+    "districts": ["Nuwara Eliya", "Badulla", "Anuradhapura", "Monaragala", "Ampara",
+                  "Hambantota", "Batticaloa", "Jaffna"],
+    "crop_districts": {},
+    "district_crops": {},
+}
+
+
+def test_extract_context_terms_finds_covered():
+    with patch.object(cs, "_dataset_capabilities", return_value=_CTX_CAPS):
+        assert cs._extract_context_terms("i grow carrot in badulla") == (
+            "Carrot", "Badulla")
+        assert cs._extract_context_terms("hello there") == (None, None)
+
+
+def test_confirm_when_message_crop_and_saved_district():
+    req = _make_request(message="i want to plant carrot", conversation_history=[])
+    with patch.object(cs, "_dataset_capabilities", return_value=_CTX_CAPS):
+        assert cs._should_confirm_saved_context(req, "i want to plant carrot",
+                                                None, "Jaffna") is True
+        reply, chips = cs._build_context_confirmation(
+            req, "i want to plant carrot", None, "Jaffna")
+    assert "Carrot in Jaffna" in reply
+    assert chips[0] == "Carrot in Jaffna"
+
+
+def test_no_confirm_when_fully_specified():
+    req = _make_request(message="carrot yield in badulla", conversation_history=[])
+    with patch.object(cs, "_dataset_capabilities", return_value=_CTX_CAPS):
+        # Message names both crop and district — nothing for saved context to fill.
+        assert cs._should_confirm_saved_context(
+            req, "carrot yield in badulla", "Maize", "Jaffna") is False
+
+
+def test_no_confirm_without_saved_context():
+    req = _make_request(message="i want to plant carrot", conversation_history=[])
+    with patch.object(cs, "_dataset_capabilities", return_value=_CTX_CAPS):
+        assert cs._should_confirm_saved_context(
+            req, "i want to plant carrot", None, None) is False
+
+
+def test_dropdown_district_wins_over_saved():
+    req = _make_request(
+        message="i want to plant carrot",
+        district=DistrictEnum("Badulla"),
+        conversation_history=[],
+    )
+    with patch.object(cs, "_dataset_capabilities", return_value=_CTX_CAPS):
+        # Dropdown already supplies the district → saved district must not fill it.
+        assert cs._should_confirm_saved_context(
+            req, "i want to plant carrot", None, "Jaffna") is False
+
+
+def test_no_confirm_on_non_agricultural_message():
+    req = _make_request(message="hello", conversation_history=[])
+    with patch.object(cs, "_dataset_capabilities", return_value=_CTX_CAPS):
+        assert cs._should_confirm_saved_context(
+            req, "hello", "Carrot", "Jaffna") is False

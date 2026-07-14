@@ -169,6 +169,19 @@ def test_get_preferences_defaults_when_never_set():
         result = profile_service.get_preferences(UID)
 
     assert result.language == "en"
+    assert result.preferred_district is None
+    assert result.preferred_crop is None
+
+
+def test_get_preferences_includes_saved_context():
+    with patch(
+        "app.user.services.profile_service.get_user_preferences",
+        return_value={"preferred_district": "Jaffna", "preferred_crop": "Carrot"},
+    ):
+        result = profile_service.get_preferences(UID)
+
+    assert result.preferred_district == "Jaffna"
+    assert result.preferred_crop == "Carrot"
     assert isinstance(result.notifications, NotificationPreferences)
 
 

@@ -126,12 +126,34 @@ class _ChatScreenState extends State<ChatScreen> {
         _suggestedFollowups = [];
       });
       _scrollToBottom();
+      // Restore this user's thumbs votes so feedback survives a reload.
+      _restoreFeedback(detail.id);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Failed to load conversation')),
         );
       }
+    }
+  }
+
+  // Best-effort: pull the saved votes for this conversation and paint them
+  // onto the matching bubbles. Failure is silent — the chat still works.
+  Future<void> _restoreFeedback(String conversationId) async {
+    if (AppConfig.useMockServices) return;
+    try {
+      final votes = await ServiceFactory.getService().getConversationFeedback(
+        conversationId,
+      );
+      if (!mounted || votes.isEmpty) return;
+      setState(() {
+        for (var i = 0; i < _displayMessages.length; i++) {
+          final vote = votes[i];
+          if (vote != null) _displayMessages[i]['feedback'] = vote;
+        }
+      });
+    } catch (_) {
+      /* best-effort — reloaded chat still works without restored votes */
     }
   }
 
@@ -1103,15 +1125,15 @@ class _ChatScreenState extends State<ChatScreen> {
                         ),
                       ),
                     ),
-                  // Feedback (thumbs) — only on real, completed Groq answers.
-                  // Those carry retrieval sources; refusals, clarifications,
-                  // capability/context-ack replies, the welcome view and
-                  // reloaded-history bubbles all have empty sources, so this
-                  // gate hides thumbs on exactly the responses Step 7 lists.
+                  // Feedback (thumbs) — on real, completed Groq answers (which
+                  // carry retrieval sources), OR on any bubble that already has
+                  // a restored vote after a reload (history bubbles have no
+                  // sources). Refusals/clarifications/capability/context-ack and
+                  // the welcome view have neither, so they stay thumb-less.
                   if (isBot &&
                       !isStreamingMsg &&
                       errorCode == null &&
-                      sources.isNotEmpty)
+                      (sources.isNotEmpty || msg['feedback'] != null))
                     _buildFeedbackRow(msg, index),
                 ],
               ),

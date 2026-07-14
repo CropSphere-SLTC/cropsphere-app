@@ -181,6 +181,17 @@ class ApiService {
     );
   }
 
+  /// Returns this user's thumbs votes for a conversation as
+  /// {messageIndex: 'up'|'down'}, so feedback survives a page reload. JSON
+  /// object keys arrive as strings and are parsed back to ints.
+  Future<Map<int, String>> getConversationFeedback(String conversationId) async {
+    final response = await _dio.get('/api/chat/feedback/$conversationId');
+    final votes = (response.data['votes'] as Map?) ?? {};
+    return votes.map(
+      (k, v) => MapEntry(int.parse(k.toString()), v.toString()),
+    );
+  }
+
   Future<bool> checkHealth() async {
     try {
       final response = await _dio.get('/api/health');

@@ -237,6 +237,13 @@ class ChatResponse(BaseModel):
     confidence: str = ""
 
 
+class ChatFeedbackRequest(BaseModel):
+    conversation_id: str = Field("", max_length=128)
+    message_index: int = Field(..., ge=0)
+    feedback: str = Field(..., pattern="^(up|down)$")
+    message_text: str = Field("", max_length=500)
+
+
 # ── Chat conversation history ─────────────────────────────────────────────────
 
 

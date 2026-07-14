@@ -68,8 +68,10 @@ def get_gap_report(days: int = _DEFAULT_DAYS) -> dict:
 def _build_report(days: int) -> dict:
     """Fetch the window's documents and aggregate them in Python."""
     from app.user.services.chatbot_service import _dataset_capabilities
+    from app.utils.firestore import get_db
 
-    docs = _fetch_documents(days)
+    db = get_db()
+    docs = _fetch_documents(db, days)
     caps = _dataset_capabilities()
     covered_crops = set(caps["crops"])
     covered_districts = set(caps["districts"])
@@ -125,6 +127,8 @@ def _build_report(days: int) -> dict:
         if d.get("followup_chip_tapped") is True:
             chip_taps += 1
 
+    feedback_summary = _aggregate_feedback(_fetch_feedback(db, days))
+
     return {
         "period": f"last_{days}_days",
         "total_interactions": total,
@@ -145,6 +149,7 @@ def _build_report(days: int) -> dict:
         "avg_response_time_ms": round(rtime_sum / rtime_n) if rtime_n else 0,
         "chip_tap_rate": round(chip_taps / total, 2) if total else 0.0,
         "avg_session_length": round(slen_sum / slen_n, 1) if slen_n else 0.0,
+        "feedback_summary": feedback_summary,
     }
 
 
@@ -158,7 +163,7 @@ def _normalize_confidence(conf):
     return conf
 
 
-def _fetch_documents(days: int) -> list:
+def _fetch_documents(db, days: int) -> list:
     """Fetch all chat_analytics docs with timestamp >= now-days in one query.
 
     A single-field inequality needs no composite index. Raises on Firestore
@@ -166,13 +171,52 @@ def _fetch_documents(days: int) -> list:
     """
     from google.cloud.firestore_v1.base_query import FieldFilter
 
-    from app.utils.firestore import get_db
-
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    db = get_db()
     docs = (
         db.collection("chat_analytics")
         .where(filter=FieldFilter("timestamp", ">=", cutoff))
         .stream()
     )
     return [doc.to_dict() for doc in docs]
+
+
+def _fetch_feedback(db, days: int) -> list:
+    """Fetch chat_feedback docs with timestamp >= now-days (same window)."""
+    from google.cloud.firestore_v1.base_query import FieldFilter
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    docs = (
+        db.collection("chat_feedback")
+        .where(filter=FieldFilter("timestamp", ">=", cutoff))
+        .stream()
+    )
+    return [doc.to_dict() for doc in docs]
+
+
+def _aggregate_feedback(docs: list) -> dict:
+    """Aggregate thumbs up/down votes into the feedback_summary block.
+
+    most_downvoted_questions groups downvotes by the stored question text
+    (the user message that produced the answer), top _TOP_N by count.
+    """
+    up = down = 0
+    downvoted: Counter = Counter()
+    for f in docs:
+        vote = f.get("feedback")
+        if vote == "up":
+            up += 1
+        elif vote == "down":
+            down += 1
+            q = (f.get("message_text") or "").strip()
+            if q:
+                downvoted[q] += 1
+    total = up + down
+    return {
+        "total_feedback": total,
+        "thumbs_up": up,
+        "thumbs_down": down,
+        "satisfaction_rate": round(up / total, 2) if total else 0.0,
+        "most_downvoted_questions": [
+            {"question": q, "count": c} for q, c in downvoted.most_common(_TOP_N)
+        ],
+    }

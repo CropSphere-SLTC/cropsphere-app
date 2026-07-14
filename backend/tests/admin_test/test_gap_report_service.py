@@ -150,3 +150,53 @@ def test_low_confidence_label_normalised():
     ):
         report = svc.get_gap_report(7)
     assert report["confidence_distribution"] == {"Low confidence": 1}
+
+
+def _db_multi(analytics_docs, feedback_docs):
+    """Firestore double routing by collection name, so chat_analytics and
+    chat_feedback return different document sets."""
+    db = MagicMock()
+
+    def _collection(name):
+        col = MagicMock()
+        docs = feedback_docs if name == "chat_feedback" else analytics_docs
+        col.where.return_value.stream.return_value = docs
+        return col
+
+    db.collection.side_effect = _collection
+    return db
+
+
+def test_feedback_summary_aggregation():
+    feedback = [
+        _doc({"feedback": "up"}),
+        _doc({"feedback": "up"}),
+        _doc({"feedback": "up"}),
+        _doc({"feedback": "up"}),
+        _doc({"feedback": "down", "message_text": "carrot yield in badulla"}),
+        _doc({"feedback": "down", "message_text": "carrot yield in badulla"}),
+    ]
+    db = _db_multi([_doc(SAMPLE[0])], feedback)
+    with patch("app.utils.firestore.get_db", return_value=db), patch(
+        _CAPS_TARGET, return_value=CAPS
+    ):
+        summary = svc.get_gap_report(7)["feedback_summary"]
+
+    assert summary["total_feedback"] == 6
+    assert summary["thumbs_up"] == 4
+    assert summary["thumbs_down"] == 2
+    assert summary["satisfaction_rate"] == 0.67
+    assert summary["most_downvoted_questions"] == [
+        {"question": "carrot yield in badulla", "count": 2}
+    ]
+
+
+def test_feedback_summary_empty_when_no_feedback():
+    db = _db_multi([_doc(SAMPLE[0])], [])
+    with patch("app.utils.firestore.get_db", return_value=db), patch(
+        _CAPS_TARGET, return_value=CAPS
+    ):
+        summary = svc.get_gap_report(7)["feedback_summary"]
+    assert summary["total_feedback"] == 0
+    assert summary["satisfaction_rate"] == 0.0
+    assert summary["most_downvoted_questions"] == []

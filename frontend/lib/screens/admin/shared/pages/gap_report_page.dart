@@ -149,11 +149,95 @@ class _GapReportPageState extends State<GapReportPage> {
               _barList(report.knowledgeLevelDistribution, _levelColor),
             ),
             const SizedBox(height: 16),
+            _buildFeedbackCard(report.feedbackSummary),
+            const SizedBox(height: 16),
             _buildSessionCard(report),
             const SizedBox(height: 24),
           ],
         ),
       ),
+    );
+  }
+
+  // Thumbs up/down summary from chat_feedback (Step 8).
+  Widget _buildFeedbackCard(FeedbackSummary fb) {
+    if (fb.totalFeedback == 0) {
+      return _sectionCard('Feedback', _emptyLine('No feedback yet.'));
+    }
+    return _sectionCard(
+      'Feedback',
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 20,
+            runSpacing: 12,
+            children: [
+              _feedbackStat(
+                '${(fb.satisfactionRate * 100).round()}%',
+                'satisfaction',
+                Icons.sentiment_satisfied_alt,
+                AppTheme.success,
+              ),
+              _feedbackStat(
+                '${fb.thumbsUp}',
+                'thumbs up',
+                Icons.thumb_up,
+                AppTheme.success,
+              ),
+              _feedbackStat(
+                '${fb.thumbsDown}',
+                'thumbs down',
+                Icons.thumb_down,
+                AppTheme.accent,
+              ),
+            ],
+          ),
+          if (fb.mostDownvotedQuestions.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            const Text(
+              'Most downvoted questions',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 6),
+            _refusedList(fb.mostDownvotedQuestions),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _feedbackStat(String value, String label, IconData icon, Color color) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 18, color: color),
+        const SizedBox(width: 6),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              value,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: AppTheme.textPrimary,
+              ),
+            ),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 11,
+                color: AppTheme.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 

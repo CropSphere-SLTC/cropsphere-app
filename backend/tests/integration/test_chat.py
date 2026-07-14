@@ -215,3 +215,56 @@ def test_generic_refusal_has_no_empty_placeholders():
     assert "data for ," not in reply
     assert "In  I can help" not in reply
     svc._capabilities_cache = None
+
+
+# ── POST /api/chat/feedback ───────────────────────────────────────────────────
+
+FEEDBACK_URL = "/api/chat/feedback"
+FEEDBACK_VALID = {
+    "conversation_id": "conv-1",
+    "message_index": 2,
+    "feedback": "up",
+    "message_text": "carrot yield in badulla",
+}
+
+
+def test_feedback_valid_returns_200(client, mock_valid_token, valid_auth_header):
+    with patch("app.user.routers.chat_router.log_feedback") as mock_log:
+        resp = client.post(
+            FEEDBACK_URL, json=FEEDBACK_VALID, headers=valid_auth_header
+        )
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok"}
+    mock_log.assert_called_once()
+
+
+def test_feedback_invalid_value_returns_422(
+    client, mock_valid_token, valid_auth_header
+):
+    resp = client.post(
+        FEEDBACK_URL,
+        json={**FEEDBACK_VALID, "feedback": "maybe"},
+        headers=valid_auth_header,
+    )
+    assert resp.status_code == 422
+
+
+def test_feedback_no_jwt_returns_401(client, mock_expired_token):
+    resp = client.post(FEEDBACK_URL, json=FEEDBACK_VALID)
+    assert resp.status_code == 401
+
+
+def test_get_feedback_returns_votes(client, mock_valid_token, valid_auth_header):
+    with patch(
+        "app.user.routers.chat_router.get_conversation_feedback",
+        return_value={1: "up", 3: "down"},
+    ):
+        resp = client.get("/api/chat/feedback/conv-1", headers=valid_auth_header)
+    assert resp.status_code == 200
+    # JSON object keys are strings on the wire.
+    assert resp.json() == {"votes": {"1": "up", "3": "down"}}
+
+
+def test_get_feedback_no_jwt_returns_401(client, mock_expired_token):
+    resp = client.get("/api/chat/feedback/conv-1")
+    assert resp.status_code == 401

@@ -90,12 +90,15 @@ _FORMATTING_RULES = (
     "1 ha = 395.37 perches.\n"
     "- Only ask which unit if the user gives a number without any unit "
     "word.\n"
-    "- After answering a yield or price question, add one short sentence "
-    "offering to estimate earnings if the farmer tells you their land "
-    "size. Example: 'Want me to estimate your earnings? Just tell me "
-    "your land size in acres or perches.' Only offer this once per "
-    "topic — if you already gave an earnings estimate or the farmer "
-    "already asked about earnings, don't repeat the offer.\n"
+    "- After answering a question specifically about crop YIELD (harvest "
+    "amounts, kg/ha) or crop PRICE (selling price, LKR/kg), add one short "
+    "sentence offering to estimate earnings if the farmer tells you their "
+    "land size. Example: 'Want me to estimate your earnings? Just tell me "
+    "your land size in acres or perches.' Do NOT offer earnings after "
+    "questions about growing requirements, planting seasons, weather, "
+    "soil, general information, or any non-yield/non-price topic. Only "
+    "offer this once per topic — if you already gave an earnings estimate "
+    "or the farmer already asked about earnings, don't repeat the offer.\n"
     "- When the farmer mentioned their location or crop earlier in the "
     "conversation, reference it naturally in your answer. Say 'In your "
     "area of Jaffna' or 'For your carrots in Badulla' instead of just "
@@ -1737,8 +1740,38 @@ def _refusal_followups(message: str, near: tuple | None = None) -> list:
 
 def _is_context_statement(message: str) -> bool:
     """True when the message is the farmer introducing themselves or their
-    situation ("I'm from Jaffna") rather than asking a question."""
-    msg = message.lower()
+    situation ("I'm from Jaffna") rather than asking a question.
+
+    Questions are rejected up front: "What crops can I grow in Anuradhapura?"
+    contains the phrase "i grow" but is clearly a question and must reach
+    retrieval, not the context-ack short-circuit.
+    """
+    msg = message.lower().strip()
+
+    if msg.endswith("?"):
+        return False
+    if any(
+        msg.startswith(w)
+        for w in (
+            "what ",
+            "which ",
+            "how ",
+            "can ",
+            "where ",
+            "when ",
+            "why ",
+            "do ",
+            "does ",
+            "is ",
+            "are ",
+            "tell ",
+            "show ",
+            "compare ",
+            "wat ",
+        )
+    ):
+        return False
+
     return any(p in msg for p in _CONTEXT_STATEMENT_PHRASES)
 
 

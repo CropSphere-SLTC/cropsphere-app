@@ -200,3 +200,15 @@ def test_feedback_summary_empty_when_no_feedback():
     assert summary["total_feedback"] == 0
     assert summary["satisfaction_rate"] == 0.0
     assert summary["most_downvoted_questions"] == []
+
+
+def test_report_includes_fewshot_info():
+    with patch("app.utils.firestore.get_db", return_value=_db_with([])), patch(
+        _CAPS_TARGET, return_value=CAPS
+    ):
+        report = svc.get_gap_report(7)
+    fs = report["fewshot"]
+    # Keys are always present; the seed file ships with the image, so in a repo
+    # checkout it exists with the manual examples.
+    assert set(fs) == {"file_exists", "updated_at", "counts", "total"}
+    assert isinstance(fs["total"], int)

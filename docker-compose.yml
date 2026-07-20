@@ -11,6 +11,7 @@ services:
       - "8000:8000"
     volumes:
       - ./backend/models/files:/app/models/files
+      - ./backend/data:/app/data
       - ./backend/firebase-credentials.json:/app/firebase-credentials.json:ro
     environment:
       APP_ENV: development

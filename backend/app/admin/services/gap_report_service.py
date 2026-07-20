@@ -150,7 +150,30 @@ def _build_report(days: int) -> dict:
         "chip_tap_rate": round(chip_taps / total, 2) if total else 0.0,
         "avg_session_length": round(slen_sum / slen_n, 1) if slen_n else 0.0,
         "feedback_summary": feedback_summary,
+        "fewshot": _fewshot_info(),
     }
+
+
+def _fewshot_info() -> dict:
+    """Few-shot file status for the gap report: existence, updated_at, per-type
+    counts, and total. Never raises."""
+    from app.user.services.fewshot_service import FEWSHOT_PATH
+
+    if not FEWSHOT_PATH.exists():
+        return {"file_exists": False, "updated_at": None, "counts": {}, "total": 0}
+    try:
+        import json
+
+        data = json.loads(FEWSHOT_PATH.read_text())
+        counts = {k: len(v) for k, v in data.get("examples", {}).items()}
+        return {
+            "file_exists": True,
+            "updated_at": data.get("updated_at"),
+            "counts": counts,
+            "total": sum(counts.values()),
+        }
+    except Exception:
+        return {"file_exists": True, "updated_at": None, "counts": {}, "total": 0}
 
 
 def _normalize_confidence(conf):

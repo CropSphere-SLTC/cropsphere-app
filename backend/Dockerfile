@@ -126,6 +126,7 @@ ENV HF_HUB_OFFLINE=1 \
 COPY app/ ./app/
 COPY models/ ./models/
 COPY scripts/ ./scripts/
+COPY data/ ./data/
 
 RUN chown -R cropsphere:cropsphere /app
 

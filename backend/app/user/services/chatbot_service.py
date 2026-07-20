@@ -8,6 +8,7 @@ New features:
 """
 
 import hashlib
+import json
 import logging
 import os
 import random
@@ -76,6 +77,42 @@ _FORMATTING_RULES = (
     "at the farm' not 'farmgate price'. Say 'amount you can harvest' not "
     "'yield per hectare'. When you must use a technical term, explain it "
     "in parentheses the first time.\n"
+    "- Frame data as advice, not a report. Bad: 'The predicted yield is "
+    "20,169 kg/ha.' Good: 'You can expect to harvest around 20,169 kg from "
+    "one hectare.' Bad: 'The average farmgate price is 62 LKR/kg.' Good: "
+    "'Farmers are currently getting around 62 LKR per kilogram at the farm.' "
+    "Bad: 'Want me to estimate your earnings? Just tell me your land size.' "
+    "Good: 'Would you like me to work out how much you could earn? Just tell "
+    "me your land size in acres or perches.'\n"
+    "- Structure every answer in three sections, separated by blank lines:\n"
+    "  (1) ANSWER — the main data and advice the farmer asked for. This is "
+    "the core response.\n"
+    "  (2) NOTE (optional) — any important caveat, seasonal advice, or "
+    "practical tip. Only include if relevant. Start with 'Note:' or a "
+    "practical observation.\n"
+    "  (3) FOLLOW-UP QUESTION (optional) — any question back to the farmer "
+    "(earnings offer, land size question). Always on its own line, "
+    "separated by a blank line from the answer.\n"
+    "  These section names are structural: never print the numbers or the "
+    "words 'ANSWER' and 'FOLLOW-UP QUESTION'. Only the word 'Note:' is "
+    "written out, and only when a note applies.\n"
+    "  Good structure:\n"
+    "  'If you plant carrots in Badulla during the Inter season, you can "
+    "expect to harvest around 20,169 kg from one hectare (8,162 kg per "
+    "acre; 51 kg per perch).\n\n"
+    "  Note: The Maha season typically gives slightly lower yields in this "
+    "area.\n\n"
+    "  Would you like me to work out how much you could earn? Just tell me "
+    "your land size in acres or perches.'\n"
+    "  Bad structure (everything merged): 'If you plant carrots in Badulla "
+    "during the Inter season you can expect to harvest around 20,169 kg "
+    "from one hectare (8,162 kg per acre) the Maha season gives lower "
+    "yields would you like me to estimate your earnings just tell me your "
+    "land size.'\n"
+    "  Always put a blank line before any question to the farmer.\n"
+    "- Start answers with the farmer's situation when possible. Bad: 'The "
+    "yield is 20,169 kg/ha.' Good: 'If you plant carrots in Badulla during "
+    "Inter season, you can expect around 20,169 kg per hectare.'\n"
     "- For multiple data points, use a dash (-) list. For single points, "
     "use a normal sentence.\n"
     "- Use thousands separators (20,169 not 20169).\n"
@@ -93,8 +130,9 @@ _FORMATTING_RULES = (
     "- After answering a question specifically about crop YIELD (harvest "
     "amounts, kg/ha) or crop PRICE (selling price, LKR/kg), add one short "
     "sentence offering to estimate earnings if the farmer tells you their "
-    "land size. Example: 'Want me to estimate your earnings? Just tell me "
-    "your land size in acres or perches.' Do NOT offer earnings after "
+    "land size. Example: 'Would you like me to work out how much you could "
+    "earn? Just tell me your land size in acres or perches.' Do NOT offer "
+    "earnings after "
     "questions about growing requirements, planting seasons, weather, "
     "soil, general information, or any non-yield/non-price topic. Only "
     "offer this once per topic — if you already gave an earnings estimate "
@@ -359,6 +397,10 @@ _EARNINGS_TYPE_KEYWORDS = ("earn", "money")
 _PRICE_TYPE_KEYWORDS = ("price", "cost", "sell")
 _SEASON_TYPE_KEYWORDS = ("season", "plant", "when")
 _capabilities_cache: dict | None = None
+# Few-shot examples (thumbs-up answers per question_type), loaded once from the
+# JSON file that fewshot_service writes. None = not yet loaded; {} = loaded but
+# empty (no file / unreadable) — the chatbot works fine either way.
+_fewshot_examples: dict | None = None
 # Common Sri Lankan crops/districts NOT in our dataset. Lets a near-miss be
 # caught proactively even when retrieval finds semantically-similar covered
 # chunks (e.g. "carrot price in Galle" retrieves carrot chunks for other
@@ -1083,15 +1125,26 @@ def _system_prompt(req: ChatRequest) -> str:
 
     return (
         "You are CropSphere, an agricultural assistant for Sri Lankan farmers."
-        f"{district}{crop}\n\n"
+        f"{district}{crop}\n"
+        "Speak like a friendly, experienced agricultural advisor who genuinely "
+        "cares about the farmer's success. Use a warm, conversational tone — as "
+        "if you're chatting with a neighbor over tea, not writing a government "
+        "report. Say 'you can expect' instead of 'the predicted yield is'. Say "
+        "'farmers are getting around' instead of 'the average farmgate price "
+        "is'. Start answers with context ('If you plant carrots in "
+        "Badulla...') not raw data ('The yield is...'). Keep it natural — "
+        "never sound like you're reading from a spreadsheet.\n\n"
         "RULES (in priority order):\n"
         "1. Answer ONLY from the 'Relevant context' provided. Never use "
         "general knowledge. Never guess.\n"
         f'2. If no context is provided, reply with exactly: "{_OUT_OF_SCOPE_REPLY}"\n'
         "3. Start every answer with one short sentence: 'Reasoning: ' that "
-        "names the SPECIFIC data you used (e.g. the source document, "
-        'district, season, or crop) — never vague phrases like "based on '
-        'similar regions". Then give your final answer on a new line.\n'
+        "briefly mentions which data you used (e.g. 'Reasoning: CropSphere "
+        "data for Carrot in Badulla, Inter season.'). Keep it short and "
+        "natural — one line, not a formal citation. Then leave a BLANK LINE "
+        "and give your final answer. The blank line after the Reasoning "
+        "sentence is required — never put the answer on the very next "
+        "line.\n"
         "4. When multiple sources are provided and the question is "
         "ambiguous, prioritize the most recently discussed topic. If the "
         "user references an earlier topic explicitly (e.g. 'go back to the "
@@ -1997,6 +2050,32 @@ def _is_all_crops_query(message: str) -> bool:
     return any(p in msg for p in _ALL_CROPS_PATTERNS)
 
 
+def _load_fewshot_examples() -> dict:
+    """Load few-shot examples from the JSON file, cached for the process
+    lifetime. Returns {} if the file is missing or unreadable — the chatbot
+    works fine without examples, just less consistently."""
+    global _fewshot_examples
+    if _fewshot_examples is None:
+        try:
+            from app.user.services.fewshot_service import FEWSHOT_PATH
+
+            _fewshot_examples = (
+                json.loads(FEWSHOT_PATH.read_text()) if FEWSHOT_PATH.exists() else {}
+            )
+        except Exception as exc:
+            logger.warning("few-shot load failed: %s", exc)
+            _fewshot_examples = {}
+    return _fewshot_examples
+
+
+def _reload_fewshot_examples() -> dict:
+    """Drop the cache and reload — called by the admin rebuild endpoint after
+    fewshot_service rewrites the file."""
+    global _fewshot_examples
+    _fewshot_examples = None
+    return _load_fewshot_examples()
+
+
 def _build_messages(system: str, context: dict, req: ChatRequest, message: str) -> list:
     """Assemble the Groq message list: system prompt, RAG context, history,
     current message.
@@ -2033,6 +2112,25 @@ def _build_messages(system: str, context: dict, req: ChatRequest, message: str) 
     # _detect_knowledge_level / _LEVEL_INSTRUCTIONS.
     level = _detect_knowledge_level(message, req.conversation_history)
     msgs.append({"role": "system", "content": _LEVEL_INSTRUCTIONS[level]})
+    # Few-shot examples — thumbs-up answers of the SAME question type, so the
+    # model matches a style farmers already approved. Injected as its own
+    # system message right after the level instruction. Skipped entirely when
+    # there are no examples for this type (identical to prior behaviour). See
+    # _load_fewshot_examples / fewshot_service.
+    _examples = _load_fewshot_examples().get("examples", {}).get(
+        _question_type(message), []
+    )
+    if _examples:
+        _parts = [
+            "Here are examples of answers that farmers found helpful. "
+            "Match this style:\n"
+        ]
+        for _i, _ex in enumerate(_examples[:2], 1):
+            _parts.append(
+                f"\nExample {_i}:\nQ: {_ex.get('question', '')}\n"
+                f"A: {_ex.get('answer', '')}"
+            )
+        msgs.append({"role": "system", "content": "".join(_parts)})
     # "All crops" queries: top-k retrieval only surfaces 2-3 crops' worth of
     # chunks, so the LLM can't know the other crops exist at all. Inject the
     # full crop list from our own dataset metadata as extra context so it

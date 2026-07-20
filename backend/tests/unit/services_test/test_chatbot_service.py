@@ -1051,3 +1051,48 @@ def test_no_confirm_on_non_agricultural_message():
         assert (
             cs._should_confirm_saved_context(req, "hello", "Carrot", "Jaffna") is False
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# few-shot examples (loader + injection)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_load_fewshot_examples_missing_file_returns_empty(tmp_path):
+    cs._fewshot_examples = None
+    with patch("app.user.services.fewshot_service.FEWSHOT_PATH",
+               tmp_path / "nope.json"):
+        assert cs._load_fewshot_examples() == {}
+    cs._fewshot_examples = None
+
+
+def test_load_fewshot_examples_reads_and_caches(tmp_path):
+    f = tmp_path / "fewshot.json"
+    f.write_text('{"examples": {"yield": [{"question": "q", "answer": "a"}]}}')
+    cs._fewshot_examples = None
+    with patch("app.user.services.fewshot_service.FEWSHOT_PATH", f):
+        out = cs._load_fewshot_examples()
+    assert out["examples"]["yield"][0]["question"] == "q"
+    cs._fewshot_examples = None
+
+
+def test_build_messages_injects_matching_fewshot():
+    req = _make_request(message="carrot yield in Badulla", conversation_history=[])
+    context = {"chunks": [], "sources": [], "score": 0.0}
+    fake = {"examples": {"yield": [
+        {"question": "carrot yield in Badulla", "answer": "harvest is 19,517 kg/ha"}]}}
+    with patch.object(cs, "_load_fewshot_examples", return_value=fake):
+        msgs = cs._build_messages("sys", context, req, "carrot yield in Badulla")
+    injected = [m["content"] for m in msgs
+                if m["content"].startswith("Here are examples")]
+    assert injected and "harvest is 19,517 kg/ha" in injected[0]
+
+
+def test_build_messages_no_fewshot_when_type_absent():
+    req = _make_request(message="what soil is best?", conversation_history=[])
+    context = {"chunks": [], "sources": [], "score": 0.0}
+    # examples only for 'yield'; a 'general' question gets nothing injected.
+    fake = {"examples": {"yield": [{"question": "q", "answer": "a"}]}}
+    with patch.object(cs, "_load_fewshot_examples", return_value=fake):
+        msgs = cs._build_messages("sys", context, req, "what soil is best?")
+    assert not any(m["content"].startswith("Here are examples") for m in msgs)

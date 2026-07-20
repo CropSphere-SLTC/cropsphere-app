@@ -151,6 +151,8 @@ class _GapReportPageState extends State<GapReportPage> {
             const SizedBox(height: 16),
             _buildFeedbackCard(report.feedbackSummary),
             const SizedBox(height: 16),
+            _buildFewshotCard(report.fewshot),
+            const SizedBox(height: 16),
             _buildSessionCard(report),
             const SizedBox(height: 24),
           ],
@@ -293,6 +295,71 @@ class _GapReportPageState extends State<GapReportPage> {
           ),
         ),
       ],
+    );
+  }
+
+  // Few-shot examples file status (Step 6): total, per-type counts, updated_at.
+  Widget _buildFewshotCard(FewshotInfo fs) {
+    if (!fs.fileExists) {
+      return _sectionCard(
+        'Few-shot examples',
+        _emptyLine('No examples file yet — run "Rebuild few-shot" to create it.'),
+      );
+    }
+    final types = ['yield', 'price', 'season', 'earnings', 'general'];
+    return _sectionCard(
+      'Few-shot examples',
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                '${fs.total}',
+                style: const TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.textPrimary,
+                ),
+              ),
+              const SizedBox(width: 6),
+              const Text(
+                'examples loaded',
+                style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final t in types)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppTheme.background,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '$t: ${fs.counts[t] ?? 0}',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+            ],
+          ),
+          if (fs.updatedAt != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Updated: ${fs.updatedAt}',
+              style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
+            ),
+          ],
+        ],
+      ),
     );
   }
 

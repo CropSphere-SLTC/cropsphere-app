@@ -17,6 +17,10 @@ class AppConfig {
   // Set to false when Shifan deploys — switches all services to real API
   static const bool useMockServices = false;
 
+  // Streaming chat (SSE via POST /api/chat/stream). Set false to fall back
+  // to the non-streaming POST /api/chat for every message.
+  static const bool useStreamingChat = true;
+
   static const Duration apiTimeout = Duration(seconds: 30);
 
   // Firebase project

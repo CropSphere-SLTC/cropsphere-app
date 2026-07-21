@@ -7,6 +7,15 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
+# In-memory session cache — prevents duplicate session documents per container lifetime
+_session_cache: set = set()
+# In-memory cache of uids confirmed to have a Firestore user document —
+# prevents re-reading (and, historically, re-writing photo_url on) the same
+# document on every single authenticated request. Safe to cache for the
+# container's lifetime: existence doesn't change, and role/ban status is
+# never sourced from this call (roles.py always fetches those fresh).
+_known_users: set = set()
+
 logger = logging.getLogger(__name__)
 
 # Paths that bypass JWT verification
@@ -32,6 +41,7 @@ class FirebaseAuthMiddleware(BaseHTTPMiddleware):
 
         token = _extract_bearer(request)
         if token is None:
+            _record_failed_login(request, "missing_or_malformed_authorization_header")
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Authorization header missing or malformed"},
@@ -39,10 +49,13 @@ class FirebaseAuthMiddleware(BaseHTTPMiddleware):
 
         uid = _verify(token)
         if uid is None:
+            _record_failed_login(request, "token_invalid_or_expired")
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Token invalid or expired"},
             )
+
+        _track_session(uid, request)
 
         request.state.user_id = uid
         return await call_next(request)
@@ -55,12 +68,53 @@ def _is_public(path: str) -> bool:
     )
 
 
+def _record_failed_login(request: Request, reason: str) -> None:
+    """Best-effort persistence of an authentication failure to security_events.
+
+    Never raises — auth rejection must proceed regardless of Firestore state.
+    Note: this runs on every rejected request, but SlowAPIMiddleware (outer)
+    caps requests per IP before they reach here, bounding write amplification
+    from a flood of invalid tokens.
+    """
+    try:
+        from slowapi.util import get_remote_address
+
+        from app.utils.security_logger import record_failed_login
+
+        record_failed_login(
+            endpoint=request.url.path,
+            ip_address=get_remote_address(request),
+            reason=reason,
+        )
+    except Exception as exc:
+        logger.debug("failed_login event not recorded: %s", exc)
+
+
 def _extract_bearer(request: Request) -> Optional[str]:
     """Return the raw token from 'Authorization: Bearer <token>'."""
     header = request.headers.get("Authorization", "")
     if header.startswith("Bearer "):
         return header[7:]
     return None
+
+
+def _track_session(uid: str, request: Request) -> None:
+    """Record login activity once per container lifetime per user.
+
+    Uses an in-memory cache to avoid writing a new session document
+    on every authenticated request — only fires on first request per UID.
+    """
+    if uid in _session_cache:
+        return
+    _session_cache.add(uid)
+    try:
+        from app.utils.firestore import create_session, update_last_login
+
+        device_info = request.headers.get("User-Agent", "unknown")
+        update_last_login(uid)
+        create_session(uid, device_info)
+    except Exception as exc:
+        logger.warning("Session tracking failed for uid=%s: %s", uid, exc)
 
 
 def _verify(token: str) -> Optional[str]:
@@ -84,7 +138,25 @@ def _verify(token: str) -> Optional[str]:
             )
 
         decoded = fb_auth.verify_id_token(token)
-        return decoded.get("uid")
+        uid = decoded.get("uid")
+        email = decoded.get("email", "")
+        photo_url = decoded.get("picture", "")
+        # Create user document in Firestore if first login. Only needs to
+        # run once per uid per container lifetime — every request after
+        # that would otherwise re-read (and potentially re-write) this
+        # document for no reason, which is what was driving Firestore 429s
+        # under sustained traffic. Role/ban status is never sourced from
+        # this call, so skipping it on repeat requests doesn't affect the
+        # freshness of those checks (see app.middleware.roles).
+        if uid not in _known_users:
+            try:
+                from app.utils.firestore import get_or_create_user
+
+                get_or_create_user(uid, email, photo_url)
+                _known_users.add(uid)
+            except Exception:
+                pass  # Never block auth for Firestore failures
+        return uid
     except Exception as exc:
         logger.warning(
             "JWT verification failed: %s — %s",

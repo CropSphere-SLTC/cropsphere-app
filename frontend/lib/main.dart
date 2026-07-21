@@ -23,6 +23,14 @@ import 'screens/weather/weather_screen.dart';
 import 'screens/demand/demand_screen.dart';
 import 'screens/recommend/recommend_screen.dart';
 import 'screens/chat/chat_screen.dart';
+import 'screens/admin/admin_shell.dart';
+import 'screens/profile/account_settings_screen.dart';
+import 'screens/profile/change_password_screen.dart';
+import 'services/admin_service.dart';
+import 'services/profile_service.dart';
+import 'services/session_service.dart';
+import 'models/profile_models.dart';
+import 'widgets/profile_avatar_button.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -85,9 +93,16 @@ class MainShell extends StatefulWidget {
   State<MainShell> createState() => _MainShellState();
 }
 
-class _MainShellState extends State<MainShell> {
+class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   int _selectedIndex = 0;
+  bool _isAdmin = false;
+  // False until the first checkAdminAccess() resolves — the shell is gated on
+  // this so an admin never sees the user home before being routed to the panel.
+  bool _adminChecked = false;
+  UserProfile? _profile;
 
+  // The user-facing bottom-nav screens. Admins don't use this layout — they get
+  // AdminShell (which hosts these same screens in its "App" sidebar section).
   late final List<Widget> _screens = [
     DashboardScreen(onNavigate: _navigateTo), // 0
     YieldScreen(onNavigate: _navigateTo), // 1
@@ -98,20 +113,154 @@ class _MainShellState extends State<MainShell> {
     const ChatScreen(), // 6
   ];
 
-  void _navigateTo(int index) => setState(() => _selectedIndex = index);
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _checkAdminAccess();
+    _loadProfile();
+    _loadLanguagePreference();
+  }
+
+  Future<void> _loadProfile() async {
+    try {
+      final profile = await ProfileService().getProfile();
+      if (mounted) setState(() => _profile = profile);
+    } catch (e) {
+      debugPrint('Failed to load profile: $e');
+    }
+  }
+
+  // The saved language preference otherwise only takes effect once the user
+  // re-visits Account Settings and saves again in that session — apply it
+  // to the shared AppLangNotifier as soon as the app boots.
+  Future<void> _loadLanguagePreference() async {
+    try {
+      final prefs = await ProfileService().getPreferences();
+      if (!mounted) return;
+      final lang = AppLang.values.firstWhere(
+        (l) => l.name == prefs.language,
+        orElse: () => AppLang.en,
+      );
+      AppLangProvider.of(context).setLang(lang);
+    } catch (e) {
+      debugPrint('Failed to load language preference: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // A role change made by a superadmin elsewhere (e.g. promoting this same
+  // account to admin, or admin to superadmin) never reaches an already-open
+  // session on its own — checkAdminAccess()/loadProfile() only ran once, in
+  // initState(). Re-run both whenever the app comes back to the foreground,
+  // and whenever the user taps Home, so a freshly granted (or revoked, or
+  // changed-tier) role is picked up without requiring a full app restart.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkAdminAccess();
+      _loadProfile();
+    }
+  }
+
+  Future<void> _checkAdminAccess() async {
+    final isAdmin = await AdminService().checkAdminAccess();
+    if (mounted) {
+      setState(() {
+        _isAdmin = isAdmin;
+        _adminChecked = true;
+      });
+    }
+  }
+
+  void _navigateTo(int index) {
+    setState(() => _selectedIndex = index);
+    if (index == 0) {
+      _checkAdminAccess();
+      _loadProfile();
+    }
+  }
+
+  void _openSettings() {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const AccountSettingsScreen()));
+  }
+
+  void _openChangePassword() {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const ChangePasswordScreen()));
+  }
+
+  void _onProfileUpdated(UserProfile updated) {
+    if (mounted) setState(() => _profile = updated);
+  }
 
   @override
   Widget build(BuildContext context) {
+    // Hold the shell until we know whether this account is an admin, so an
+    // admin is never shown the user home before being routed to the panel.
+    if (!_adminChecked) {
+      return const Scaffold(
+        backgroundColor: Color(0xFFFAFFF5),
+        body: Center(
+          child: CircularProgressIndicator(color: Color(0xFF4CAF50)),
+        ),
+      );
+    }
+
+    // Admins/superadmins land directly in the admin panel; the user app lives
+    // in the panel's "App" sidebar section.
+    if (_isAdmin) {
+      return AdminShell(
+        // checkAdminAccess() only confirms admin-or-above; the loaded profile
+        // decides the tier. Default to 'admin' until the profile arrives.
+        role: _profile?.role == 'superadmin' ? 'superadmin' : 'admin',
+        profile: _profile,
+        onProfileUpdated: _onProfileUpdated,
+        onOpenSettings: _openSettings,
+        onOpenChangePassword: _openChangePassword,
+      );
+    }
+
     // Rebuild nav labels when language changes
     final lang = AppLangProvider.lang(context);
+    final safeIndex = _selectedIndex < _screens.length ? _selectedIndex : 0;
 
     return Scaffold(
       backgroundColor: const Color(0xFFFAFFF5),
-      body: IndexedStack(index: _selectedIndex, children: _screens),
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(52),
+        child: AppBar(
+          backgroundColor: AppTheme.primary,
+          elevation: 0,
+          automaticallyImplyLeading: false,
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: ProfileAvatarButton(
+                profile: _profile,
+                onProfileUpdated: _onProfileUpdated,
+                onOpenSettings: _openSettings,
+                onOpenChangePassword: _openChangePassword,
+                onLogout: SessionService.logout,
+              ),
+            ),
+          ],
+        ),
+      ),
+      body: IndexedStack(index: safeIndex, children: _screens),
       bottomNavigationBar: _CropBottomNav(
-        selectedIndex: _selectedIndex,
+        selectedIndex: safeIndex,
         onTap: _navigateTo,
         lang: lang,
+        showAdmin: false,
       ),
     );
   }
@@ -128,11 +277,13 @@ class _CropBottomNav extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onTap;
   final AppLang lang;
+  final bool showAdmin;
 
   const _CropBottomNav({
     required this.selectedIndex,
     required this.onTap,
     required this.lang,
+    this.showAdmin = false,
   });
 
   static const _labelsEn = [
@@ -143,6 +294,7 @@ class _CropBottomNav extends StatelessWidget {
     'Crop',
     'Demand',
     'Chat',
+    'Admin',
   ];
   static const _labelsSi = [
     'මුල',
@@ -152,6 +304,7 @@ class _CropBottomNav extends StatelessWidget {
     'භෝග',
     'ඉල්ලුම',
     'AI',
+    'පරිපාලක',
   ];
   static const _labelsTa = [
     'முகப்பு',
@@ -161,6 +314,7 @@ class _CropBottomNav extends StatelessWidget {
     'பயிர்',
     'தேவை',
     'AI',
+    'நிர்வாகி',
   ];
 
   static const _activeBg = [
@@ -171,6 +325,7 @@ class _CropBottomNav extends StatelessWidget {
     Color(0xFFF3E5F5), // Crop
     Color(0xFFE8EAF6), // Demand
     Color(0xFFE0F2F1), // Chat
+    Color(0xFFFFEBEE), // Admin
   ];
 
   static const _activeColor = [
@@ -181,6 +336,7 @@ class _CropBottomNav extends StatelessWidget {
     Color(0xFF6A1B9A),
     Color(0xFF283593),
     Color(0xFF004D40),
+    Color(0xFFC62828), // Admin
   ];
 
   List<String> get _labels => switch (lang) {
@@ -192,6 +348,7 @@ class _CropBottomNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final labels = _labels;
+    final itemCount = showAdmin ? 8 : 7;
     return Container(
       decoration: const BoxDecoration(
         color: Colors.white,
@@ -209,7 +366,7 @@ class _CropBottomNav extends StatelessWidget {
         child: SizedBox(
           height: 62,
           child: Row(
-            children: List.generate(7, (i) {
+            children: List.generate(itemCount, (i) {
               final active = selectedIndex == i;
               return Expanded(
                 child: InkWell(
@@ -324,6 +481,11 @@ class _CropBottomNav extends StatelessWidget {
             '<circle cx="16.5" cy="17.5" r="1.8" fill="$c" opacity="0.7"/>'
             '<path d="M10 7L12 3L14 7" stroke="$c" stroke-width="1.6" stroke-linecap="round" fill="none"/>'
             '<line x1="12" y1="3" x2="12" y2="9" stroke="$c" stroke-width="1.6" stroke-linecap="round"/>'
+            '</svg>',
+      7 => // Admin — shield with checkmark
+        '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
+            '<path d="M12 2L20 5V11C20 16 16.5 20.5 12 22C7.5 20.5 4 16 4 11V5L12 2Z" fill="$c" opacity="0.85"/>'
+            '<path d="M8.5 12L11 14.5L16 9" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>'
             '</svg>',
       _ => // AI Chat — speech bubble + star badge
         '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'

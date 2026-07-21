@@ -1,6 +1,8 @@
 // lib/services/api_service.dart
 // Real API calls — used when AppConfig.useMockServices = false
 
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../config/app_config.dart';
@@ -34,8 +36,21 @@ class ApiService {
           return handler.next(options);
         },
         onError: (DioException error, ErrorInterceptorHandler handler) async {
-          // Never auto-signout on 401 — this would redirect the user to
-          // LoginScreen instead of showing the error on the prediction screen.
+          if (error.response?.statusCode == 401) {
+            final user = FirebaseAuth.instance.currentUser;
+            if (user != null) {
+              try {
+                // Token may have expired — force a refresh and retry once.
+                final newToken = await user.getIdToken(true);
+                final opts = error.requestOptions;
+                opts.headers['Authorization'] = 'Bearer $newToken';
+                final response = await _dio.fetch(opts);
+                return handler.resolve(response);
+              } catch (_) {
+                // Retry failed — fall through to original error.
+              }
+            }
+          }
           return handler.next(error);
         },
       ),
@@ -82,6 +97,88 @@ class ApiService {
   Future<ChatResponse> sendChat(ChatRequest request) async {
     final response = await _dio.post('/api/chat', data: request.toJson());
     return ChatResponse.fromJson(response.data);
+  }
+
+  /// Streams SSE events from POST /api/chat/stream as decoded JSON maps:
+  /// {'type': 'text'|'metadata'|'error'|'done', ...}. The [DONE] sentinel
+  /// becomes {'type': 'done'}. Dio-level failures (timeouts, 4xx/5xx before
+  /// the stream opens) are mapped to the same error shape the backend uses,
+  /// so the chat screen handles one event vocabulary.
+  Stream<Map<String, dynamic>> sendChatStream(ChatRequest request) async* {
+    ResponseBody body;
+    try {
+      final response = await _dio.post<ResponseBody>(
+        '/api/chat/stream',
+        data: request.toJson(),
+        options: Options(
+          responseType: ResponseType.stream,
+          headers: {'Accept': 'text/event-stream'},
+        ),
+      );
+      body = response.data!;
+    } on DioException catch (e) {
+      yield {'type': 'error', 'code': _dioErrorCode(e)};
+      return;
+    }
+    var buffer = '';
+    var sawDone = false;
+    try {
+      await for (final chunk in body.stream.cast<List<int>>().transform(
+        utf8.decoder,
+      )) {
+        buffer += chunk;
+        // SSE events are \n\n-delimited; one network chunk may carry a
+        // partial event, so split on complete events only.
+        while (buffer.contains('\n\n')) {
+          final idx = buffer.indexOf('\n\n');
+          final raw = buffer.substring(0, idx).trim();
+          buffer = buffer.substring(idx + 2);
+          if (!raw.startsWith('data:')) continue;
+          final payload = raw.substring(5).trim();
+          if (payload == '[DONE]') {
+            sawDone = true;
+            yield {'type': 'done'};
+            return;
+          }
+          yield jsonDecode(payload) as Map<String, dynamic>;
+        }
+      }
+    } catch (_) {
+      yield {'type': 'error', 'code': 'stream_interrupted'};
+      return;
+    }
+    // Connection closed without the [DONE] sentinel — treat as interrupted.
+    if (!sawDone) {
+      yield {'type': 'error', 'code': 'stream_interrupted'};
+    }
+  }
+
+  /// Maps dio transport errors to the backend's streaming error codes.
+  String _dioErrorCode(DioException e) {
+    final status = e.response?.statusCode ?? 0;
+    if (status == 401 || status == 403) return 'auth_error';
+    if (status == 429) return 'rate_limit';
+    if (status >= 500) return 'server_error';
+    return 'network'; // timeout / connection refused / no internet
+  }
+
+  /// Records a thumbs up/down on a bot reply. Fire-and-forget — the caller
+  /// does not await this in the UI and silently ignores failures.
+  Future<void> sendFeedback({
+    required String conversationId,
+    required int messageIndex,
+    required String feedback,
+    required String messageText,
+  }) async {
+    await _dio.post(
+      '/api/chat/feedback',
+      data: {
+        'conversation_id': conversationId,
+        'message_index': messageIndex,
+        'feedback': feedback,
+        'message_text': messageText,
+      },
+    );
   }
 
   Future<bool> checkHealth() async {

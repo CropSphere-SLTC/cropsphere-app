@@ -38,4 +38,26 @@ class ServiceFactory {
 
   Future<ChatResponse> sendChat(ChatRequest request) =>
       _useMock ? _mock.sendChat(request) : _real.sendChat(request);
+
+  Stream<Map<String, dynamic>> sendChatStream(ChatRequest request) =>
+      _useMock ? _mock.sendChatStream(request) : _real.sendChatStream(request);
+
+  Future<void> sendFeedback({
+    required String conversationId,
+    required int messageIndex,
+    required String feedback,
+    required String messageText,
+  }) => _useMock
+      ? _mock.sendFeedback(
+          conversationId: conversationId,
+          messageIndex: messageIndex,
+          feedback: feedback,
+          messageText: messageText,
+        )
+      : _real.sendFeedback(
+          conversationId: conversationId,
+          messageIndex: messageIndex,
+          feedback: feedback,
+          messageText: messageText,
+        );
 }

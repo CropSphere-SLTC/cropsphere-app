@@ -225,13 +225,74 @@ class ChatRequest(BaseModel):
     district: Optional[DistrictEnum] = None
     crop: Optional[CropEnum] = None
     model: str = Field(default="accurate", pattern="^(fast|accurate)$")
-    language: str = Field(
-        default="auto", pattern="^(auto|en|si|ta)$"
-    )  # "auto", "en", "si", "ta"
+    conversation_id: Optional[str] = Field(default=None, max_length=128)
 
 
 class ChatResponse(BaseModel):
     reply: str
     sources_used: List[str]
     suggested_followups: List[str]
+    conversation_id: str = ""
     is_mock: bool = False
+    confidence: str = ""
+
+
+# ── Chat conversation history ─────────────────────────────────────────────────
+
+
+class ConversationSummary(BaseModel):
+    id: str
+    title: str
+    updated_at: Optional[str] = None
+    message_count: int = 0
+
+
+class ConversationMessage(BaseModel):
+    role: str = Field(..., pattern=r"^(user|assistant)$")
+    content: str
+    timestamp: Optional[str] = None
+
+
+class ConversationDetail(BaseModel):
+    id: str
+    title: str
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    message_count: int = 0
+    messages: List[ConversationMessage] = Field(default_factory=list)
+
+
+class RenameConversationRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=100)
+
+
+# ── User profile & preferences ──────────────────────────────────────────────
+
+
+class UserProfileResponse(BaseModel):
+    name: str
+    email: str
+    photo_url: Optional[str] = None
+    role: str
+    last_login: Optional[str] = None
+    active_sessions: int = 0
+
+
+class UpdateProfileRequest(BaseModel):
+    display_name: str = Field(..., min_length=1, max_length=100)
+
+
+class NotificationPreferences(BaseModel):
+    price_alerts: bool = True
+    weather_alerts: bool = True
+    yield_recommendations: bool = True
+
+
+class UserPreferencesResponse(BaseModel):
+    language: str = Field(default="en", pattern="^(en|si|ta)$")
+    notifications: NotificationPreferences
+
+
+class UpdatePreferencesRequest(BaseModel):
+    language: str = Field(..., pattern="^(en|si|ta)$")
+    notifications: NotificationPreferences

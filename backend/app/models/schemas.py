@@ -224,6 +224,10 @@ class ChatRequest(BaseModel):
     user_id: str = Field(..., min_length=1, max_length=128)
     district: Optional[DistrictEnum] = None
     crop: Optional[CropEnum] = None
+    model: str = Field(default="accurate", pattern="^(fast|accurate)$")
+    language: str = Field(
+        default="auto", pattern="^(auto|en|si|ta)$"
+    )  # "auto", "en", "si", "ta"
 
 
 class ChatResponse(BaseModel):

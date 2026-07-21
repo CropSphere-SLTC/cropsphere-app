@@ -1,4 +1,5 @@
 """Load Testing for CropSphere Backend."""
+
 from locust import HttpUser, task, between
 
 
@@ -14,8 +15,7 @@ class CropSphereUser(HttpUser):
     def admin_without_token(self):
         """Test JWT protection — no token."""
         self.client.get(
-            "/api/health/admin/status",
-            name="/api/health/admin/status [no token]"
+            "/api/health/admin/status", name="/api/health/admin/status [no token]"
         )
 
     @task(1)
@@ -29,7 +29,7 @@ class CropSphereUser(HttpUser):
                 "temperature": 25,
                 "humidity": 80,
                 "month": 6,
-                "area": 100
+                "area": 100,
             },
-            name="/api/yield/predict [no token]"
+            name="/api/yield/predict [no token]",
         )

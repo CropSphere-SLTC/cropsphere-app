@@ -67,21 +67,10 @@ frontend/.packages
 !package.json
 !tsconfig*.json
 frontend/windows/flutter/ephemeral/
-
-# Python cache
-__pycache__/
-*.pyc
-*.pyo
-
-# Flutter generated
-.flutter-plugins
-.flutter-plugins-dependencies
-**/ephemeral/
-**/.plugin_symlinks/"frontend/.flutter-plugins-dependencies"
-"frontend/android/local.properties"
-"backend/tests/load_test_report.txt"
-frontend/.dart_tool/
-frontend/build/
-frontend/windows/flutter/ephemeral/
-frontend/.flutter-plugins
-frontend/.flutter-plugins-dependencies
+backend/bandit_report.txt
+frontend/build/*.dill
+frontend/build/*.cache.dill.track.dill
+frontend/build/*/.filecache
+frontend/macos/Flutter/GeneratedPluginRegistrant.swift
+frontend/windows/flutter/generated_plugin_registrant.cc
+frontend/windows/flutter/generated_plugins.cmake

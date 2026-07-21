@@ -32,7 +32,6 @@ class MockService {
 
     return YieldResponse(
       predictedYieldKgPerHa: predicted,
-      averageYieldKgPerHa: base,
       crop: request.crop,
       district: request.district,
       confidence: predicted > base * 0.95 ? 'high' : 'medium',
@@ -55,7 +54,8 @@ class MockService {
       'Batticaloa': (rain: 30.0, tmin: 23.0, tmax: 32.0, hum: 75.0),
       'Jaffna': (rain: 16.0, tmin: 24.0, tmax: 34.0, hum: 68.0),
     };
-    final b = baselines[request.district] ??
+    final b =
+        baselines[request.district] ??
         (rain: 20.0, tmin: 22.0, tmax: 32.0, hum: 70.0);
 
     final forecasts = List.generate(request.weeksAhead, (i) {
@@ -91,10 +91,11 @@ class MockService {
     return PriceResponse(
       crop: request.crop,
       district: request.district,
-      predictedFarmgatePriceLkrKg: (b.farmgate *
-              (0.95 + _rng.nextDouble() * 0.1) *
-              request.inflationIndex)
-          .roundToDouble(),
+      predictedFarmgatePriceLkrKg:
+          (b.farmgate *
+                  (0.95 + _rng.nextDouble() * 0.1) *
+                  request.inflationIndex)
+              .roundToDouble(),
       predictedRetailPriceLkrKg:
           (b.retail * (0.95 + _rng.nextDouble() * 0.1) * request.inflationIndex)
               .roundToDouble(),
@@ -214,7 +215,8 @@ class MockService {
         'What is the current farmgate price?',
       ];
     } else if (msg.contains('price') || msg.contains('market')) {
-      reply = 'Current farmgate prices (mock): Carrot ~58 LKR/kg, Green gram '
+      reply =
+          'Current farmgate prices (mock): Carrot ~58 LKR/kg, Green gram '
           '~145 LKR/kg, Groundnut ~195 LKR/kg. Retail prices are typically '
           '30-40% higher. Prices tend to spike during festival weeks '
           '(Avurudu, Vesak) by 15-25%.';
@@ -224,7 +226,8 @@ class MockService {
         'How does inflation affect prices?',
       ];
     } else if (msg.contains('weather') || msg.contains('rain')) {
-      reply = 'Weather forecast for ${request.district ?? 'your district'}: '
+      reply =
+          'Weather forecast for ${request.district ?? 'your district'}: '
           'Expect moderate rainfall next week. Temperature will remain '
           'within normal seasonal range. Check the Weather Forecast screen '
           'for detailed 4-week predictions.';
@@ -234,7 +237,8 @@ class MockService {
         'How much irrigation do I need?',
       ];
     } else {
-      reply = 'I can help you with crop recommendations, yield predictions, '
+      reply =
+          'I can help you with crop recommendations, yield predictions, '
           'market prices, weather forecasts, and farming advice for '
           'Sri Lanka\'s agricultural districts. What would you like to know?';
       followups = [

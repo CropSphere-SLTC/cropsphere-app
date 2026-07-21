@@ -30,16 +30,16 @@ enum AppLang { en, si, ta }
 
 extension AppLangLabel on AppLang {
   String get label => switch (this) {
-        AppLang.en => 'EN',
-        AppLang.si => 'සිං',
-        AppLang.ta => 'தமிழ்',
-      };
+    AppLang.en => 'EN',
+    AppLang.si => 'සිං',
+    AppLang.ta => 'தமிழ்',
+  };
 
   String get fullName => switch (this) {
-        AppLang.en => 'English',
-        AppLang.si => 'සිංහල',
-        AppLang.ta => 'தமிழ்',
-      };
+    AppLang.en => 'English',
+    AppLang.si => 'සිංහල',
+    AppLang.ta => 'தமிழ்',
+  };
 }
 
 // ── Notifier ─────────────────────────────────────────────────────────────────
@@ -65,10 +65,12 @@ class AppLangProvider extends InheritedNotifier<AppLangNotifier> {
 
   /// Read the notifier (for writing / listening).
   static AppLangNotifier of(BuildContext context) {
-    final provider =
-        context.dependOnInheritedWidgetOfExactType<AppLangProvider>();
-    assert(provider != null,
-        'AppLangProvider not found. Wrap your app with AppLangProvider in main.dart.');
+    final provider = context
+        .dependOnInheritedWidgetOfExactType<AppLangProvider>();
+    assert(
+      provider != null,
+      'AppLangProvider not found. Wrap your app with AppLangProvider in main.dart.',
+    );
     return provider!.notifier!;
   }
 

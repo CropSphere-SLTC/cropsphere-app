@@ -89,7 +89,6 @@ M3_MAPE_THRESHOLDS = {
     "Cowpea": 9.0,
     "Finger millet": 11.0,
     "Groundnut": 22.0,
-    "Groundnut": 22.0,
 }
 
 # M4 thresholds from report Table 5.5.3
@@ -705,7 +704,6 @@ class TestWeatherModelAccuracy:
             X_seq, y_tmin, y_tmax = [], [], []
             for i in range(SEQ_LEN, len(scaled)):
                 X_seq.append(scaled[i - SEQ_LEN : i])
-                X_seq.append(scaled[i - SEQ_LEN : i])
                 y_tmin.append(dist_df.iloc[i][tmin_col])
                 y_tmax.append(dist_df.iloc[i][tmax_col])
 
@@ -838,8 +836,6 @@ class TestPriceModelAccuracy:
         SEQ_LEN = 8
         scaler = None
         scaler_path = os.path.join(MODEL_DIR, "M3_price_scalers.pkl")
-        scaler = None
-        scaler_path = os.path.join(MODEL_DIR, "M3_price_scalers.pkl")
         if os.path.exists(scaler_path):
             try:
                 scalers_obj = joblib.load(scaler_path)
@@ -878,7 +874,6 @@ class TestPriceModelAccuracy:
                 except Exception:
                     pass
         except Exception as e:
-            pytest.skip(f"Prediction failed for {crop}: {e}")
             pytest.skip(f"Prediction failed for {crop}: {e}")
             pytest.skip(f"Prediction failed for {crop}: {e}")
 

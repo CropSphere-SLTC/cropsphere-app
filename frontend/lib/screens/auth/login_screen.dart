@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -428,18 +430,18 @@ class _LoginScreenState extends State<LoginScreen>
     );
     _tabSlideOut =
         Tween<Offset>(begin: Offset.zero, end: const Offset(0, -0.025)).animate(
-      CurvedAnimation(
-        parent: _tabCtrl,
-        curve: const Interval(0.0, 0.45, curve: Curves.easeIn),
-      ),
-    );
-    _tabSlideIn =
-        Tween<Offset>(begin: const Offset(0, 0.025), end: Offset.zero).animate(
-      CurvedAnimation(
-        parent: _tabCtrl,
-        curve: const Interval(0.45, 1.0, curve: Curves.easeOutCubic),
-      ),
-    );
+          CurvedAnimation(
+            parent: _tabCtrl,
+            curve: const Interval(0.0, 0.45, curve: Curves.easeIn),
+          ),
+        );
+    _tabSlideIn = Tween<Offset>(begin: const Offset(0, 0.025), end: Offset.zero)
+        .animate(
+          CurvedAnimation(
+            parent: _tabCtrl,
+            curve: const Interval(0.45, 1.0, curve: Curves.easeOutCubic),
+          ),
+        );
 
     _langCtrl = AnimationController(
       vsync: this,
@@ -537,11 +539,28 @@ class _LoginScreenState extends State<LoginScreen>
     _setLoading(true);
     _setError(null);
     try {
-      final p = GoogleAuthProvider()
-        ..addScope('email')
-        ..addScope('profile')
-        ..setCustomParameters({'prompt': 'select_account'});
-      await FirebaseAuth.instance.signInWithPopup(p);
+      if (kIsWeb) {
+        // Web: popup is fine
+        final p = GoogleAuthProvider()
+          ..addScope('email')
+          ..addScope('profile')
+          ..setCustomParameters({'prompt': 'select_account'});
+        await FirebaseAuth.instance.signInWithPopup(p);
+      } else {
+        // Android / iOS: use google_sign_in package + credential
+        final googleSignIn = GoogleSignIn(scopes: ['email', 'profile']);
+        final googleUser = await googleSignIn.signIn();
+        if (googleUser == null) {
+          _setLoading(false);
+          return; // user cancelled
+        }
+        final googleAuth = await googleUser.authentication;
+        final credential = GoogleAuthProvider.credential(
+          accessToken: googleAuth.accessToken,
+          idToken: googleAuth.idToken,
+        );
+        await FirebaseAuth.instance.signInWithCredential(credential);
+      }
     } on FirebaseAuthException catch (e) {
       _setError(switch (e.code) {
         'popup-closed-by-user' => _s.errPopupClosed,
@@ -1240,9 +1259,15 @@ class _LoginScreenState extends State<LoginScreen>
           children: [
             SvgPicture.string(_googleSvg, width: 16, height: 16),
             const SizedBox(width: 10),
-            Text(
-              _s.continueGoogle,
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            Flexible(
+              child: Text(
+                _s.continueGoogle,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
           ],
         ),

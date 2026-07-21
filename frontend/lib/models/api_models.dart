@@ -59,38 +59,37 @@ class YieldRequest {
   });
 
   Map<String, dynamic> toJson() => {
-        'crop': crop,
-        'district': district,
-        'season': season,
-        'week_of_year': weekOfYear,
-        'rainfall_mm': rainfallMm,
-        'temp_min_c': tempMinC,
-        'temp_max_c': tempMaxC,
-        'humidity_pct': humidityPct,
-        'wind_speed_kmh': windSpeedKmh,
-        'solar_radiation_mj': solarRadiationMj,
-        'soil_ph': soilPh,
-        'soil_moisture_pct': soilMoisturePct,
-        'cultivated_area_ha': cultivatedAreaHa,
-        'seed_variety': seedVariety,
-        'fertilizer_index': fertilizerIndex,
-        'pesticide_index': pesticideIndex,
-        'irrigation_type': irrigationType,
-        'N_index': nIndex,
-        'P_index': pIndex,
-        'K_index': kIndex,
-        'prev_crop': prevCrop,
-        'demand_index': demandIndex,
-        'inflation_index': inflationIndex,
-        'holiday_flag': holidayFlag,
-        'festival_flag': festivalFlag,
-      };
+    'crop': crop,
+    'district': district,
+    'season': season,
+    'week_of_year': weekOfYear,
+    'rainfall_mm': rainfallMm,
+    'temp_min_c': tempMinC,
+    'temp_max_c': tempMaxC,
+    'humidity_pct': humidityPct,
+    'wind_speed_kmh': windSpeedKmh,
+    'solar_radiation_mj': solarRadiationMj,
+    'soil_ph': soilPh,
+    'soil_moisture_pct': soilMoisturePct,
+    'cultivated_area_ha': cultivatedAreaHa,
+    'seed_variety': seedVariety,
+    'fertilizer_index': fertilizerIndex,
+    'pesticide_index': pesticideIndex,
+    'irrigation_type': irrigationType,
+    'N_index': nIndex,
+    'P_index': pIndex,
+    'K_index': kIndex,
+    'prev_crop': prevCrop,
+    'demand_index': demandIndex,
+    'inflation_index': inflationIndex,
+    'holiday_flag': holidayFlag,
+    'festival_flag': festivalFlag,
+  };
 }
 
 class YieldResponse {
   final double predictedYieldKgPerHa;
-  final double
-      averageYieldKgPerHa; // ← model-derived baseline — never hardcoded
+  final double averageYieldKgPerHa;
   final String crop;
   final String district;
   final String confidence;
@@ -99,7 +98,7 @@ class YieldResponse {
 
   YieldResponse({
     required this.predictedYieldKgPerHa,
-    required this.averageYieldKgPerHa,
+    this.averageYieldKgPerHa = 0.0,
     required this.crop,
     required this.district,
     required this.confidence,
@@ -108,16 +107,16 @@ class YieldResponse {
   });
 
   factory YieldResponse.fromJson(Map<String, dynamic> json) => YieldResponse(
-        predictedYieldKgPerHa:
-            (json['predicted_yield_kg_per_ha'] as num).toDouble(),
-        averageYieldKgPerHa:
-            (json['average_yield_kg_per_ha'] as num).toDouble(),
-        crop: json['crop'],
-        district: json['district'],
-        confidence: json['confidence'],
-        modelUsed: json['model_used'],
-        isMock: json['is_mock'] ?? false,
-      );
+    predictedYieldKgPerHa: (json['predicted_yield_kg_per_ha'] as num)
+        .toDouble(),
+    averageYieldKgPerHa: (json['average_yield_kg_per_ha'] as num? ?? 0)
+        .toDouble(),
+    crop: json['crop'],
+    district: json['district'],
+    confidence: json['confidence'],
+    modelUsed: json['model_used'],
+    isMock: json['is_mock'] ?? false,
+  );
 }
 
 // ─── WEATHER ─────────────────────────────────────────────────────────────────
@@ -134,10 +133,10 @@ class WeatherRequest {
   });
 
   Map<String, dynamic> toJson() => {
-        'district': district,
-        'start_date': startDate,
-        'weeks_ahead': weeksAhead,
-      };
+    'district': district,
+    'start_date': startDate,
+    'weeks_ahead': weeksAhead,
+  };
 }
 
 class WeatherForecastWeek {
@@ -225,21 +224,21 @@ class PriceRequest {
   });
 
   Map<String, dynamic> toJson() => {
-        'crop': crop,
-        'district': district,
-        'season': season,
-        'week_of_year': weekOfYear,
-        'inflation_index': inflationIndex,
-        'fuel_price_index': fuelPriceIndex,
-        'transport_cost_index': transportCostIndex,
-        'supply_index': supplyIndex,
-        'demand_index': demandIndex,
-        'holiday_flag': holidayFlag,
-        'festival_flag': festivalFlag,
-        'farmgate_price_lag1': farmgatePriceLag1,
-        'farmgate_price_lag2': farmgatePriceLag2,
-        'farmgate_price_lag4': farmgatePriceLag4,
-      };
+    'crop': crop,
+    'district': district,
+    'season': season,
+    'week_of_year': weekOfYear,
+    'inflation_index': inflationIndex,
+    'fuel_price_index': fuelPriceIndex,
+    'transport_cost_index': transportCostIndex,
+    'supply_index': supplyIndex,
+    'demand_index': demandIndex,
+    'holiday_flag': holidayFlag,
+    'festival_flag': festivalFlag,
+    'farmgate_price_lag1': farmgatePriceLag1,
+    'farmgate_price_lag2': farmgatePriceLag2,
+    'farmgate_price_lag4': farmgatePriceLag4,
+  };
 }
 
 class PriceResponse {
@@ -260,15 +259,15 @@ class PriceResponse {
   });
 
   factory PriceResponse.fromJson(Map<String, dynamic> json) => PriceResponse(
-        crop: json['crop'],
-        district: json['district'],
-        predictedFarmgatePriceLkrKg:
-            (json['predicted_farmgate_price_lkr_kg'] as num).toDouble(),
-        predictedRetailPriceLkrKg:
-            (json['predicted_retail_price_lkr_kg'] as num).toDouble(),
-        confidence: json['confidence'],
-        isMock: json['is_mock'] ?? false,
-      );
+    crop: json['crop'],
+    district: json['district'],
+    predictedFarmgatePriceLkrKg:
+        (json['predicted_farmgate_price_lkr_kg'] as num).toDouble(),
+    predictedRetailPriceLkrKg: (json['predicted_retail_price_lkr_kg'] as num)
+        .toDouble(),
+    confidence: json['confidence'],
+    isMock: json['is_mock'] ?? false,
+  );
 }
 
 // ─── DEMAND ──────────────────────────────────────────────────────────────────
@@ -303,19 +302,19 @@ class DemandRequest {
   });
 
   Map<String, dynamic> toJson() => {
-        'crop': crop,
-        'season': season,
-        'week_of_year': weekOfYear,
-        'demand_lag1': demandLag1,
-        'demand_lag2': demandLag2,
-        'demand_lag4': demandLag4,
-        'retail_price_lkr_kg': retailPriceLkrKg,
-        'inflation_index': inflationIndex,
-        'holiday_flag': holidayFlag,
-        'festival_flag': festivalFlag,
-        'consumer_pref_index': consumerPrefIndex,
-        'search_trend_index': searchTrendIndex,
-      };
+    'crop': crop,
+    'season': season,
+    'week_of_year': weekOfYear,
+    'demand_lag1': demandLag1,
+    'demand_lag2': demandLag2,
+    'demand_lag4': demandLag4,
+    'retail_price_lkr_kg': retailPriceLkrKg,
+    'inflation_index': inflationIndex,
+    'holiday_flag': holidayFlag,
+    'festival_flag': festivalFlag,
+    'consumer_pref_index': consumerPrefIndex,
+    'search_trend_index': searchTrendIndex,
+  };
 }
 
 class DemandResponse {
@@ -334,13 +333,12 @@ class DemandResponse {
   });
 
   factory DemandResponse.fromJson(Map<String, dynamic> json) => DemandResponse(
-        crop: json['crop'],
-        predictedDemandIndex:
-            (json['predicted_demand_index'] as num).toDouble(),
-        trend: json['trend'],
-        confidence: json['confidence'],
-        isMock: json['is_mock'] ?? false,
-      );
+    crop: json['crop'],
+    predictedDemandIndex: (json['predicted_demand_index'] as num).toDouble(),
+    trend: json['trend'],
+    confidence: json['confidence'],
+    isMock: json['is_mock'] ?? false,
+  );
 }
 
 // ─── RECOMMEND ───────────────────────────────────────────────────────────────
@@ -377,20 +375,20 @@ class RecommendRequest {
   });
 
   Map<String, dynamic> toJson() => {
-        'district': district,
-        'season': season,
-        'week_of_year': weekOfYear,
-        'rainfall_mm': rainfallMm,
-        'temp_min_c': tempMinC,
-        'temp_max_c': tempMaxC,
-        'humidity_pct': humidityPct,
-        'soil_ph': soilPh,
-        'soil_moisture_pct': soilMoisturePct,
-        'N_index': nIndex,
-        'P_index': pIndex,
-        'K_index': kIndex,
-        'irrigation_type': irrigationType,
-      };
+    'district': district,
+    'season': season,
+    'week_of_year': weekOfYear,
+    'rainfall_mm': rainfallMm,
+    'temp_min_c': tempMinC,
+    'temp_max_c': tempMaxC,
+    'humidity_pct': humidityPct,
+    'soil_ph': soilPh,
+    'soil_moisture_pct': soilMoisturePct,
+    'N_index': nIndex,
+    'P_index': pIndex,
+    'K_index': kIndex,
+    'irrigation_type': irrigationType,
+  };
 }
 
 class CropRecommendation {
@@ -412,17 +410,14 @@ class CropRecommendation {
 
   factory CropRecommendation.fromJson(
     Map<String, dynamic> json,
-  ) =>
-      CropRecommendation(
-        rank: json['rank'],
-        crop: json['crop'],
-        confidenceScore: (json['confidence_score'] as num).toDouble(),
-        expectedYieldKgPerHa:
-            (json['expected_yield_kg_per_ha'] as num).toDouble(),
-        expectedPriceLkrKg: (json['expected_price_lkr_kg'] as num).toDouble(),
-        suitabilityFlags:
-            Map<String, bool>.from(json['suitability_flags'] ?? {}),
-      );
+  ) => CropRecommendation(
+    rank: json['rank'],
+    crop: json['crop'],
+    confidenceScore: (json['confidence_score'] as num).toDouble(),
+    expectedYieldKgPerHa: (json['expected_yield_kg_per_ha'] as num).toDouble(),
+    expectedPriceLkrKg: (json['expected_price_lkr_kg'] as num).toDouble(),
+    suitabilityFlags: Map<String, bool>.from(json['suitability_flags'] ?? {}),
+  );
 }
 
 class RecommendResponse {
@@ -457,6 +452,8 @@ class ChatRequest {
   final String userId;
   final String? district;
   final String? crop;
+  final String model;
+  final String language;
 
   ChatRequest({
     required this.message,
@@ -464,16 +461,19 @@ class ChatRequest {
     required this.userId,
     this.district,
     this.crop,
+    this.model = 'accurate',
+    this.language = 'auto',
   });
 
   Map<String, dynamic> toJson() => {
-        'message': message,
-        'conversation_history':
-            conversationHistory.map((m) => m.toJson()).toList(),
-        'user_id': userId,
-        if (district != null) 'district': district,
-        if (crop != null) 'crop': crop,
-      };
+    'message': message,
+    'conversation_history': conversationHistory.map((m) => m.toJson()).toList(),
+    'user_id': userId,
+    if (district != null) 'district': district,
+    if (crop != null) 'crop': crop,
+    'model': model,
+    'language': language,
+  };
 }
 
 class ChatResponse {
@@ -490,12 +490,11 @@ class ChatResponse {
   });
 
   factory ChatResponse.fromJson(Map<String, dynamic> json) => ChatResponse(
-        reply: json['reply'],
-        sourcesUsed: List<String>.from(json['sources_used'] ?? []),
-        suggestedFollowups:
-            List<String>.from(json['suggested_followups'] ?? []),
-        isMock: json['is_mock'] ?? false,
-      );
+    reply: json['reply'],
+    sourcesUsed: List<String>.from(json['sources_used'] ?? []),
+    suggestedFollowups: List<String>.from(json['suggested_followups'] ?? []),
+    isMock: json['is_mock'] ?? false,
+  );
 }
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────

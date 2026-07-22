@@ -303,6 +303,9 @@ _ALL_CROPS_PATTERNS = ("all crops", "every crop", "all the crops")
 _REFORMULATION_PATTERNS = (
     ("show", ("simply", "simpler", "simple")),
     ("explain", ("again", "clearly", "better", "more")),
+    ("explain", ("simply",)),
+    ("tell", ("simply",)),
+    ("say", ("simply", "simpler")),
 )
 # Standalone phrases that always mean "rephrase/simplify the previous
 # answer", regardless of what else is in the message.
@@ -319,7 +322,16 @@ _REFORMULATION_PHRASES = (
     "make it simpler",
     "in simple words",
     "in easy words",
+    "put it simply",
 )
+# Bare "simply" is too weak a signal on its own — it also appears as an
+# adverb inside real questions ("which crop simply grows best in Badulla").
+# Only treated as a reformulation request when the message is short enough
+# to be nothing but the request itself. The other half of the guard — that
+# there IS a previous answer to reformulate — is already enforced by the
+# call sites, which fall through to retrieval when _last_assistant_reply()
+# returns empty.
+_BARE_SIMPLY_MAX_LEN = 15
 # Standalone keywords that specifically ask for calculation steps rather
 # than a simpler rewrite — used by _reformulation_type to pick which
 # instruction _build_reformulation_messages sends to Groq. Broader than
@@ -1231,6 +1243,8 @@ def _is_reformulation_request(message: str) -> bool:
     for verb, qualifiers in _REFORMULATION_PATTERNS:
         if verb in msg and any(q in msg for q in qualifiers):
             return True
+    if "simply" in msg and len(message.strip()) < _BARE_SIMPLY_MAX_LEN:
+        return True
     return False
 
 
@@ -2244,15 +2258,72 @@ def _build_reformulation_messages(
         )
     else:
         instruction = (
-            "The user wants a simpler, clearer version of your previous "
+            "The user wants a much simpler version of your previous "
             "answer. Here is your previous answer: "
-            f"{previous_reply}. Rewrite it using shorter sentences, "
-            "simpler words, and bullet points if it helps. Remove any "
-            "unnecessary detail — keep only what the farmer needs to "
-            "know. Use the same data — do not add new information."
+            f"{previous_reply}.\n\n"
+            "Rewrite it so a farmer with no formal education can "
+            "understand:\n"
+            "- Remove ALL numbers except the ONE most important number "
+            "(e.g. just the total yield, not per-hectare breakdowns)\n"
+            "- Remove all unit conversions — always use acres, the unit "
+            "small farmers actually use. Only use hectares or perches if "
+            "the farmer specifically asked for that unit.\n"
+            "- Use only very basic words — 'grow' not 'harvest', 'money' "
+            "not 'earnings', 'sell' not 'farmgate price'\n"
+            "- Maximum 2-3 short sentences\n"
+            "- Give the practical takeaway, not the data\n"
+            "- Remove the Note section if it exists\n"
+            "- Remove the earnings offer question\n\n"
+            "Example simplifications (vary your style — never repeat the "
+            "same pattern):\n"
+            "  Before: 'If you plant carrots in Badulla, you can expect "
+            "to harvest around 19,769 kg from one hectare (8,015 kg per "
+            "acre; 50 kg per perch). Note: The Yala season usually gives "
+            "the highest yields. Would you like me to work out how much "
+            "you could earn? Just tell me your land size.'\n\n"
+            "  Style 1 (practical advice):\n"
+            "  'In Badulla, you can grow about 8,000 kg of carrots per "
+            "acre. Yala season is your best bet for planting.'\n\n"
+            "  Style 2 (farmer-focused):\n"
+            "  'Good news — Badulla is great for carrots! One acre can "
+            "give you around 8,000 kg, especially if you plant in the "
+            "Yala season.'\n\n"
+            "  Style 3 (direct and warm):\n"
+            "  'Carrots do really well in Badulla. You're looking at "
+            "about 8,000 kg from one acre. Try planting in the Yala "
+            "season for the best results.'\n\n"
+            "  Style 4 (conversational):\n"
+            "  'If you've got an acre in Badulla, you could pull in "
+            "around 8,000 kg of carrots. The Yala season is when they "
+            "grow best there.'\n\n"
+            "- Pick a DIFFERENT style each time — never use the same "
+            "sentence structure twice in a row. Do not default to "
+            "Style 1.\n"
+            "- Address the farmer directly — use 'you' and 'your', not "
+            "just stating facts\n"
+            "- Add one encouraging or practical word where natural: "
+            "'good news', 'you're looking at', 'that's a solid harvest', "
+            "'not bad at all'. Only when the data actually supports it — "
+            "never call a poor yield good news.\n"
+            "- End with something useful, not just data — a tip, a "
+            "season suggestion, or a gentle nudge to ask more\n\n"
+            "These simplification rules OVERRIDE the general formatting "
+            "rules for this one reply: ignore the three-section "
+            "structure, ignore the show-all-three-units rule, and do NOT "
+            "add the earnings offer.\n"
+            "Use the same data — do not add new information."
         )
-    msgs.append({"role": "system", "content": instruction})
-    msgs.append({"role": "system", "content": _FORMATTING_RULES})
+    # Simplify is the one reformulation that must CONTRADICT the standing
+    # formatting rules (three sections, all three units, the earnings
+    # offer), so its instruction goes AFTER them — the later, more
+    # specific system message wins. math/formal_math keep their original
+    # position: their rules don't conflict with Part B.
+    if rtype in ("math", "formal_math"):
+        msgs.append({"role": "system", "content": instruction})
+        msgs.append({"role": "system", "content": _FORMATTING_RULES})
+    else:
+        msgs.append({"role": "system", "content": _FORMATTING_RULES})
+        msgs.append({"role": "system", "content": instruction})
     history = req.conversation_history
     if len(history) > _MAX_HISTORY_MESSAGES:
         history = history[-_MAX_HISTORY_MESSAGES:]

@@ -146,9 +146,15 @@ jobs:
             --ignore-vuln PYSEC-2025-216 \
             --ignore-vuln PYSEC-2025-217 \
             --ignore-vuln PYSEC-2025-218 \
-          # All ignored IDs have no fix version available in PyPI advisory DB.
+            --ignore-vuln PYSEC-2026-3447 \
+          # PYSEC-2025-* IDs have no fix version available in PyPI advisory DB.
           # joblib/keras/pyjwt: unfixed upstream; torch+transformers: transitive
           # deps via sentence-transformers with no patched release yet.
+          # PYSEC-2026-3447 (setuptools 81.0.0): fix is 83.0.0 but torch
+          # 2.12.1+cpu pins setuptools<82, so the patched version can't be
+          # installed (ResolutionImpossible). Every torch-compatible version
+          # is <83 = vulnerable; setuptools isn't used at container runtime,
+          # so exposure is low. Revisit when torch is upgraded past the <82 cap.
           # Re-evaluate on each dependency upgrade.
 
       - name: Snyk SCA scan
@@ -242,6 +248,7 @@ jobs:
             --ignore-vuln PYSEC-2025-216 \
             --ignore-vuln PYSEC-2025-217 \
             --ignore-vuln PYSEC-2025-218 \
+            --ignore-vuln PYSEC-2026-3447 \
 
       - name: Validate ML model tests
         run: |

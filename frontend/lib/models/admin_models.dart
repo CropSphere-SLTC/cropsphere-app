@@ -97,6 +97,7 @@ class GapReport {
   final double chipTapRate;
   final double avgSessionLength;
   final FeedbackSummary feedbackSummary;
+  final FewshotInfo fewshot;
 
   GapReport({
     required this.period,
@@ -111,6 +112,7 @@ class GapReport {
     required this.chipTapRate,
     required this.avgSessionLength,
     required this.feedbackSummary,
+    required this.fewshot,
   });
 
   factory GapReport.fromJson(Map<String, dynamic> json) => GapReport(
@@ -140,6 +142,30 @@ class GapReport {
     feedbackSummary: FeedbackSummary.fromJson(
       Map<String, dynamic>.from(json['feedback_summary'] ?? {}),
     ),
+    fewshot: FewshotInfo.fromJson(
+      Map<String, dynamic>.from(json['fewshot'] ?? {}),
+    ),
+  );
+}
+
+class FewshotInfo {
+  final bool fileExists;
+  final String? updatedAt;
+  final Map<String, int> counts; // per question_type
+  final int total;
+
+  FewshotInfo({
+    required this.fileExists,
+    required this.updatedAt,
+    required this.counts,
+    required this.total,
+  });
+
+  factory FewshotInfo.fromJson(Map<String, dynamic> json) => FewshotInfo(
+    fileExists: json['file_exists'] ?? false,
+    updatedAt: json['updated_at'],
+    counts: Map<String, int>.from(json['counts'] ?? {}),
+    total: json['total'] ?? 0,
   );
 }
 

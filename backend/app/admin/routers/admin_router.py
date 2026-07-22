@@ -131,3 +131,20 @@ def gap_report(request: Request, days: int = 7):
     Python (cached 5 min). See app.admin.services.gap_report_service.
     """
     return gap_report_service.get_gap_report(days)
+
+
+@router.get("/rebuild-fewshot", dependencies=[Depends(require_admin)])
+@limiter.limit("5/minute")
+def rebuild_fewshot(request: Request):
+    """Rebuild the few-shot examples file from thumbs-up feedback and reload
+    the in-memory cache, so admins can refresh examples without a redeploy.
+
+    Admin-only. Rate limited: 5 req/min. Returns the new example count.
+    """
+    from app.user.services.chatbot_service import _reload_fewshot_examples
+    from app.user.services.fewshot_service import build_fewshot_examples
+
+    out = build_fewshot_examples()
+    _reload_fewshot_examples()
+    count = sum(len(v) for v in out.get("examples", {}).values())
+    return {"status": "ok", "examples_count": count}

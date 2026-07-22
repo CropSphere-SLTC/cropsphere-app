@@ -960,3 +960,261 @@ def test_build_messages_injects_level_instruction():
     context = {"chunks": [], "sources": [], "score": 0.0}
     msgs = cs._build_messages("system", context, req, "what is yield?")
     assert any(m["content"] == cs._LEVEL_INSTRUCTIONS["beginner"] for m in msgs)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Saved-context confirmation
+# ═══════════════════════════════════════════════════════════════════════════
+
+_CTX_CAPS = {
+    "crops": ["Carrot", "Maize", "Green gram", "Cowpea", "Finger millet", "Groundnut"],
+    "districts": [
+        "Nuwara Eliya",
+        "Badulla",
+        "Anuradhapura",
+        "Monaragala",
+        "Ampara",
+        "Hambantota",
+        "Batticaloa",
+        "Jaffna",
+    ],
+    "crop_districts": {},
+    "district_crops": {},
+}
+
+
+def test_extract_context_terms_finds_covered():
+    with patch.object(cs, "_dataset_capabilities", return_value=_CTX_CAPS):
+        assert cs._extract_context_terms("i grow carrot in badulla") == (
+            "Carrot",
+            "Badulla",
+        )
+        assert cs._extract_context_terms("hello there") == (None, None)
+
+
+def test_confirm_when_message_crop_and_saved_district():
+    req = _make_request(message="i want to plant carrot", conversation_history=[])
+    with patch.object(cs, "_dataset_capabilities", return_value=_CTX_CAPS):
+        assert (
+            cs._should_confirm_saved_context(
+                req, "i want to plant carrot", None, "Jaffna"
+            )
+            is True
+        )
+        reply, chips = cs._build_context_confirmation(
+            req, "i want to plant carrot", None, "Jaffna"
+        )
+    assert "Carrot in Jaffna" in reply
+    assert chips[0] == "Carrot in Jaffna"
+
+
+def test_no_confirm_when_fully_specified():
+    req = _make_request(message="carrot yield in badulla", conversation_history=[])
+    with patch.object(cs, "_dataset_capabilities", return_value=_CTX_CAPS):
+        # Message names both crop and district — nothing for saved context to fill.
+        assert (
+            cs._should_confirm_saved_context(
+                req, "carrot yield in badulla", "Maize", "Jaffna"
+            )
+            is False
+        )
+
+
+def test_no_confirm_without_saved_context():
+    req = _make_request(message="i want to plant carrot", conversation_history=[])
+    with patch.object(cs, "_dataset_capabilities", return_value=_CTX_CAPS):
+        assert (
+            cs._should_confirm_saved_context(req, "i want to plant carrot", None, None)
+            is False
+        )
+
+
+def test_dropdown_district_wins_over_saved():
+    req = _make_request(
+        message="i want to plant carrot",
+        district=DistrictEnum("Badulla"),
+        conversation_history=[],
+    )
+    with patch.object(cs, "_dataset_capabilities", return_value=_CTX_CAPS):
+        # Dropdown already supplies the district → saved district must not fill it.
+        assert (
+            cs._should_confirm_saved_context(
+                req, "i want to plant carrot", None, "Jaffna"
+            )
+            is False
+        )
+
+
+def test_no_confirm_on_non_agricultural_message():
+    req = _make_request(message="hello", conversation_history=[])
+    with patch.object(cs, "_dataset_capabilities", return_value=_CTX_CAPS):
+        assert (
+            cs._should_confirm_saved_context(req, "hello", "Carrot", "Jaffna") is False
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# few-shot examples (loader + injection)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_load_fewshot_examples_missing_file_returns_empty(tmp_path):
+    cs._fewshot_examples = None
+    with patch(
+        "app.user.services.fewshot_service.FEWSHOT_PATH", tmp_path / "nope.json"
+    ):
+        assert cs._load_fewshot_examples() == {}
+    cs._fewshot_examples = None
+
+
+def test_load_fewshot_examples_reads_and_caches(tmp_path):
+    f = tmp_path / "fewshot.json"
+    f.write_text('{"examples": {"yield": [{"question": "q", "answer": "a"}]}}')
+    cs._fewshot_examples = None
+    with patch("app.user.services.fewshot_service.FEWSHOT_PATH", f):
+        out = cs._load_fewshot_examples()
+    assert out["examples"]["yield"][0]["question"] == "q"
+    cs._fewshot_examples = None
+
+
+def test_build_messages_injects_matching_fewshot():
+    req = _make_request(message="carrot yield in Badulla", conversation_history=[])
+    context = {"chunks": [], "sources": [], "score": 0.0}
+    fake = {
+        "examples": {
+            "yield": [
+                {
+                    "question": "carrot yield in Badulla",
+                    "answer": "harvest is 19,517 kg/ha",
+                }
+            ]
+        }
+    }
+    with patch.object(cs, "_load_fewshot_examples", return_value=fake):
+        msgs = cs._build_messages("sys", context, req, "carrot yield in Badulla")
+    injected = [
+        m["content"] for m in msgs if m["content"].startswith("Here are examples")
+    ]
+    assert injected and "harvest is 19,517 kg/ha" in injected[0]
+
+
+def test_build_messages_no_fewshot_when_type_absent():
+    req = _make_request(message="what soil is best?", conversation_history=[])
+    context = {"chunks": [], "sources": [], "score": 0.0}
+    # examples only for 'yield'; a 'general' question gets nothing injected.
+    fake = {"examples": {"yield": [{"question": "q", "answer": "a"}]}}
+    with patch.object(cs, "_load_fewshot_examples", return_value=fake):
+        msgs = cs._build_messages("sys", context, req, "what soil is best?")
+    assert not any(m["content"].startswith("Here are examples") for m in msgs)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# reformulation detection ("simplify" family)
+# ═══════════════════════════════════════════════════════════════════════════
+@pytest.mark.parametrize(
+    "message",
+    [
+        "simply explain",
+        "simplify the answer",
+        "simply",
+        "explain simply",
+        "tell me simply",
+        "say simply",
+        "put it simply",
+        "say it simpler",
+        "explain it simply",
+    ],
+)
+def test_is_reformulation_request_detects_simplify_family(message):
+    assert cs._is_reformulation_request(message) is True
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        # "simply" as an adverb inside a real question — must reach retrieval.
+        "which crop simply grows best in Badulla",
+        "what is the yield for carrots in Badulla",
+        "best season for carrot in Nuwara Eliya",
+        "how much can I earn from 2 acres",
+    ],
+)
+def test_is_reformulation_request_ignores_real_questions(message):
+    assert cs._is_reformulation_request(message) is False
+
+
+def test_bare_simply_guarded_by_message_length():
+    """Bare "simply" only counts in a message short enough to be nothing but
+    the request — the length guard is what keeps the adverb usage out."""
+    assert cs._is_reformulation_request("simply") is True
+    assert len("simply") < cs._BARE_SIMPLY_MAX_LEN
+    long_msg = "simply " + "x" * cs._BARE_SIMPLY_MAX_LEN
+    assert cs._is_reformulation_request(long_msg) is False
+
+
+def test_simplify_family_classified_as_simplify_not_math():
+    for m in ("simply", "simply explain", "put it simply"):
+        assert cs._reformulation_type(m) == "simplify"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# reformulation message assembly (instruction vs. formatting-rule ordering)
+# ═══════════════════════════════════════════════════════════════════════════
+def _reform_msgs(rtype):
+    req = _make_request(message="simply", conversation_history=[])
+    return cs._build_reformulation_messages("SYS", "PREV", req, "simply", rtype)
+
+
+def test_simplify_instruction_comes_after_formatting_rules():
+    """Simplify must contradict Part B (three sections, all units, earnings
+    offer), so it has to be the LAST system message to win."""
+    msgs = _reform_msgs("simplify")
+    systems = [m["content"] for m in msgs if m["role"] == "system"]
+    assert systems[-1].startswith("The user wants a much simpler")
+    rules_at = next(
+        i for i, s in enumerate(systems) if s.startswith("FORMATTING RULES")
+    )
+    assert rules_at < len(systems) - 1
+
+
+@pytest.mark.parametrize("rtype", ["math", "formal_math"])
+def test_math_instructions_keep_original_ordering(rtype):
+    """Math rules don't conflict with Part B — their position is unchanged."""
+    msgs = _reform_msgs(rtype)
+    systems = [m["content"] for m in msgs if m["role"] == "system"]
+    assert systems[-1].startswith("FORMATTING RULES")
+
+
+def test_simplify_instruction_names_the_rules_it_overrides():
+    systems = [m["content"] for m in _reform_msgs("simplify") if m["role"] == "system"]
+    instruction = systems[-1]
+    assert "OVERRIDE" in instruction
+    for dropped in ("three-section", "show-all-three-units", "earnings offer"):
+        assert dropped in instruction
+    assert "always use acres" in instruction
+    assert "PREV" in instruction  # previous answer is carried in
+
+
+def test_simplify_instruction_offers_varied_styles():
+    """A single example acts as a template — the model copies its shape.
+    Four styles plus an anti-default nudge is what breaks the flat pattern."""
+    systems = [m["content"] for m in _reform_msgs("simplify") if m["role"] == "system"]
+    instruction = systems[-1]
+    for style in ("Style 1", "Style 2", "Style 3", "Style 4"):
+        assert style in instruction
+    assert "Do not default to Style 1" in instruction
+    # the old single flat example must not come back
+    assert "Yala season is the best time to plant" not in instruction
+    # "Before:" stays — it shows what to strip out
+    assert "Before:" in instruction
+
+
+def test_simplify_instruction_guards_against_false_encouragement():
+    systems = [m["content"] for m in _reform_msgs("simplify") if m["role"] == "system"]
+    assert "never call a poor yield good news" in systems[-1]
+
+
+def test_simplify_instruction_states_sentence_cap_once():
+    """Two copies of the limit would make the model over-weight it."""
+    systems = [m["content"] for m in _reform_msgs("simplify") if m["role"] == "system"]
+    assert systems[-1].count("2-3") == 1

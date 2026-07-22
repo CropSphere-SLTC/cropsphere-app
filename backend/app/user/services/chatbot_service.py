@@ -8,6 +8,7 @@ New features:
 """
 
 import hashlib
+import json
 import logging
 import os
 import random
@@ -76,6 +77,42 @@ _FORMATTING_RULES = (
     "at the farm' not 'farmgate price'. Say 'amount you can harvest' not "
     "'yield per hectare'. When you must use a technical term, explain it "
     "in parentheses the first time.\n"
+    "- Frame data as advice, not a report. Bad: 'The predicted yield is "
+    "20,169 kg/ha.' Good: 'You can expect to harvest around 20,169 kg from "
+    "one hectare.' Bad: 'The average farmgate price is 62 LKR/kg.' Good: "
+    "'Farmers are currently getting around 62 LKR per kilogram at the farm.' "
+    "Bad: 'Want me to estimate your earnings? Just tell me your land size.' "
+    "Good: 'Would you like me to work out how much you could earn? Just tell "
+    "me your land size in acres or perches.'\n"
+    "- Structure every answer in three sections, separated by blank lines:\n"
+    "  (1) ANSWER — the main data and advice the farmer asked for. This is "
+    "the core response.\n"
+    "  (2) NOTE (optional) — any important caveat, seasonal advice, or "
+    "practical tip. Only include if relevant. Start with 'Note:' or a "
+    "practical observation.\n"
+    "  (3) FOLLOW-UP QUESTION (optional) — any question back to the farmer "
+    "(earnings offer, land size question). Always on its own line, "
+    "separated by a blank line from the answer.\n"
+    "  These section names are structural: never print the numbers or the "
+    "words 'ANSWER' and 'FOLLOW-UP QUESTION'. Only the word 'Note:' is "
+    "written out, and only when a note applies.\n"
+    "  Good structure:\n"
+    "  'If you plant carrots in Badulla during the Inter season, you can "
+    "expect to harvest around 20,169 kg from one hectare (8,162 kg per "
+    "acre; 51 kg per perch).\n\n"
+    "  Note: The Maha season typically gives slightly lower yields in this "
+    "area.\n\n"
+    "  Would you like me to work out how much you could earn? Just tell me "
+    "your land size in acres or perches.'\n"
+    "  Bad structure (everything merged): 'If you plant carrots in Badulla "
+    "during the Inter season you can expect to harvest around 20,169 kg "
+    "from one hectare (8,162 kg per acre) the Maha season gives lower "
+    "yields would you like me to estimate your earnings just tell me your "
+    "land size.'\n"
+    "  Always put a blank line before any question to the farmer.\n"
+    "- Start answers with the farmer's situation when possible. Bad: 'The "
+    "yield is 20,169 kg/ha.' Good: 'If you plant carrots in Badulla during "
+    "Inter season, you can expect around 20,169 kg per hectare.'\n"
     "- For multiple data points, use a dash (-) list. For single points, "
     "use a normal sentence.\n"
     "- Use thousands separators (20,169 not 20169).\n"
@@ -90,12 +127,16 @@ _FORMATTING_RULES = (
     "1 ha = 395.37 perches.\n"
     "- Only ask which unit if the user gives a number without any unit "
     "word.\n"
-    "- After answering a yield or price question, add one short sentence "
-    "offering to estimate earnings if the farmer tells you their land "
-    "size. Example: 'Want me to estimate your earnings? Just tell me "
-    "your land size in acres or perches.' Only offer this once per "
-    "topic — if you already gave an earnings estimate or the farmer "
-    "already asked about earnings, don't repeat the offer.\n"
+    "- After answering a question specifically about crop YIELD (harvest "
+    "amounts, kg/ha) or crop PRICE (selling price, LKR/kg), add one short "
+    "sentence offering to estimate earnings if the farmer tells you their "
+    "land size. Example: 'Would you like me to work out how much you could "
+    "earn? Just tell me your land size in acres or perches.' Do NOT offer "
+    "earnings after "
+    "questions about growing requirements, planting seasons, weather, "
+    "soil, general information, or any non-yield/non-price topic. Only "
+    "offer this once per topic — if you already gave an earnings estimate "
+    "or the farmer already asked about earnings, don't repeat the offer.\n"
     "- When the farmer mentioned their location or crop earlier in the "
     "conversation, reference it naturally in your answer. Say 'In your "
     "area of Jaffna' or 'For your carrots in Badulla' instead of just "
@@ -262,6 +303,9 @@ _ALL_CROPS_PATTERNS = ("all crops", "every crop", "all the crops")
 _REFORMULATION_PATTERNS = (
     ("show", ("simply", "simpler", "simple")),
     ("explain", ("again", "clearly", "better", "more")),
+    ("explain", ("simply",)),
+    ("tell", ("simply",)),
+    ("say", ("simply", "simpler")),
 )
 # Standalone phrases that always mean "rephrase/simplify the previous
 # answer", regardless of what else is in the message.
@@ -278,7 +322,16 @@ _REFORMULATION_PHRASES = (
     "make it simpler",
     "in simple words",
     "in easy words",
+    "put it simply",
 )
+# Bare "simply" is too weak a signal on its own — it also appears as an
+# adverb inside real questions ("which crop simply grows best in Badulla").
+# Only treated as a reformulation request when the message is short enough
+# to be nothing but the request itself. The other half of the guard — that
+# there IS a previous answer to reformulate — is already enforced by the
+# call sites, which fall through to retrieval when _last_assistant_reply()
+# returns empty.
+_BARE_SIMPLY_MAX_LEN = 15
 # Standalone keywords that specifically ask for calculation steps rather
 # than a simpler rewrite — used by _reformulation_type to pick which
 # instruction _build_reformulation_messages sends to Groq. Broader than
@@ -356,6 +409,10 @@ _EARNINGS_TYPE_KEYWORDS = ("earn", "money")
 _PRICE_TYPE_KEYWORDS = ("price", "cost", "sell")
 _SEASON_TYPE_KEYWORDS = ("season", "plant", "when")
 _capabilities_cache: dict | None = None
+# Few-shot examples (thumbs-up answers per question_type), loaded once from the
+# JSON file that fewshot_service writes. None = not yet loaded; {} = loaded but
+# empty (no file / unreadable) — the chatbot works fine either way.
+_fewshot_examples: dict | None = None
 # Common Sri Lankan crops/districts NOT in our dataset. Lets a near-miss be
 # caught proactively even when retrieval finds semantically-similar covered
 # chunks (e.g. "carrot price in Galle" retrieves carrot chunks for other
@@ -437,6 +494,14 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
 
     _safe_audit(req.user_id, clean)
 
+    # Load the farmer's saved area/crop only for a brand-new conversation, to
+    # confirm ambiguous questions later (see _should_confirm_saved_context).
+    saved_crop = saved_district = None
+    if not req.conversation_history:
+        _prefs = _safe_get_preferences(req.user_id)
+        saved_crop = _prefs.get("preferred_crop")
+        saved_district = _prefs.get("preferred_district")
+
     # Bare land-unit reply to the bot's own clarifying question (e.g. the
     # user just replies "perches") — rebuilt into a real query for retrieval
     # only, before any capability/gazetteer check or retrieval itself runs.
@@ -459,6 +524,9 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
         # the gazetteer, so naming an uncovered district here is just
         # small talk, not a refusal.
         if _is_context_statement(clean):
+            _ctx_crop, _ctx_district = _extract_context_terms(clean)
+            if _ctx_crop or _ctx_district:
+                _save_context_async(req.user_id, _ctx_crop, _ctx_district)
             reply, cq_followups = _build_context_ack(clean)
             _emit_analytics(req, clean, "context_ack", "High confidence", None, start)
             return ChatResponse(
@@ -546,6 +614,30 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
             history=req.conversation_history,
         )
         confidence = _confidence_label(context)
+
+        # Saved-context confirmation — a fresh, dropdown-free query that omits a
+        # crop or district our saved profile can fill: confirm ("Do you mean
+        # carrot in Jaffna?") rather than silently assuming. Runs before the
+        # other clarifications so the saved-context prompt takes precedence.
+        if _should_confirm_saved_context(req, clean, saved_crop, saved_district):
+            reply, cq_followups = _build_context_confirmation(
+                req, clean, saved_crop, saved_district
+            )
+            _emit_analytics(
+                req,
+                clean,
+                "clarification",
+                "Moderate confidence",
+                context,
+                start,
+                used_saved_context=True,
+            )
+            return ChatResponse(
+                reply=reply,
+                sources_used=[],
+                suggested_followups=cq_followups,
+                confidence="Moderate confidence",
+            )
 
         # Vague-but-agricultural query ("how much can I earn?") — ask a
         # clarifying question instead of refusing as out of scope. Runs
@@ -666,6 +758,13 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
     _safe_audit(req.user_id, clean)
     groq_model = _GROQ_MODELS.get(req.model, _GROQ_MODELS["accurate"])
 
+    # Saved area/crop for a brand-new conversation — same as chat().
+    saved_crop = saved_district = None
+    if not req.conversation_history:
+        _prefs = _safe_get_preferences(req.user_id)
+        saved_crop = _prefs.get("preferred_crop")
+        saved_district = _prefs.get("preferred_district")
+
     # Bare land-unit reply to the bot's own clarifying question — rebuilt
     # into a real query for retrieval only. See _expand_clarifying_reply.
     retrieval_query = _expand_clarifying_reply(clean, req.conversation_history)
@@ -685,6 +784,9 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
     # Introductory/context-setting statement — same handling as chat(),
     # adapted to streaming. See chat() for why this runs first.
     if _is_context_statement(clean):
+        _ctx_crop, _ctx_district = _extract_context_terms(clean)
+        if _ctx_crop or _ctx_district:
+            _save_context_async(req.user_id, _ctx_crop, _ctx_district)
         reply, cq_followups = _build_context_ack(clean)
         yield {"type": "text", "content": reply}
         conv_id = _persist(reply)
@@ -826,6 +928,29 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
             "suggested_followups": followups,
             "conversation_id": conv_id,
         }
+
+    # Saved-context confirmation — same as chat(): confirm an ambiguous fresh
+    # query against the farmer's saved area/crop instead of assuming it.
+    if _should_confirm_saved_context(req, clean, saved_crop, saved_district):
+        reply, cq_followups = _build_context_confirmation(
+            req, clean, saved_crop, saved_district
+        )
+        followups = cq_followups
+        yield {"type": "text", "content": reply}
+        conv_id = _persist(reply)
+        logger.info("[STREAM COMPLETE] conv=%s len=%d", conv_id, len(reply))
+        confidence = "Moderate confidence"
+        yield _metadata(conv_id)
+        _emit_analytics(
+            req,
+            clean,
+            "clarification",
+            "Moderate confidence",
+            context,
+            start,
+            used_saved_context=True,
+        )
+        return
 
     # Vague-but-agricultural query — same clarifying-question handling as
     # chat(), adapted to streaming, runs before the grounding guard. See
@@ -1012,15 +1137,26 @@ def _system_prompt(req: ChatRequest) -> str:
 
     return (
         "You are CropSphere, an agricultural assistant for Sri Lankan farmers."
-        f"{district}{crop}\n\n"
+        f"{district}{crop}\n"
+        "Speak like a friendly, experienced agricultural advisor who genuinely "
+        "cares about the farmer's success. Use a warm, conversational tone — as "
+        "if you're chatting with a neighbor over tea, not writing a government "
+        "report. Say 'you can expect' instead of 'the predicted yield is'. Say "
+        "'farmers are getting around' instead of 'the average farmgate price "
+        "is'. Start answers with context ('If you plant carrots in "
+        "Badulla...') not raw data ('The yield is...'). Keep it natural — "
+        "never sound like you're reading from a spreadsheet.\n\n"
         "RULES (in priority order):\n"
         "1. Answer ONLY from the 'Relevant context' provided. Never use "
         "general knowledge. Never guess.\n"
         f'2. If no context is provided, reply with exactly: "{_OUT_OF_SCOPE_REPLY}"\n'
         "3. Start every answer with one short sentence: 'Reasoning: ' that "
-        "names the SPECIFIC data you used (e.g. the source document, "
-        'district, season, or crop) — never vague phrases like "based on '
-        'similar regions". Then give your final answer on a new line.\n'
+        "briefly mentions which data you used (e.g. 'Reasoning: CropSphere "
+        "data for Carrot in Badulla, Inter season.'). Keep it short and "
+        "natural — one line, not a formal citation. Then leave a BLANK LINE "
+        "and give your final answer. The blank line after the Reasoning "
+        "sentence is required — never put the answer on the very next "
+        "line.\n"
         "4. When multiple sources are provided and the question is "
         "ambiguous, prioritize the most recently discussed topic. If the "
         "user references an earlier topic explicitly (e.g. 'go back to the "
@@ -1107,6 +1243,8 @@ def _is_reformulation_request(message: str) -> bool:
     for verb, qualifiers in _REFORMULATION_PATTERNS:
         if verb in msg and any(q in msg for q in qualifiers):
             return True
+    if "simply" in msg and len(message.strip()) < _BARE_SIMPLY_MAX_LEN:
+        return True
     return False
 
 
@@ -1669,8 +1807,38 @@ def _refusal_followups(message: str, near: tuple | None = None) -> list:
 
 def _is_context_statement(message: str) -> bool:
     """True when the message is the farmer introducing themselves or their
-    situation ("I'm from Jaffna") rather than asking a question."""
-    msg = message.lower()
+    situation ("I'm from Jaffna") rather than asking a question.
+
+    Questions are rejected up front: "What crops can I grow in Anuradhapura?"
+    contains the phrase "i grow" but is clearly a question and must reach
+    retrieval, not the context-ack short-circuit.
+    """
+    msg = message.lower().strip()
+
+    if msg.endswith("?"):
+        return False
+    if any(
+        msg.startswith(w)
+        for w in (
+            "what ",
+            "which ",
+            "how ",
+            "can ",
+            "where ",
+            "when ",
+            "why ",
+            "do ",
+            "does ",
+            "is ",
+            "are ",
+            "tell ",
+            "show ",
+            "compare ",
+            "wat ",
+        )
+    ):
+        return False
+
     return any(p in msg for p in _CONTEXT_STATEMENT_PHRASES)
 
 
@@ -1740,6 +1908,95 @@ def _build_context_ack(message: str) -> tuple:
     return reply, followups
 
 
+# ── Saved profile context ─────────────────────────────────────────────────────
+# Persist the farmer's explicitly-stated area/crop ("I'm from Jaffna") to their
+# profile, and on a fresh conversation use it to CONFIRM an ambiguous question
+# ("Do you mean carrot in Jaffna?") rather than silently assuming it. Retrieval
+# and the system prompt are deliberately untouched — saved context only powers
+# this confirmation and the client's UI personalisation.
+
+
+def _extract_context_terms(message: str) -> tuple:
+    """Covered (crop, district) named in the message — enum values or None.
+    The same extraction _build_context_ack uses, factored out so saving and
+    confirming stay in sync with what retrieval can actually use."""
+    caps = _dataset_capabilities()
+    msg = message.lower()
+    crop = next((c for c in caps["crops"] if c.lower() in msg), None)
+    district = next((d for d in caps["districts"] if d.lower() in msg), None)
+    return crop, district
+
+
+def _save_context_async(user_id: str, crop, district) -> None:
+    """Persist explicit context to the user's profile in a daemon thread — the
+    write must never slow or break the chat response (fire-and-forget)."""
+
+    def _run():
+        try:
+            from app.utils.firestore import update_user_context
+
+            update_user_context(
+                user_id, preferred_crop=crop, preferred_district=district
+            )
+        except Exception as exc:
+            logger.warning("save context failed: %s", exc)
+
+    try:
+        threading.Thread(target=_run, daemon=True).start()
+    except Exception as exc:
+        logger.warning("save context thread spawn failed: %s", exc)
+
+
+def _safe_get_preferences(user_id: str) -> dict:
+    """Read saved preferences for a fresh conversation. Never raises — returns
+    {} on any failure so chat proceeds without saved context."""
+    try:
+        from app.utils.firestore import get_user_preferences
+
+        return get_user_preferences(user_id) or {}
+    except Exception as exc:
+        logger.warning("load preferences failed: %s", exc)
+        return {}
+
+
+def _should_confirm_saved_context(req, message, saved_crop, saved_district) -> bool:
+    """True when a fresh, dropdown-free query omits a crop OR district that the
+    saved profile can supply — so we confirm ("Do you mean … in Jaffna?")
+    instead of silently assuming. Dropdown selections always win, so a
+    dimension the user set in the dropdown is never filled from saved context.
+    """
+    eff_saved_crop = None if req.crop else saved_crop
+    eff_saved_district = None if req.district else saved_district
+    if not (eff_saved_crop or eff_saved_district):
+        return False
+    msg_crop, msg_district = _extract_context_terms(message)
+    crop = (req.crop.value if req.crop else None) or msg_crop or eff_saved_crop
+    district = (
+        (req.district.value if req.district else None)
+        or msg_district
+        or eff_saved_district
+    )
+    filled = (not (req.crop or msg_crop) and eff_saved_crop) or (
+        not (req.district or msg_district) and eff_saved_district
+    )
+    return bool(crop and district and filled and _has_agricultural_intent(message))
+
+
+def _build_context_confirmation(req, message, saved_crop, saved_district) -> tuple:
+    """Confirmation reply + a tappable resolved-topic chip. Deterministic; no
+    Groq. Precedence for each dimension: dropdown, then message, then saved."""
+    msg_crop, msg_district = _extract_context_terms(message)
+    crop = (req.crop.value if req.crop else None) or msg_crop or saved_crop
+    district = (
+        (req.district.value if req.district else None) or msg_district or saved_district
+    )
+    reply = (
+        f"Do you mean {crop} in {district}? I've used what you told me "
+        "earlier — tap to confirm, or type a different crop or district."
+    )
+    return reply, [f"{crop} in {district}", "A different crop or district"]
+
+
 def _is_capability_question(message: str) -> bool:
     """True when the user asks what the bot covers (crops/districts/skills)."""
     msg = message.lower()
@@ -1807,6 +2064,32 @@ def _is_all_crops_query(message: str) -> bool:
     return any(p in msg for p in _ALL_CROPS_PATTERNS)
 
 
+def _load_fewshot_examples() -> dict:
+    """Load few-shot examples from the JSON file, cached for the process
+    lifetime. Returns {} if the file is missing or unreadable — the chatbot
+    works fine without examples, just less consistently."""
+    global _fewshot_examples
+    if _fewshot_examples is None:
+        try:
+            from app.user.services.fewshot_service import FEWSHOT_PATH
+
+            _fewshot_examples = (
+                json.loads(FEWSHOT_PATH.read_text()) if FEWSHOT_PATH.exists() else {}
+            )
+        except Exception as exc:
+            logger.warning("few-shot load failed: %s", exc)
+            _fewshot_examples = {}
+    return _fewshot_examples
+
+
+def _reload_fewshot_examples() -> dict:
+    """Drop the cache and reload — called by the admin rebuild endpoint after
+    fewshot_service rewrites the file."""
+    global _fewshot_examples
+    _fewshot_examples = None
+    return _load_fewshot_examples()
+
+
 def _build_messages(system: str, context: dict, req: ChatRequest, message: str) -> list:
     """Assemble the Groq message list: system prompt, RAG context, history,
     current message.
@@ -1843,6 +2126,25 @@ def _build_messages(system: str, context: dict, req: ChatRequest, message: str) 
     # _detect_knowledge_level / _LEVEL_INSTRUCTIONS.
     level = _detect_knowledge_level(message, req.conversation_history)
     msgs.append({"role": "system", "content": _LEVEL_INSTRUCTIONS[level]})
+    # Few-shot examples — thumbs-up answers of the SAME question type, so the
+    # model matches a style farmers already approved. Injected as its own
+    # system message right after the level instruction. Skipped entirely when
+    # there are no examples for this type (identical to prior behaviour). See
+    # _load_fewshot_examples / fewshot_service.
+    _examples = (
+        _load_fewshot_examples().get("examples", {}).get(_question_type(message), [])
+    )
+    if _examples:
+        _parts = [
+            "Here are examples of answers that farmers found helpful. "
+            "Match this style:\n"
+        ]
+        for _i, _ex in enumerate(_examples[:2], 1):
+            _parts.append(
+                f"\nExample {_i}:\nQ: {_ex.get('question', '')}\n"
+                f"A: {_ex.get('answer', '')}"
+            )
+        msgs.append({"role": "system", "content": "".join(_parts)})
     # "All crops" queries: top-k retrieval only surfaces 2-3 crops' worth of
     # chunks, so the LLM can't know the other crops exist at all. Inject the
     # full crop list from our own dataset metadata as extra context so it
@@ -1956,15 +2258,72 @@ def _build_reformulation_messages(
         )
     else:
         instruction = (
-            "The user wants a simpler, clearer version of your previous "
+            "The user wants a much simpler version of your previous "
             "answer. Here is your previous answer: "
-            f"{previous_reply}. Rewrite it using shorter sentences, "
-            "simpler words, and bullet points if it helps. Remove any "
-            "unnecessary detail — keep only what the farmer needs to "
-            "know. Use the same data — do not add new information."
+            f"{previous_reply}.\n\n"
+            "Rewrite it so a farmer with no formal education can "
+            "understand:\n"
+            "- Remove ALL numbers except the ONE most important number "
+            "(e.g. just the total yield, not per-hectare breakdowns)\n"
+            "- Remove all unit conversions — always use acres, the unit "
+            "small farmers actually use. Only use hectares or perches if "
+            "the farmer specifically asked for that unit.\n"
+            "- Use only very basic words — 'grow' not 'harvest', 'money' "
+            "not 'earnings', 'sell' not 'farmgate price'\n"
+            "- Maximum 2-3 short sentences\n"
+            "- Give the practical takeaway, not the data\n"
+            "- Remove the Note section if it exists\n"
+            "- Remove the earnings offer question\n\n"
+            "Example simplifications (vary your style — never repeat the "
+            "same pattern):\n"
+            "  Before: 'If you plant carrots in Badulla, you can expect "
+            "to harvest around 19,769 kg from one hectare (8,015 kg per "
+            "acre; 50 kg per perch). Note: The Yala season usually gives "
+            "the highest yields. Would you like me to work out how much "
+            "you could earn? Just tell me your land size.'\n\n"
+            "  Style 1 (practical advice):\n"
+            "  'In Badulla, you can grow about 8,000 kg of carrots per "
+            "acre. Yala season is your best bet for planting.'\n\n"
+            "  Style 2 (farmer-focused):\n"
+            "  'Good news — Badulla is great for carrots! One acre can "
+            "give you around 8,000 kg, especially if you plant in the "
+            "Yala season.'\n\n"
+            "  Style 3 (direct and warm):\n"
+            "  'Carrots do really well in Badulla. You're looking at "
+            "about 8,000 kg from one acre. Try planting in the Yala "
+            "season for the best results.'\n\n"
+            "  Style 4 (conversational):\n"
+            "  'If you've got an acre in Badulla, you could pull in "
+            "around 8,000 kg of carrots. The Yala season is when they "
+            "grow best there.'\n\n"
+            "- Pick a DIFFERENT style each time — never use the same "
+            "sentence structure twice in a row. Do not default to "
+            "Style 1.\n"
+            "- Address the farmer directly — use 'you' and 'your', not "
+            "just stating facts\n"
+            "- Add one encouraging or practical word where natural: "
+            "'good news', 'you're looking at', 'that's a solid harvest', "
+            "'not bad at all'. Only when the data actually supports it — "
+            "never call a poor yield good news.\n"
+            "- End with something useful, not just data — a tip, a "
+            "season suggestion, or a gentle nudge to ask more\n\n"
+            "These simplification rules OVERRIDE the general formatting "
+            "rules for this one reply: ignore the three-section "
+            "structure, ignore the show-all-three-units rule, and do NOT "
+            "add the earnings offer.\n"
+            "Use the same data — do not add new information."
         )
-    msgs.append({"role": "system", "content": instruction})
-    msgs.append({"role": "system", "content": _FORMATTING_RULES})
+    # Simplify is the one reformulation that must CONTRADICT the standing
+    # formatting rules (three sections, all three units, the earnings
+    # offer), so its instruction goes AFTER them — the later, more
+    # specific system message wins. math/formal_math keep their original
+    # position: their rules don't conflict with Part B.
+    if rtype in ("math", "formal_math"):
+        msgs.append({"role": "system", "content": instruction})
+        msgs.append({"role": "system", "content": _FORMATTING_RULES})
+    else:
+        msgs.append({"role": "system", "content": _FORMATTING_RULES})
+        msgs.append({"role": "system", "content": instruction})
     history = req.conversation_history
     if len(history) > _MAX_HISTORY_MESSAGES:
         history = history[-_MAX_HISTORY_MESSAGES:]
@@ -2275,6 +2634,7 @@ def _emit_analytics(
     context: dict | None,
     start: float,
     near_miss_type: str | None = None,
+    used_saved_context: bool = False,
 ) -> None:
     """Fire-and-forget: record one chat_analytics document for this turn.
 
@@ -2296,6 +2656,7 @@ def _emit_analytics(
                 context,
                 near_miss_type,
                 elapsed_ms,
+                used_saved_context,
             ),
             daemon=True,
         ).start()
@@ -2311,6 +2672,7 @@ def _run_analytics(
     context: dict | None,
     near_miss_type: str | None,
     elapsed_ms: int,
+    used_saved_context: bool = False,
 ) -> None:
     """Background-thread body: reconstruct chip context, assemble the record,
     hand it to log_chat_interaction. Errors are swallowed."""
@@ -2338,6 +2700,7 @@ def _run_analytics(
             "session_message_count": len(req.conversation_history) + 1,
             "model_used": req.model,
             "response_time_ms": elapsed_ms,
+            "used_saved_context": used_saved_context,
         }
         log_chat_interaction(data)
     except Exception as exc:

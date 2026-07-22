@@ -286,6 +286,11 @@ class MockService {
     required String messageText,
   }) async {}
 
+  // Mock mode: no persisted votes to restore.
+  Future<Map<int, String>> getConversationFeedback(
+    String conversationId,
+  ) async => {};
+
   String _addWeeks(String dateStr, int weeks) {
     try {
       final date = DateTime.parse(dateStr);

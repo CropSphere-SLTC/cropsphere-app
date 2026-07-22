@@ -187,6 +187,30 @@ def update_user_preferences(uid: str, preferences: Dict[str, Any]) -> None:
     db.collection("users").document(uid).update({"preferences": preferences})
 
 
+def update_user_context(
+    uid: str, preferred_crop: str = None, preferred_district: str = None
+) -> None:
+    """Merge saved chat context into the user's preferences WITHOUT touching
+    siblings (language/notifications).
+
+    Uses dotted field paths so only the given keys change, creating the nested
+    preferences map if absent. A context_updated_at server timestamp is set
+    whenever anything is written. No-op if neither crop nor district is given.
+    Security assumption: uid is JWT-verified; caller runs this fire-and-forget.
+    """
+    from firebase_admin import firestore
+
+    payload: Dict[str, Any] = {}
+    if preferred_crop:
+        payload["preferences.preferred_crop"] = preferred_crop
+    if preferred_district:
+        payload["preferences.preferred_district"] = preferred_district
+    if not payload:
+        return
+    payload["preferences.context_updated_at"] = firestore.SERVER_TIMESTAMP
+    get_db().collection("users").document(uid).update(payload)
+
+
 def update_last_login(uid: str) -> None:
     """Update last_login timestamp on a user's Firestore document.
 

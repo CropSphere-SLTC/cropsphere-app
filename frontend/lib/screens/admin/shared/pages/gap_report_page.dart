@@ -303,7 +303,9 @@ class _GapReportPageState extends State<GapReportPage> {
     if (!fs.fileExists) {
       return _sectionCard(
         'Few-shot examples',
-        _emptyLine('No examples file yet — run "Rebuild few-shot" to create it.'),
+        _emptyLine(
+          'No examples file yet — run "Rebuild few-shot" to create it.',
+        ),
       );
     }
     final types = ['yield', 'price', 'season', 'earnings', 'general'];

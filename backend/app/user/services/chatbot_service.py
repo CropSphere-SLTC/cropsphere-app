@@ -2131,8 +2131,8 @@ def _build_messages(system: str, context: dict, req: ChatRequest, message: str) 
     # system message right after the level instruction. Skipped entirely when
     # there are no examples for this type (identical to prior behaviour). See
     # _load_fewshot_examples / fewshot_service.
-    _examples = _load_fewshot_examples().get("examples", {}).get(
-        _question_type(message), []
+    _examples = (
+        _load_fewshot_examples().get("examples", {}).get(_question_type(message), [])
     )
     if _examples:
         _parts = [

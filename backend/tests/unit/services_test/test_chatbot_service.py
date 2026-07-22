@@ -1060,8 +1060,9 @@ def test_no_confirm_on_non_agricultural_message():
 
 def test_load_fewshot_examples_missing_file_returns_empty(tmp_path):
     cs._fewshot_examples = None
-    with patch("app.user.services.fewshot_service.FEWSHOT_PATH",
-               tmp_path / "nope.json"):
+    with patch(
+        "app.user.services.fewshot_service.FEWSHOT_PATH", tmp_path / "nope.json"
+    ):
         assert cs._load_fewshot_examples() == {}
     cs._fewshot_examples = None
 
@@ -1079,12 +1080,21 @@ def test_load_fewshot_examples_reads_and_caches(tmp_path):
 def test_build_messages_injects_matching_fewshot():
     req = _make_request(message="carrot yield in Badulla", conversation_history=[])
     context = {"chunks": [], "sources": [], "score": 0.0}
-    fake = {"examples": {"yield": [
-        {"question": "carrot yield in Badulla", "answer": "harvest is 19,517 kg/ha"}]}}
+    fake = {
+        "examples": {
+            "yield": [
+                {
+                    "question": "carrot yield in Badulla",
+                    "answer": "harvest is 19,517 kg/ha",
+                }
+            ]
+        }
+    }
     with patch.object(cs, "_load_fewshot_examples", return_value=fake):
         msgs = cs._build_messages("sys", context, req, "carrot yield in Badulla")
-    injected = [m["content"] for m in msgs
-                if m["content"].startswith("Here are examples")]
+    injected = [
+        m["content"] for m in msgs if m["content"].startswith("Here are examples")
+    ]
     assert injected and "harvest is 19,517 kg/ha" in injected[0]
 
 
@@ -1101,28 +1111,34 @@ def test_build_messages_no_fewshot_when_type_absent():
 # ═══════════════════════════════════════════════════════════════════════════
 # reformulation detection ("simplify" family)
 # ═══════════════════════════════════════════════════════════════════════════
-@pytest.mark.parametrize("message", [
-    "simply explain",
-    "simplify the answer",
-    "simply",
-    "explain simply",
-    "tell me simply",
-    "say simply",
-    "put it simply",
-    "say it simpler",
-    "explain it simply",
-])
+@pytest.mark.parametrize(
+    "message",
+    [
+        "simply explain",
+        "simplify the answer",
+        "simply",
+        "explain simply",
+        "tell me simply",
+        "say simply",
+        "put it simply",
+        "say it simpler",
+        "explain it simply",
+    ],
+)
 def test_is_reformulation_request_detects_simplify_family(message):
     assert cs._is_reformulation_request(message) is True
 
 
-@pytest.mark.parametrize("message", [
-    # "simply" as an adverb inside a real question — must reach retrieval.
-    "which crop simply grows best in Badulla",
-    "what is the yield for carrots in Badulla",
-    "best season for carrot in Nuwara Eliya",
-    "how much can I earn from 2 acres",
-])
+@pytest.mark.parametrize(
+    "message",
+    [
+        # "simply" as an adverb inside a real question — must reach retrieval.
+        "which crop simply grows best in Badulla",
+        "what is the yield for carrots in Badulla",
+        "best season for carrot in Nuwara Eliya",
+        "how much can I earn from 2 acres",
+    ],
+)
 def test_is_reformulation_request_ignores_real_questions(message):
     assert cs._is_reformulation_request(message) is False
 
@@ -1155,8 +1171,9 @@ def test_simplify_instruction_comes_after_formatting_rules():
     msgs = _reform_msgs("simplify")
     systems = [m["content"] for m in msgs if m["role"] == "system"]
     assert systems[-1].startswith("The user wants a much simpler")
-    rules_at = next(i for i, s in enumerate(systems)
-                    if s.startswith("FORMATTING RULES"))
+    rules_at = next(
+        i for i, s in enumerate(systems) if s.startswith("FORMATTING RULES")
+    )
     assert rules_at < len(systems) - 1
 
 
@@ -1169,8 +1186,7 @@ def test_math_instructions_keep_original_ordering(rtype):
 
 
 def test_simplify_instruction_names_the_rules_it_overrides():
-    systems = [m["content"] for m in _reform_msgs("simplify")
-               if m["role"] == "system"]
+    systems = [m["content"] for m in _reform_msgs("simplify") if m["role"] == "system"]
     instruction = systems[-1]
     assert "OVERRIDE" in instruction
     for dropped in ("three-section", "show-all-three-units", "earnings offer"):
@@ -1182,8 +1198,7 @@ def test_simplify_instruction_names_the_rules_it_overrides():
 def test_simplify_instruction_offers_varied_styles():
     """A single example acts as a template — the model copies its shape.
     Four styles plus an anti-default nudge is what breaks the flat pattern."""
-    systems = [m["content"] for m in _reform_msgs("simplify")
-               if m["role"] == "system"]
+    systems = [m["content"] for m in _reform_msgs("simplify") if m["role"] == "system"]
     instruction = systems[-1]
     for style in ("Style 1", "Style 2", "Style 3", "Style 4"):
         assert style in instruction
@@ -1195,13 +1210,11 @@ def test_simplify_instruction_offers_varied_styles():
 
 
 def test_simplify_instruction_guards_against_false_encouragement():
-    systems = [m["content"] for m in _reform_msgs("simplify")
-               if m["role"] == "system"]
+    systems = [m["content"] for m in _reform_msgs("simplify") if m["role"] == "system"]
     assert "never call a poor yield good news" in systems[-1]
 
 
 def test_simplify_instruction_states_sentence_cap_once():
     """Two copies of the limit would make the model over-weight it."""
-    systems = [m["content"] for m in _reform_msgs("simplify")
-               if m["role"] == "system"]
+    systems = [m["content"] for m in _reform_msgs("simplify") if m["role"] == "system"]
     assert systems[-1].count("2-3") == 1

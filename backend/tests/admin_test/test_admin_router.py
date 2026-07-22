@@ -137,8 +137,12 @@ def test_non_admin_gets_403_on_rebuild_fewshot(
 def test_admin_rebuild_fewshot_returns_count(
     client, mock_valid_token, valid_auth_header
 ):
-    fake = {"examples": {"yield": [{"question": "q", "answer": "a"}],
-                         "price": [{"question": "q2", "answer": "a2"}]}}
+    fake = {
+        "examples": {
+            "yield": [{"question": "q", "answer": "a"}],
+            "price": [{"question": "q2", "answer": "a2"}],
+        }
+    }
     with patch("app.utils.firestore.get_user_role", return_value="admin"), patch(
         "app.user.services.fewshot_service.build_fewshot_examples", return_value=fake
     ), patch("app.user.services.chatbot_service._reload_fewshot_examples"):

@@ -107,9 +107,7 @@ def _collect_auto() -> dict:
                 continue
             qtype = _question_type(question)
             if qtype in buckets and len(buckets[qtype]) < _MAX_PER_TYPE:
-                buckets[qtype].append(
-                    {"question": question[:_Q_MAX], "answer": answer}
-                )
+                buckets[qtype].append({"question": question[:_Q_MAX], "answer": answer})
             if all(len(v) >= _MAX_PER_TYPE for v in buckets.values()):
                 break
         return buckets
@@ -131,9 +129,7 @@ def _extract_pair(db, fb: dict, conv_cache: dict):
         return None
     if conv_id not in conv_cache:
         snap = db.collection("chat_conversations").document(conv_id).get()
-        conv_cache[conv_id] = (
-            snap.to_dict().get("messages", []) if snap.exists else []
-        )
+        conv_cache[conv_id] = snap.to_dict().get("messages", []) if snap.exists else []
     msgs = conv_cache[conv_id]
     if not (0 <= idx < len(msgs)) or msgs[idx].get("role") != "assistant":
         return None
@@ -154,7 +150,7 @@ def _merge(manual: dict, auto: dict) -> dict:
     total = 0
     for t in _TYPES:
         seen: set = set()
-        for ex in (manual.get(t, []) + auto.get(t, [])):
+        for ex in manual.get(t, []) + auto.get(t, []):
             q = (ex.get("question") or "").strip()
             a = (ex.get("answer") or "").strip()
             key = q.lower()

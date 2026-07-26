@@ -40,7 +40,11 @@ _MIN_METRIC_DENOMINATOR = 5
 # Firestore scans, so it runs at most once per interval per worker.
 _RUN_INTERVAL_SECONDS = 300
 
-_last_run_at = 0.0
+# "Never run yet" sentinel. Must be -inf, NOT 0.0: the throttle compares against
+# time.monotonic(), whose epoch is arbitrary, so on a freshly-booted host
+# monotonic() can be < _RUN_INTERVAL_SECONDS and `now - 0.0` would wrongly read
+# as "throttled", suppressing the very first validation for up to 5 minutes.
+_last_run_at = float("-inf")
 _run_lock = threading.Lock()
 _running = False
 

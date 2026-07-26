@@ -47,11 +47,13 @@ def _tmp_store(tmp_path):
 
 @pytest.fixture(autouse=True)
 def _reset_throttle():
-    """maybe_run_validations throttles per module; reset between tests."""
-    tv._last_run_at = 0.0
+    """maybe_run_validations throttles per module; reset between tests. Use the
+    -inf 'never run' sentinel (not 0.0) so the throttle is genuinely clear
+    regardless of the host's monotonic-clock epoch."""
+    tv._last_run_at = float("-inf")
     tv._running = False
     yield
-    tv._last_run_at = 0.0
+    tv._last_run_at = float("-inf")
     tv._running = False
 
 

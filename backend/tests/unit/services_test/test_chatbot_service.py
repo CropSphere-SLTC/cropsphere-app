@@ -1218,3 +1218,79 @@ def test_simplify_instruction_states_sentence_cap_once():
     """Two copies of the limit would make the model over-weight it."""
     systems = [m["content"] for m in _reform_msgs("simplify") if m["role"] == "system"]
     assert systems[-1].count("2-3") == 1
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# prompt tuning injection into _build_messages
+# ═══════════════════════════════════════════════════════════════════════════
+def test_prompt_tuning_injected_after_fewshot_before_history():
+    req = _make_request(message="carrot yield in Badulla", conversation_history=[])
+    context = {"chunks": [], "sources": [], "score": 0.0}
+    tuning = {
+        "active": [
+            {
+                "id": "language_complexity",
+                "instruction": "Keep it simple.",
+                "status": "trial",
+            },
+            {
+                "id": "chip_high",
+                "instruction": "Lead into the suggestions.",
+                "status": "permanent",
+            },
+        ]
+    }
+    with patch.object(cs, "_load_fewshot_examples", return_value={}), patch.object(
+        cs, "_load_prompt_tuning", return_value=tuning
+    ):
+        msgs = cs._build_messages("sys", context, req, "carrot yield in Badulla")
+    tuned = [
+        m["content"] for m in msgs if m["content"].startswith("SYSTEM ADJUSTMENTS")
+    ]
+    assert tuned, "tuning message not injected"
+    assert "- Keep it simple." in tuned[0]
+    assert "- Lead into the suggestions." in tuned[0]
+    # must sit before the current user message (i.e. among the system messages)
+    assert msgs[-1]["role"] == "user"
+    assert msgs.index({"role": "system", "content": tuned[0]}) < len(msgs) - 1
+
+
+def test_no_prompt_tuning_message_when_empty():
+    req = _make_request(message="carrot yield in Badulla", conversation_history=[])
+    context = {"chunks": [], "sources": [], "score": 0.0}
+    with patch.object(cs, "_load_fewshot_examples", return_value={}), patch.object(
+        cs, "_load_prompt_tuning", return_value={"active": []}
+    ):
+        msgs = cs._build_messages("sys", context, req, "carrot yield in Badulla")
+    assert not any(m["content"].startswith("SYSTEM ADJUSTMENTS") for m in msgs)
+
+
+def test_format_prompt_tuning_injection_skips_malformed():
+    tuning = {
+        "active": [
+            {"id": "ok", "instruction": "Good one.", "status": "trial"},
+            {"id": "bad", "status": "trial"},  # no instruction
+            "not-a-dict",  # wrong type
+            {"id": "bad2", "instruction": 123, "status": "trial"},  # non-string
+        ]
+    }
+    with patch.object(cs, "_load_prompt_tuning", return_value=tuning):
+        out = cs._format_prompt_tuning_injection()
+    assert out == "SYSTEM ADJUSTMENTS (based on recent usage patterns):\n- Good one."
+
+
+def test_format_prompt_tuning_injection_skips_non_live_statuses():
+    """Only trial + permanent reach the prompt — anything auto-removed or
+    otherwise not live must be invisible to the chatbot."""
+    tuning = {
+        "active": [
+            {"id": "live", "instruction": "Live one.", "status": "permanent"},
+            {"id": "gone", "instruction": "Removed one.", "status": "auto_removed"},
+            {"id": "nostatus", "instruction": "No status."},
+        ]
+    }
+    with patch.object(cs, "_load_prompt_tuning", return_value=tuning):
+        out = cs._format_prompt_tuning_injection()
+    assert "Live one." in out
+    assert "Removed one." not in out
+    assert "No status." not in out

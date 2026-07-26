@@ -88,6 +88,27 @@ String adminFormatTimestamp(String iso) {
       '${two(local.hour)}:${two(local.minute)}';
 }
 
+/// Relative time for notification cards ("just now", "2 hours ago",
+/// "yesterday"). Falls back to the absolute date beyond a week.
+String adminTimeAgo(String? iso) {
+  if (iso == null || iso.isEmpty) return '';
+  final dt = DateTime.tryParse(iso);
+  if (dt == null) return '';
+  final diff = DateTime.now().difference(dt.toLocal());
+  if (diff.isNegative || diff.inSeconds < 60) return 'just now';
+  if (diff.inMinutes < 60) {
+    final m = diff.inMinutes;
+    return '$m minute${m == 1 ? '' : 's'} ago';
+  }
+  if (diff.inHours < 24) {
+    final h = diff.inHours;
+    return '$h hour${h == 1 ? '' : 's'} ago';
+  }
+  if (diff.inDays == 1) return 'yesterday';
+  if (diff.inDays < 7) return '${diff.inDays} days ago';
+  return adminFormatTimestamp(iso);
+}
+
 /// Maps a thrown error to a user-facing message, matching the existing
 /// dashboards' behaviour (surfaces the backend's `detail`, 403 → access msg).
 String adminErrorMessage(Object e, {String access = 'Admin access required'}) {

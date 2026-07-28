@@ -1,6 +1,8 @@
 // lib/models/admin_models.dart
 // Request and response models matching admin_router.py schemas exactly
 
+import 'pattern_models.dart';
+
 class AdminStats {
   final double cpuPercent;
   final double ramTotalGb;
@@ -98,6 +100,7 @@ class GapReport {
   final double avgSessionLength;
   final FeedbackSummary feedbackSummary;
   final FewshotInfo fewshot;
+  final PatternHealth patternHealth;
 
   GapReport({
     required this.period,
@@ -113,6 +116,7 @@ class GapReport {
     required this.avgSessionLength,
     required this.feedbackSummary,
     required this.fewshot,
+    required this.patternHealth,
   });
 
   factory GapReport.fromJson(Map<String, dynamic> json) => GapReport(
@@ -144,6 +148,9 @@ class GapReport {
     ),
     fewshot: FewshotInfo.fromJson(
       Map<String, dynamic>.from(json['fewshot'] ?? {}),
+    ),
+    patternHealth: PatternHealth.fromJson(
+      Map<String, dynamic>.from(json['pattern_health'] ?? {}),
     ),
   );
 }

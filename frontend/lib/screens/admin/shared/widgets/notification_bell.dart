@@ -30,15 +30,19 @@ const _pollInterval = Duration(seconds: 60);
 }
 
 class NotificationBell extends StatefulWidget {
-  /// Deep-link handlers, invoked when a notification card is tapped. Both are
+  /// Deep-link handlers, invoked when a notification card is tapped. All are
   /// optional — a tap with no matching handler just marks the item read.
   final void Function(String adjustmentId)? onOpenAdjustment;
   final VoidCallback? onOpenGapReport;
+  final VoidCallback? onOpenPatternManagement;
+  final void Function(String patternId)? onOpenPattern;
 
   const NotificationBell({
     super.key,
     this.onOpenAdjustment,
     this.onOpenGapReport,
+    this.onOpenPatternManagement,
+    this.onOpenPattern,
   });
 
   @override
@@ -108,6 +112,11 @@ class _NotificationBellState extends State<NotificationBell> {
     if (url.startsWith('/adjustment/')) {
       final id = url.substring('/adjustment/'.length);
       if (id.isNotEmpty) widget.onOpenAdjustment?.call(id);
+    } else if (url.startsWith('/pattern-management/')) {
+      final id = url.substring('/pattern-management/'.length);
+      if (id.isNotEmpty) widget.onOpenPattern?.call(id);
+    } else if (url == '/pattern-management') {
+      widget.onOpenPatternManagement?.call();
     } else if (url == '/gap-report') {
       widget.onOpenGapReport?.call();
     }

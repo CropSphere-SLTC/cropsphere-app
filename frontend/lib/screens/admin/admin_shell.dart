@@ -13,6 +13,8 @@ import '../../widgets/profile_avatar_button.dart';
 import 'shared/pages/audit_logs_page.dart';
 import 'shared/pages/dashboard_page.dart';
 import 'shared/pages/gap_report_page.dart';
+import 'shared/pages/pattern_detail_screen.dart';
+import 'shared/pages/pattern_management_page.dart';
 import 'shared/pages/prediction_logs_page.dart';
 import 'shared/pages/prompt_tuning_page.dart';
 import 'shared/pages/security_page.dart';
@@ -63,7 +65,8 @@ class _AdminShellState extends State<AdminShell> {
   bool _isSuperOnly(AdminPage p) =>
       p == AdminPage.systemConfig ||
       p == AdminPage.maintenance ||
-      p == AdminPage.promptTuning;
+      p == AdminPage.promptTuning ||
+      p == AdminPage.patternManagement;
 
   void _select(AdminPage page) {
     // Guard: never render a superadmin-only page for an admin.
@@ -79,6 +82,18 @@ class _AdminShellState extends State<AdminShell> {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => AdjustmentDetailScreen(adjustmentId: adjustmentId),
+      ),
+    );
+  }
+
+  // Deep-link from a "pattern may need revoking" notification. Reads are
+  // admin-readable server-side, but revoking is superadmin-only — so an admin
+  // gets the detail view without the revoke button rather than a dead end.
+  void _openPattern(String patternId) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) =>
+            PatternDetailScreen(patternId: patternId, canRevoke: _isSuper),
       ),
     );
   }
@@ -125,6 +140,8 @@ class _AdminShellState extends State<AdminShell> {
         return GapReportPage(role: widget.role, onNavigate: _select);
       case AdminPage.promptTuning:
         return const PromptTuningPage();
+      case AdminPage.patternManagement:
+        return const PatternManagementPage();
       case AdminPage.auditLogs:
         return AuditLogsPage(role: widget.role);
       case AdminPage.predictionLogs:
@@ -193,6 +210,8 @@ class _AdminShellState extends State<AdminShell> {
           NotificationBell(
             onOpenGapReport: () => _select(AdminPage.gapReport),
             onOpenAdjustment: _openAdjustment,
+            onOpenPatternManagement: () => _select(AdminPage.patternManagement),
+            onOpenPattern: _openPattern,
           ),
           Padding(
             padding: const EdgeInsets.only(right: 12),

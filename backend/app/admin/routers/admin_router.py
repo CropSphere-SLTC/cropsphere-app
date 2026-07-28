@@ -54,6 +54,34 @@ class EmailPreferenceUpdate(BaseModel):
     email_notifications: bool
 
 
+class PatternSelection(BaseModel):
+    """One admin-approved pattern proposal, optionally with an edited phrase.
+
+    `phrase` is bounded and character-checked again in
+    pattern_override_store.validate_phrase before it can reach the chatbot's
+    routing lists — this schema is the outer bound, not the only gate. Note
+    there is deliberately no `category` field: the category is derived
+    server-side from the proposal id, so a client cannot point a phrase at a
+    predicate the analyzer never proposed it for.
+    """
+
+    id: str = Field(..., min_length=1, max_length=64)
+    phrase: str = Field(..., min_length=3, max_length=50)
+    edited: bool = False
+    original_phrase: Optional[str] = Field(None, max_length=50)
+
+
+class ApplyPatterns(BaseModel):
+    patterns: list[PatternSelection] = Field(..., min_length=1, max_length=50)
+
+
+class RevokeRequest(BaseModel):
+    """Revoking requires a reason (Step 11) so the revoked list always carries
+    the 'why' alongside the performance snapshot."""
+
+    reason: str = Field(..., min_length=3, max_length=500)
+
+
 # ── User management ───────────────────────────────────────────────────────────
 
 
@@ -315,6 +343,185 @@ def restore_from_trash(
         raise HTTPException(status_code=404, detail="Adjustment not found in trash")
     _reload_prompt_tuning()
     return {"status": "ok", "adjustment": result["adjustment"]}
+
+
+# ── Pattern overrides (analytics-driven routing gaps, review-gated) ───────────
+
+
+@router.post("/analyze-patterns", dependencies=[Depends(require_superadmin)])
+@limiter.limit("5/minute")
+def analyze_patterns(request: Request, days: int = 14):
+    """Analyze recent analytics for messages that SHOULD have matched a routing
+    pattern but didn't, and PROPOSE new phrases. Read-only — saves nothing and
+    changes no chatbot behaviour.
+
+    Superadmin-only. Rate limited: 5 req/min. `days` (1..90, default 14) is
+    clamped server-side. See app.admin.services.pattern_analyzer_service.
+    """
+    from app.admin.services import pattern_analyzer_service
+
+    return pattern_analyzer_service.analyze_pattern_gaps(days)
+
+
+@router.post("/apply-patterns", dependencies=[Depends(require_superadmin)])
+@limiter.limit("5/minute")
+def apply_patterns(
+    request: Request,
+    body: ApplyPatterns,
+    days: int = 14,
+    actor: dict = Depends(get_current_role),
+):
+    """Approve the selected pattern proposals (honouring admin edits) and
+    reload the chatbot's override cache.
+
+    Each phrase is re-validated server-side and each proposal's category comes
+    from the server's own analysis, never from the body. Superadmin-only. Rate
+    limited: 5 req/min.
+
+    Returns applied ids plus `skipped` entries carrying the reason each one was
+    rejected (unknown proposal, already active, duplicate phrase, or the
+    validation error).
+    """
+    from app.admin.services import pattern_analyzer_service
+    from app.user.services.chatbot_service import _reload_pattern_overrides
+
+    selections = [
+        {
+            "id": p.id,
+            "phrase": p.phrase,
+            "edited": p.edited,
+            "original_phrase": p.original_phrase,
+        }
+        for p in body.patterns
+    ]
+    result = pattern_analyzer_service.apply_proposals(
+        selections, actor_uid=actor["uid"], days=days
+    )
+    _reload_pattern_overrides()
+    return {
+        "status": "ok",
+        "applied_count": len(result["applied"]),
+        "applied_ids": result["applied"],
+        "skipped": result["skipped"],
+    }
+
+
+@router.get("/active-patterns", dependencies=[Depends(require_admin)])
+@limiter.limit("10/minute")
+def active_patterns(request: Request):
+    """Active pattern overrides with hit counts, feedback and verdicts —
+    exactly what supplements the chatbot's routing lists right now. Grouped by
+    category for the management screen. Admin-readable. 10 req/min."""
+    from app.admin.services import pattern_analyzer_service
+
+    return pattern_analyzer_service.get_active_patterns()
+
+
+@router.get("/revoked-patterns", dependencies=[Depends(require_admin)])
+@limiter.limit("10/minute")
+def revoked_patterns(request: Request):
+    """Revoked overrides, newest first, with revoke reason, the performance
+    snapshot taken at revoke time, and days_remaining before auto-deletion.
+    Admin-readable. 10 req/min."""
+    from app.admin.services import pattern_analyzer_service
+
+    return pattern_analyzer_service.get_revoked_patterns()
+
+
+@router.get("/pattern-analytics/{pattern_id}", dependencies=[Depends(require_admin)])
+@limiter.limit("20/minute")
+def pattern_analytics(request: Request, pattern_id: str):
+    """Per-pattern detail: hit count, feedback breakdown, daily hit rate,
+    example hits, thumbs-down false-positive candidates, and a verdict.
+
+    404 when the id is neither active nor revoked. Admin-readable. 20 req/min.
+    """
+    from app.admin.services import pattern_analyzer_service
+
+    detail = pattern_analyzer_service.get_pattern_analytics(pattern_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Pattern not found")
+    return detail
+
+
+@router.post("/revoke-pattern/{pattern_id}", dependencies=[Depends(require_superadmin)])
+@limiter.limit("10/minute")
+def revoke_pattern(
+    request: Request,
+    pattern_id: str,
+    body: RevokeRequest,
+    actor: dict = Depends(get_current_role),
+):
+    """Retire an active override, snapshotting its performance and starting the
+    retention clock, then reload the cache so it stops matching immediately.
+
+    Reversible until retention expires. A reason is mandatory. 404 if the id
+    isn't active. Superadmin-only. 10 req/min.
+    """
+    from app.admin.services.system_config_service import get_prompt_tuning_config
+    from app.user.services import pattern_override_store as store_mod
+    from app.user.services.chatbot_service import _reload_pattern_overrides
+
+    retention = get_prompt_tuning_config().get(
+        "trash_retention_days", store_mod.DEFAULT_RETENTION_DAYS
+    )
+    result = store_mod.revoke_pattern(
+        pattern_id, actor["uid"], body.reason, retention_days=retention
+    )
+    if not result["ok"]:
+        raise HTTPException(status_code=404, detail="Active pattern not found")
+    _reload_pattern_overrides()
+    return {"status": "ok", "pattern": result["item"]}
+
+
+@router.post(
+    "/restore-pattern/{pattern_id}", dependencies=[Depends(require_superadmin)]
+)
+@limiter.limit("10/minute")
+def restore_pattern(
+    request: Request,
+    pattern_id: str,
+    actor: dict = Depends(get_current_role),
+):
+    """Restore a revoked override with FRESH counters (hits and feedback reset
+    to zero) and reload the cache.
+
+    404 if the id isn't in the revoked list; 409 if it is already active.
+    Superadmin-only. 10 req/min.
+    """
+    from app.user.services import pattern_override_store as store_mod
+    from app.user.services.chatbot_service import _reload_pattern_overrides
+
+    result = store_mod.restore_pattern(pattern_id, actor["uid"])
+    if not result["ok"]:
+        if result["error"] == "already_active":
+            raise HTTPException(status_code=409, detail="Pattern is already active")
+        raise HTTPException(status_code=404, detail="Pattern not found in revoked list")
+    _reload_pattern_overrides()
+    return {"status": "ok", "pattern": result["item"]}
+
+
+@router.delete(
+    "/delete-pattern/{pattern_id}", dependencies=[Depends(require_superadmin)]
+)
+@limiter.limit("10/minute")
+def delete_pattern(
+    request: Request,
+    pattern_id: str,
+    actor: dict = Depends(get_current_role),
+):
+    """Permanently delete a revoked override and its hit ledger. Irreversible.
+
+    404 if the id isn't in the revoked list — an active pattern must be revoked
+    first, so this can never silently remove something the chatbot is still
+    using. Superadmin-only. 10 req/min.
+    """
+    from app.user.services import pattern_override_store as store_mod
+
+    result = store_mod.delete_pattern(pattern_id, actor["uid"])
+    if not result["ok"]:
+        raise HTTPException(status_code=404, detail="Pattern not found in revoked list")
+    return {"status": "ok", "deleted_id": pattern_id}
 
 
 # ── Admin notifications (the bell) ────────────────────────────────────────────

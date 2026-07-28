@@ -151,6 +151,7 @@ def _build_report(days: int) -> dict:
         "avg_session_length": round(slen_sum / slen_n, 1) if slen_n else 0.0,
         "feedback_summary": feedback_summary,
         "fewshot": _fewshot_info(),
+        "pattern_health": _pattern_health(days),
     }
 
     # Raise admin alerts (high refusal / low satisfaction / milestone) from the
@@ -170,6 +171,27 @@ def _maybe_alert(report: dict) -> None:
         check_analytics_alerts(report)
     except Exception as exc:
         logger.debug("analytics alert check skipped: %s", exc)
+
+
+def _pattern_health(days: int) -> dict:
+    """Pattern Health block: how the admin-approved routing overrides are doing
+    (Step 9). Reads the overrides file only — no extra Firestore scan. Never
+    raises; a failure yields a zeroed block so the report still renders."""
+    try:
+        from app.admin.services.pattern_analyzer_service import get_pattern_health
+
+        return get_pattern_health(days)
+    except Exception as exc:
+        logger.debug("pattern health skipped: %s", exc)
+        return {
+            "active_count": 0,
+            "revoked_count": 0,
+            "total_hits": 0,
+            "hits_this_period": 0,
+            "avg_satisfaction": 0.0,
+            "needs_review_count": 0,
+            "last_analysis_at": None,
+        }
 
 
 def _fewshot_info() -> dict:

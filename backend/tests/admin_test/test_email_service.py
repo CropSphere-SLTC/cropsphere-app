@@ -5,6 +5,7 @@ background-thread hand-off, the SMTP dialog, the never-raise guarantee, and the
 per-severity HTML template (including escaping).
 """
 
+import re
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -137,10 +138,17 @@ def test_render_includes_header_footer_and_message():
 
 
 def test_render_button_only_with_dashboard_url():
-    with_btn = es.render_notification_email("t", "m", "info", "https://dash.app")
+    url = "https://dash.app"
+    with_btn = es.render_notification_email("t", "m", "info", url)
     without = es.render_notification_email("t", "m", "info", "")
     assert "View in Dashboard" in with_btn
-    assert "https://dash.app" in with_btn
+    # Match the href exactly rather than scanning the body for the URL: this
+    # proves the link landed in the anchor, which a substring check does not
+    # (it would also pass if the URL leaked into a text node). A bare
+    # `url in html` is also what CodeQL's incomplete-URL-substring-sanitization
+    # query flags, since that shape is a broken way to validate a real URL.
+    href = re.search(r'href="([^"]+)"', with_btn)
+    assert href is not None and href.group(1) == url
     assert "View in Dashboard" not in without
 
 

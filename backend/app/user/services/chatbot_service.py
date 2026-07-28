@@ -413,6 +413,20 @@ _capabilities_cache: dict | None = None
 # JSON file that fewshot_service writes. None = not yet loaded; {} = loaded but
 # empty (no file / unreadable) — the chatbot works fine either way.
 _fewshot_examples: dict | None = None
+# Admin-approved, analytics-derived prompt tuning (see prompt_tuning_service).
+# Same None/{} cache semantics as _fewshot_examples; empty = static prompt.
+_prompt_tuning: dict | None = None
+# Admin-approved routing phrases that SUPPLEMENT the hardcoded lists above (see
+# pattern_override_store). Same None/{} cache semantics; empty = hardcoded
+# patterns only, which is the behaviour this file had before overrides existed.
+_pattern_overrides: dict | None = None
+# Which override (if any) routed the turn currently being handled on THIS
+# thread. The predicates below are pure boolean functions called from deep
+# inside chat()/chat_stream(), so a thread-local is how the match surfaces to
+# _emit_analytics without threading a return value through every call site.
+# Reset at the top of each turn — FastAPI runs sync endpoints on a shared
+# threadpool, so a stale value would otherwise leak into the next request.
+_override_match = threading.local()
 # Common Sri Lankan crops/districts NOT in our dataset. Lets a near-miss be
 # caught proactively even when retrieval finds semantically-similar covered
 # chunks (e.g. "carrot price in Galle" retrieves carrot chunks for other
@@ -491,6 +505,7 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
     """
     start = time.monotonic()
     clean = _strip_html(req.message)[:_MAX_LEN]
+    _reset_override_match()
 
     _safe_audit(req.user_id, clean)
 
@@ -755,6 +770,7 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
     """
     start = time.monotonic()
     clean = _strip_html(req.message)[:_MAX_LEN]
+    _reset_override_match()
     _safe_audit(req.user_id, clean)
     groq_model = _GROQ_MODELS.get(req.model, _GROQ_MODELS["accurate"])
 
@@ -1232,6 +1248,10 @@ def _is_reformulation_request(message: str) -> bool:
     single source of truth per category avoids the two lists drifting
     apart, which is exactly what let "show me math" / "break down" fall
     through to a flat refusal instead of the math reformulation path.
+
+    Admin-approved overrides are checked AFTER every hardcoded list and BEFORE
+    the bare-"simply" guard: they can only add matches this function would
+    otherwise have missed, never suppress one it already makes.
     """
     msg = message.lower()
     if any(p in msg for p in _REFORMULATION_PHRASES):
@@ -1243,6 +1263,8 @@ def _is_reformulation_request(message: str) -> bool:
     for verb, qualifiers in _REFORMULATION_PATTERNS:
         if verb in msg and any(q in msg for q in qualifiers):
             return True
+    if _match_override_phrases(msg, "reformulation"):
+        return True
     if "simply" in msg and len(message.strip()) < _BARE_SIMPLY_MAX_LEN:
         return True
     return False
@@ -1318,7 +1340,9 @@ def _has_agricultural_intent(message: str) -> bool:
     joke) that just happens to also score low on retrieval.
     """
     msg = message.lower()
-    return any(p in msg for p in _AGRICULTURAL_INTENT_PHRASES)
+    if any(p in msg for p in _AGRICULTURAL_INTENT_PHRASES):
+        return True
+    return _match_override_phrases(msg, "agricultural_intent")
 
 
 def _is_vague_agricultural_query(
@@ -1839,7 +1863,11 @@ def _is_context_statement(message: str) -> bool:
     ):
         return False
 
-    return any(p in msg for p in _CONTEXT_STATEMENT_PHRASES)
+    if any(p in msg for p in _CONTEXT_STATEMENT_PHRASES):
+        return True
+    # Overrides are checked only after the question guards above, so an
+    # admin-added phrase can never turn a real question into a context ack.
+    return _match_override_phrases(msg, "context_statement")
 
 
 def _build_context_ack(message: str) -> tuple:
@@ -2000,7 +2028,9 @@ def _build_context_confirmation(req, message, saved_crop, saved_district) -> tup
 def _is_capability_question(message: str) -> bool:
     """True when the user asks what the bot covers (crops/districts/skills)."""
     msg = message.lower()
-    return any(p in msg for p in _CAPABILITY_PATTERNS)
+    if any(p in msg for p in _CAPABILITY_PATTERNS):
+        return True
+    return _match_override_phrases(msg, "capability")
 
 
 def _capability_reply() -> tuple:
@@ -2090,6 +2120,159 @@ def _reload_fewshot_examples() -> dict:
     return _load_fewshot_examples()
 
 
+def _load_pattern_overrides() -> dict:
+    """Load admin-approved pattern overrides, cached for the process lifetime.
+
+    Outputs: {category: {"phrases": [(phrase, id)], "patterns": [((verb,
+    quals), id)]}} for the four routing categories — the compiled form the
+    predicates below consume, not the raw file. Returns {} if the file is
+    missing or unreadable, in which case every predicate falls back to its
+    hardcoded lists alone.
+
+    Cached because it sits on the chat hot path: one file read per process, and
+    the check itself is a substring scan over a handful of short strings.
+    """
+    global _pattern_overrides
+    if _pattern_overrides is None:
+        try:
+            from app.user.services.pattern_override_store import compile_overrides
+
+            _pattern_overrides = compile_overrides()
+        except Exception as exc:
+            logger.warning("pattern-override load failed: %s", exc)
+            _pattern_overrides = {}
+    return _pattern_overrides
+
+
+def _reload_pattern_overrides() -> dict:
+    """Drop the cache and reload — called by the admin apply/revoke/restore/
+    delete endpoints after pattern_override_store rewrites the file."""
+    global _pattern_overrides
+    _pattern_overrides = None
+    return _load_pattern_overrides()
+
+
+def _reset_override_match() -> None:
+    """Clear this thread's override-match slot at the start of a turn."""
+    _override_match.value = None
+
+
+def _note_override_match(category: str, pattern_id: str, phrase: str) -> None:
+    """Record that an override — not a hardcoded pattern — routed this turn.
+
+    First match wins: a message can satisfy several predicates as it falls
+    through the pipeline, but only the one that actually decided the branch is
+    worth attributing a later thumbs vote to. Writes nothing to disk; the hit
+    is persisted later by _run_analytics on its background thread.
+    """
+    if getattr(_override_match, "value", None) is None:
+        _override_match.value = {
+            "category": category,
+            "pattern_id": pattern_id,
+            "phrase": phrase,
+        }
+
+
+def _current_override_match() -> dict | None:
+    """This thread's override match for the current turn, or None."""
+    return getattr(_override_match, "value", None)
+
+
+def _match_override_phrases(msg: str, category: str) -> bool:
+    """Shared override check for the four routing predicates.
+
+    Inputs: msg — the already-lowercased message. category — which override
+    bucket to consult.
+    Outputs: True when an active override phrase (or combo pattern) matches, in
+    which case the match is noted for hit tracking. Never raises — a broken
+    override file must not break routing.
+    """
+    extra = _load_pattern_overrides().get(category) or {}
+    for phrase, pattern_id in extra.get("phrases", []):
+        if phrase in msg:
+            _note_override_match(category, pattern_id, phrase)
+            return True
+    for (verb, qualifiers), pattern_id in extra.get("patterns", []):
+        if verb in msg and any(q in msg for q in qualifiers):
+            _note_override_match(category, pattern_id, verb)
+            return True
+    return False
+
+
+def _load_prompt_tuning() -> dict:
+    """Load the prompt-tuning store, cached for the process lifetime.
+
+    Returns the full store dict ({active, trash, audit_log}) so the trial
+    check below can read lifecycle dates without a second disk hit. Returns an
+    empty store if the file is missing or unreadable — the chatbot runs on its
+    static prompt, which is the intended graceful default.
+    """
+    global _prompt_tuning
+    if _prompt_tuning is None:
+        try:
+            from app.user.services.prompt_tuning_store import load as _load_store
+
+            _prompt_tuning = _load_store()
+        except Exception as exc:
+            logger.warning("prompt-tuning load failed: %s", exc)
+            _prompt_tuning = {}
+    return _prompt_tuning
+
+
+def _reload_prompt_tuning() -> dict:
+    """Drop the cache and reload — called by the admin lifecycle endpoints and
+    by the validation pass after the store changes on disk."""
+    global _prompt_tuning
+    _prompt_tuning = None
+    return _load_prompt_tuning()
+
+
+def _check_prompt_tuning_trials(store: dict) -> None:
+    """Fire the auto-validation pass if a trial has run its course.
+
+    Deliberately cheap: the due-check is a date comparison against the store
+    dict already in memory (no I/O), and the pass itself is throttled and runs
+    on a background thread — this is on the chat request path and must never
+    add latency. Any failure is swallowed for the same reason.
+    """
+    try:
+        from app.admin.services.tuning_validation_service import maybe_run_validations
+
+        maybe_run_validations(store)
+    except Exception as exc:
+        logger.debug("tuning validation check skipped: %s", exc)
+
+
+def _format_prompt_tuning_injection() -> str:
+    """Render live tuning adjustments into one supplementary system message,
+    or "" when there are none.
+
+    Only adjustments with status "trial" or "permanent" are injected —
+    anything trashed or auto-removed is skipped. ONLY the fixed-template
+    instruction strings are emitted: tuning can add guidance but never alters
+    Part A rules, the refusal text, the 'Reasoning:' prefix, the no-calc rule,
+    or the earnings anchor (see prompt_tuning_service safety notes). Admin
+    comments and trigger text never reach the prompt.
+    """
+    from app.user.services.prompt_tuning_store import LIVE_STATUSES
+
+    store = _load_prompt_tuning()
+    _check_prompt_tuning_trials(store)
+    lines = [
+        a["instruction"]
+        for a in store.get("active", [])
+        if isinstance(a, dict)
+        and a.get("status") in LIVE_STATUSES
+        and isinstance(a.get("instruction"), str)
+        and a["instruction"].strip()
+    ]
+    if not lines:
+        return ""
+    return "SYSTEM ADJUSTMENTS (based on recent usage patterns):\n" + "\n".join(
+        f"- {line}" for line in lines
+    )
+
+
 def _build_messages(system: str, context: dict, req: ChatRequest, message: str) -> list:
     """Assemble the Groq message list: system prompt, RAG context, history,
     current message.
@@ -2145,6 +2328,15 @@ def _build_messages(system: str, context: dict, req: ChatRequest, message: str) 
                 f"A: {_ex.get('answer', '')}"
             )
         msgs.append({"role": "system", "content": "".join(_parts)})
+    # Prompt tuning adjustments — admin-approved, analytics-derived supplementary
+    # instructions (see prompt_tuning_service). Its own system message AFTER the
+    # few-shot examples and BEFORE the all-crops injection. Only ADDS guidance;
+    # never modifies Part A rules, the refusal text, the 'Reasoning:' prefix, the
+    # no-calc rule, or the earnings anchor. Skipped entirely when the tuning file
+    # is empty or missing.
+    _tuning = _format_prompt_tuning_injection()
+    if _tuning:
+        msgs.append({"role": "system", "content": _tuning})
     # "All crops" queries: top-k retrieval only surfaces 2-3 crops' worth of
     # chunks, so the LLM can't know the other crops exist at all. Inject the
     # full crop list from our own dataset metadata as extra context so it
@@ -2643,8 +2835,12 @@ def _emit_analytics(
     followups which may re-run RAG retrieval (too heavy for the hot path).
     response_time_ms is sampled HERE (just before the caller returns / finishes
     the stream) so it reflects end-to-end handling. Never raises.
+
+    The override match is read HERE too, on the request thread, because it is
+    thread-local: reading it inside the analytics thread would always see None.
     """
     elapsed_ms = int((time.monotonic() - start) * 1000)
+    override_match = _current_override_match()
     try:
         threading.Thread(
             target=_run_analytics,
@@ -2657,6 +2853,7 @@ def _emit_analytics(
                 near_miss_type,
                 elapsed_ms,
                 used_saved_context,
+                override_match,
             ),
             daemon=True,
         ).start()
@@ -2673,9 +2870,11 @@ def _run_analytics(
     near_miss_type: str | None,
     elapsed_ms: int,
     used_saved_context: bool = False,
+    override_match: dict | None = None,
 ) -> None:
     """Background-thread body: reconstruct chip context, assemble the record,
-    hand it to log_chat_interaction. Errors are swallowed."""
+    hand it to log_chat_interaction, and persist any override pattern hit.
+    Errors are swallowed."""
     try:
         ctx = context or {}
         data = {
@@ -2701,7 +2900,38 @@ def _run_analytics(
             "model_used": req.model,
             "response_time_ms": elapsed_ms,
             "used_saved_context": used_saved_context,
+            # Which admin-approved override (if any) routed this turn — null
+            # for the hardcoded path, which is the vast majority of turns.
+            "matched_override_pattern": (
+                (override_match or {}).get("pattern_id") or None
+            ),
         }
         log_chat_interaction(data)
+        _record_pattern_hit(override_match, req, message)
     except Exception as exc:
         logger.warning("analytics assembly failed: %s", exc)
+
+
+def _record_pattern_hit(
+    override_match: dict | None, req: ChatRequest, message: str
+) -> None:
+    """Persist one override pattern hit (Step 5). Never raises.
+
+    Already on the analytics background thread, so the file write costs the
+    chat response nothing. The conversation id is passed through for feedback
+    attribution but is only a tie-breaker — it is None on a conversation's
+    first turn, since the server mints it in persist_chat_turn afterwards.
+    """
+    if not override_match:
+        return
+    try:
+        from app.user.services.pattern_override_store import record_hit
+
+        record_hit(
+            override_match["pattern_id"],
+            message,
+            override_match.get("phrase", ""),
+            conversation_id=req.conversation_id,
+        )
+    except Exception as exc:
+        logger.warning("pattern hit record failed: %s", exc)

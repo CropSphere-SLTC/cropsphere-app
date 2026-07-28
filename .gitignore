@@ -82,3 +82,6 @@ frontend/windows/flutter/generated_plugins.cmake
 
 # Local planning / prompt docs — kept on-machine, not shared
 ADMIN_REDESIGN_PROMPT.md
+
+# Auto-generated per-directory description files — not source
+description.md

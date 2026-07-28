@@ -6,13 +6,21 @@
 
 import 'package:flutter/material.dart';
 import '../../../../models/admin_models.dart';
+import '../../../../models/pattern_models.dart';
 import '../../../../services/admin_service.dart';
 import '../../../../widgets/app_theme.dart';
 import '../admin_ui.dart';
+import '../widgets/admin_sidebar.dart';
 import '../widgets/stat_card.dart';
 
 class GapReportPage extends StatefulWidget {
-  const GapReportPage({super.key});
+  // role + onNavigate are optional so the page still works standalone; the
+  // shell passes them so the superadmin-only "Prompt tuning" card can appear
+  // and navigate. Both roles see the gap report itself.
+  final String role;
+  final ValueChanged<AdminPage>? onNavigate;
+
+  const GapReportPage({super.key, this.role = 'admin', this.onNavigate});
 
   @override
   State<GapReportPage> createState() => _GapReportPageState();
@@ -24,11 +32,25 @@ class _GapReportPageState extends State<GapReportPage> {
   bool _loading = true;
   String? _error;
   GapReport? _report;
+  int? _tuningCount; // active prompt-tuning adjustments (superadmin only)
+
+  bool get _isSuper => widget.role == 'superadmin';
 
   @override
   void initState() {
     super.initState();
     _load();
+    if (_isSuper) _loadTuningCount();
+  }
+
+  // Best-effort badge for the prompt-tuning card — never blocks the report.
+  Future<void> _loadTuningCount() async {
+    try {
+      final active = await _admin.getActivePromptTuning();
+      if (mounted) setState(() => _tuningCount = active.count);
+    } catch (_) {
+      // Leave the badge off if this fails; the card still navigates.
+    }
   }
 
   Future<void> _load() async {
@@ -152,6 +174,12 @@ class _GapReportPageState extends State<GapReportPage> {
             _buildFeedbackCard(report.feedbackSummary),
             const SizedBox(height: 16),
             _buildFewshotCard(report.fewshot),
+            const SizedBox(height: 16),
+            _buildPatternHealthCard(report.patternHealth),
+            if (_isSuper && widget.onNavigate != null) ...[
+              const SizedBox(height: 16),
+              _buildPromptTuningCard(),
+            ],
             const SizedBox(height: 16),
             _buildSessionCard(report),
             const SizedBox(height: 24),
@@ -361,6 +389,208 @@ class _GapReportPageState extends State<GapReportPage> {
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  // Pattern Health: how the admin-approved routing overrides are performing.
+  // Visible to admins too (the underlying reads are admin-readable), but only a
+  // superadmin gets the tap-through, since managing them is superadmin-only.
+  Widget _buildPatternHealthCard(PatternHealth health) {
+    final canManage = _isSuper && widget.onNavigate != null;
+    final needsReview = health.needsReviewCount;
+    final body = Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppTheme.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.rule, color: AppTheme.primary),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Pattern health',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.textPrimary,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Admin-approved phrases supplementing the routing rules',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (needsReview > 0) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppTheme.warning.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    '$needsReview need review',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.warning,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+              if (canManage)
+                const Icon(Icons.chevron_right, color: AppTheme.textMuted),
+            ],
+          ),
+          const SizedBox(height: 14),
+          if (health.activeCount == 0)
+            _emptyLine(
+              'No pattern overrides yet — the chatbot is running on its '
+              'built-in routing rules alone.',
+            )
+          else
+            Wrap(
+              spacing: 24,
+              runSpacing: 12,
+              children: [
+                _patternStat('Active', '${health.activeCount}'),
+                _patternStat('Matches this period', '${health.hitsThisPeriod}'),
+                _patternStat('Matches all time', '${health.totalHits}'),
+                _patternStat(
+                  'Avg. satisfaction',
+                  health.avgSatisfaction == 0
+                      ? '—'
+                      : '${(health.avgSatisfaction * 100).toStringAsFixed(0)}%',
+                ),
+                _patternStat('Revoked', '${health.revokedCount}'),
+              ],
+            ),
+          const SizedBox(height: 10),
+          Text(
+            health.lastAnalysisAt == null
+                ? 'Never analysed'
+                : 'Last analysed ${adminTimeAgo(health.lastAnalysisAt)}',
+            style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
+          ),
+        ],
+      ),
+    );
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: canManage
+          ? InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => widget.onNavigate?.call(AdminPage.patternManagement),
+              child: body,
+            )
+          : body,
+    );
+  }
+
+  Widget _patternStat(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: AppTheme.textPrimary,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Step 7: superadmin shortcut into the Prompt Tuning screen, with a live
+  // badge of how many adjustments are currently active.
+  Widget _buildPromptTuningCard() {
+    final count = _tuningCount;
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => widget.onNavigate?.call(AdminPage.promptTuning),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppTheme.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.tune, color: AppTheme.primary),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Prompt tuning',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.textPrimary,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Adjust the chatbot prompt from usage patterns',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (count != null && count > 0) ...[
+                _countBadge(count),
+                const SizedBox(width: 4),
+                const Text(
+                  'active',
+                  style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+                ),
+                const SizedBox(width: 8),
+              ],
+              const Icon(Icons.chevron_right, color: AppTheme.textMuted),
+            ],
+          ),
+        ),
       ),
     );
   }

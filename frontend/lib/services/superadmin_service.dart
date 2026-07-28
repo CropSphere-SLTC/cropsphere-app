@@ -79,6 +79,67 @@ class SuperadminService {
     return SuperadminConfig.fromJson(response.data);
   }
 
+  // ── Prompt tuning lifecycle (superadmin only) ────────────────────────────
+
+  Future<PromptTuningConfig> getPromptTuningConfig() async {
+    final response = await _dio.get('/api/superadmin/prompt-tuning-config');
+    return PromptTuningConfig.fromJson(response.data);
+  }
+
+  // PATCH semantics — only the fields passed here are changed server-side.
+  Future<PromptTuningConfig> updatePromptTuningConfig({
+    int? minSampleSize,
+    int? trialPeriodDays,
+    int? trialExtensionDays,
+    int? trashRetentionDays,
+  }) async {
+    final response = await _dio.patch(
+      '/api/superadmin/prompt-tuning-config',
+      data: {
+        'min_sample_size': ?minSampleSize,
+        'trial_period_days': ?trialPeriodDays,
+        'trial_extension_days': ?trialExtensionDays,
+        'trash_retention_days': ?trashRetentionDays,
+      },
+    );
+    return PromptTuningConfig.fromJson(response.data);
+  }
+
+  // Before/after comparison for one adjustment. Works for trashed adjustments
+  // too — their measurement window freezes at the time they were removed.
+  Future<AdjustmentAnalytics> getAdjustmentAnalytics(
+    String adjustmentId,
+  ) async {
+    final response = await _dio.get(
+      '/api/superadmin/adjustment-analytics/$adjustmentId',
+    );
+    return AdjustmentAnalytics.fromJson(response.data);
+  }
+
+  // Skips auto-validation and locks the adjustment in. 409 if already permanent.
+  Future<void> forcePermanent(String adjustmentId) async {
+    await _dio.post('/api/superadmin/force-permanent/$adjustmentId');
+  }
+
+  // Moves an adjustment to the trash. The comment is mandatory server-side
+  // (3–500 chars) — a shorter one is rejected with 422.
+  Future<void> removeAdjustment(String adjustmentId, String comment) async {
+    await _dio.post(
+      '/api/superadmin/remove-adjustment/$adjustmentId',
+      data: {'comment': comment},
+    );
+  }
+
+  // Deletes trash past its retention deadline; `allItems` empties it outright.
+  // Returns how many were permanently deleted.
+  Future<int> clearTrash({bool allItems = false}) async {
+    final response = await _dio.delete(
+      '/api/superadmin/clear-trash',
+      queryParameters: {'all_items': allItems},
+    );
+    return response.data['deleted_count'] ?? 0;
+  }
+
   Future<List<AuditLog>> getFullAuditLogs() async {
     final response = await _dio.get('/api/superadmin/audit-logs');
     final logs = response.data['logs'] as List;

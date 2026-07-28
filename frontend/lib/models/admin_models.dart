@@ -1,6 +1,8 @@
 // lib/models/admin_models.dart
 // Request and response models matching admin_router.py schemas exactly
 
+import 'pattern_models.dart';
+
 class AdminStats {
   final double cpuPercent;
   final double ramTotalGb;
@@ -98,6 +100,7 @@ class GapReport {
   final double avgSessionLength;
   final FeedbackSummary feedbackSummary;
   final FewshotInfo fewshot;
+  final PatternHealth patternHealth;
 
   GapReport({
     required this.period,
@@ -113,6 +116,7 @@ class GapReport {
     required this.avgSessionLength,
     required this.feedbackSummary,
     required this.fewshot,
+    required this.patternHealth,
   });
 
   factory GapReport.fromJson(Map<String, dynamic> json) => GapReport(
@@ -144,6 +148,9 @@ class GapReport {
     ),
     fewshot: FewshotInfo.fromJson(
       Map<String, dynamic>.from(json['fewshot'] ?? {}),
+    ),
+    patternHealth: PatternHealth.fromJson(
+      Map<String, dynamic>.from(json['pattern_health'] ?? {}),
     ),
   );
 }
@@ -330,4 +337,445 @@ class ActiveSession {
     sessionStart: json['session_start']?.toString() ?? '',
     lastActivity: json['last_activity']?.toString() ?? '',
   );
+}
+
+// ── Prompt tuning (superadmin-only, analytics-driven) ────────────────────────
+
+/// One supplementary instruction — either a fresh proposal or a live
+/// adjustment part-way through its lifecycle.
+///
+/// Proposals carry only the first five fields; everything from [status] down is
+/// populated once the adjustment has been applied. `recommended` drives the
+/// checkbox default in the review UI (false = opt-in).
+class PromptTuningAdjustment {
+  final String id;
+  final String dimension;
+  final String trigger;
+  final String instruction;
+  final bool recommended;
+
+  // Validation contract. A null [validationMetric] or [baselineValue] means the
+  // backend cannot judge this adjustment, so it will never be auto-promoted or
+  // auto-removed — see [isMeasurable].
+  final String? validationMetric;
+  final double? baselineValue;
+
+  // Lifecycle. `status` is 'trial' | 'permanent' for active adjustments, and
+  // may be 'auto_removed' for one recovered from the trash.
+  final String status;
+  final String? appliedAt;
+  final String? trialEndsAt;
+  final int? trialPeriodDays;
+  final int extensionsUsed;
+  final String? validatedAt;
+  final bool needsAttention;
+  final String? attentionReason;
+
+  PromptTuningAdjustment({
+    required this.id,
+    required this.dimension,
+    required this.trigger,
+    required this.instruction,
+    required this.recommended,
+    this.validationMetric,
+    this.baselineValue,
+    this.status = 'trial',
+    this.appliedAt,
+    this.trialEndsAt,
+    this.trialPeriodDays,
+    this.extensionsUsed = 0,
+    this.validatedAt,
+    this.needsAttention = false,
+    this.attentionReason,
+  });
+
+  /// True when auto-validation can actually judge this one. When false the
+  /// adjustment stays live as a trial until a superadmin decides, and the UI
+  /// must show "awaiting decision" rather than a trial countdown.
+  bool get isMeasurable => validationMetric != null && baselineValue != null;
+
+  bool get isPermanent => status == 'permanent';
+
+  factory PromptTuningAdjustment.fromJson(Map<String, dynamic> json) =>
+      PromptTuningAdjustment(
+        id: json['id'] ?? '',
+        dimension: json['dimension'] ?? '',
+        trigger: json['trigger'] ?? '',
+        instruction: json['instruction'] ?? '',
+        recommended: json['recommended'] ?? true,
+        validationMetric: json['validation_metric'],
+        baselineValue: _toDouble(json['baseline_value']),
+        status: json['status'] ?? 'trial',
+        appliedAt: json['applied_at'],
+        trialEndsAt: json['trial_ends_at'],
+        trialPeriodDays: json['trial_period_days'],
+        extensionsUsed: json['extensions_used'] ?? 0,
+        validatedAt: json['validated_at'],
+        needsAttention: json['needs_attention'] ?? false,
+        attentionReason: json['attention_reason'],
+      );
+}
+
+/// JSON numbers arrive as int or double depending on the value; metric values
+/// are always treated as doubles client-side.
+double? _toDouble(dynamic value) => value is num ? value.toDouble() : null;
+
+/// One item in the prompt-tuning trash, with its retention deadline.
+class TrashedAdjustment {
+  final PromptTuningAdjustment adjustment;
+  final String trashedAt;
+  final String trashedBy;
+
+  /// 'auto_validation_failed' (the system removed it) or 'manual_removal'.
+  final String reason;
+  final String comment;
+  final String? retentionUntil;
+  final bool canRestore;
+
+  TrashedAdjustment({
+    required this.adjustment,
+    required this.trashedAt,
+    required this.trashedBy,
+    required this.reason,
+    required this.comment,
+    required this.retentionUntil,
+    required this.canRestore,
+  });
+
+  bool get wasAutoRemoved => reason == 'auto_validation_failed';
+
+  factory TrashedAdjustment.fromJson(Map<String, dynamic> json) =>
+      TrashedAdjustment(
+        adjustment: PromptTuningAdjustment.fromJson(
+          Map<String, dynamic>.from(json['adjustment'] ?? {}),
+        ),
+        trashedAt: json['trashed_at'] ?? '',
+        trashedBy: json['trashed_by'] ?? '',
+        reason: json['reason'] ?? 'manual_removal',
+        comment: json['comment'] ?? '',
+        retentionUntil: json['retention_until'],
+        canRestore: json['can_restore'] ?? true,
+      );
+}
+
+/// One measurement of a validation metric, at baseline or at "now".
+class TuningMetricPoint {
+  final String? metricName;
+  final double? value;
+  final String? measuredAt;
+
+  /// 'improving' | 'stable' | 'worsened' | 'unknown'. Only set on the current
+  /// point; the baseline has nothing to compare against.
+  final String trend;
+
+  /// Signed so POSITIVE always means better, including for metrics where the
+  /// raw number falling is the good outcome (refusal_rate).
+  final double? relativeChange;
+
+  TuningMetricPoint({
+    required this.metricName,
+    required this.value,
+    required this.measuredAt,
+    this.trend = 'unknown',
+    this.relativeChange,
+  });
+
+  factory TuningMetricPoint.fromJson(Map<String, dynamic> json) =>
+      TuningMetricPoint(
+        metricName: json['metric_name'],
+        value: _toDouble(json['value']),
+        measuredAt: json['measured_at'],
+        trend: json['trend'] ?? 'unknown',
+        relativeChange: _toDouble(json['relative_change']),
+      );
+}
+
+/// One entry in an adjustment's audit history.
+class TuningAuditEntry {
+  final String action;
+  final String performedBy;
+  final String timestamp;
+  final String comment;
+  final Map<String, dynamic> details;
+
+  TuningAuditEntry({
+    required this.action,
+    required this.performedBy,
+    required this.timestamp,
+    required this.comment,
+    required this.details,
+  });
+
+  bool get bySystem => performedBy == 'system';
+
+  factory TuningAuditEntry.fromJson(Map<String, dynamic> json) =>
+      TuningAuditEntry(
+        action: json['action'] ?? '',
+        performedBy: json['performed_by'] ?? 'system',
+        timestamp: json['timestamp'] ?? '',
+        comment: json['comment'] ?? '',
+        details: Map<String, dynamic>.from(json['details'] ?? {}),
+      );
+}
+
+/// GET /api/superadmin/adjustment-analytics/{id} — the before/after comparison
+/// behind the adjustment detail screen.
+class AdjustmentAnalytics {
+  final PromptTuningAdjustment adjustment;
+
+  /// 'trial' | 'permanent' | 'auto_removed' | 'removed'.
+  final String status;
+
+  /// Pre-rendered by the backend, e.g. "Day 8 of 14", "Permanent", or
+  /// "Day 3 — awaiting manual decision".
+  final String trialProgress;
+  final int trialDay;
+  final int? trialTotalDays;
+
+  final int interactionsDuringTrial;
+  final int minSampleRequired;
+  final bool sampleMet;
+  final int extensionsUsed;
+  final int maxExtensions;
+  final bool needsAttention;
+  final String? attentionReason;
+
+  final TuningMetricPoint baseline;
+  final TuningMetricPoint current;
+
+  /// 'on_track_for_permanent' | 'at_risk_of_removal' | 'insufficient_data' |
+  /// 'not_measurable' | 'validated_permanent' | 'removed'.
+  final String verdict;
+
+  final TrashedAdjustment? trashed;
+  final List<TuningAuditEntry> history;
+
+  AdjustmentAnalytics({
+    required this.adjustment,
+    required this.status,
+    required this.trialProgress,
+    required this.trialDay,
+    required this.trialTotalDays,
+    required this.interactionsDuringTrial,
+    required this.minSampleRequired,
+    required this.sampleMet,
+    required this.extensionsUsed,
+    required this.maxExtensions,
+    required this.needsAttention,
+    required this.attentionReason,
+    required this.baseline,
+    required this.current,
+    required this.verdict,
+    required this.trashed,
+    required this.history,
+  });
+
+  bool get isTrial => status == 'trial';
+  bool get isRemoved => status == 'auto_removed' || status == 'removed';
+
+  /// Fraction of the trial elapsed, or null when there is no clock to show
+  /// (unmeasurable adjustment, or already resolved).
+  double? get trialFraction {
+    final total = trialTotalDays;
+    if (!isTrial || total == null || total <= 0) return null;
+    if (adjustment.trialEndsAt == null) return null;
+    return (trialDay / total).clamp(0.0, 1.0);
+  }
+
+  factory AdjustmentAnalytics.fromJson(Map<String, dynamic> json) =>
+      AdjustmentAnalytics(
+        adjustment: PromptTuningAdjustment.fromJson(
+          Map<String, dynamic>.from(json['adjustment'] ?? {}),
+        ),
+        status: json['status'] ?? 'trial',
+        trialProgress: json['trial_progress'] ?? '',
+        trialDay: json['trial_day'] ?? 0,
+        trialTotalDays: json['trial_total_days'],
+        interactionsDuringTrial: json['interactions_during_trial'] ?? 0,
+        minSampleRequired: json['min_sample_required'] ?? 0,
+        sampleMet: json['sample_met'] ?? false,
+        extensionsUsed: json['extensions_used'] ?? 0,
+        maxExtensions: json['max_extensions'] ?? 2,
+        needsAttention: json['needs_attention'] ?? false,
+        attentionReason: json['attention_reason'],
+        baseline: TuningMetricPoint.fromJson(
+          Map<String, dynamic>.from(json['baseline'] ?? {}),
+        ),
+        current: TuningMetricPoint.fromJson(
+          Map<String, dynamic>.from(json['current'] ?? {}),
+        ),
+        verdict: json['verdict'] ?? 'insufficient_data',
+        trashed: json['trashed'] == null
+            ? null
+            : TrashedAdjustment.fromJson(
+                Map<String, dynamic>.from(json['trashed']),
+              ),
+        history: ((json['history'] ?? []) as List)
+            .map((e) => TuningAuditEntry.fromJson(Map<String, dynamic>.from(e)))
+            .toList(),
+      );
+}
+
+/// The four superadmin-adjustable lifecycle settings.
+class PromptTuningConfig {
+  final int minSampleSize;
+  final int trialPeriodDays;
+  final int trialExtensionDays;
+  final int trashRetentionDays;
+
+  PromptTuningConfig({
+    required this.minSampleSize,
+    required this.trialPeriodDays,
+    required this.trialExtensionDays,
+    required this.trashRetentionDays,
+  });
+
+  factory PromptTuningConfig.fromJson(Map<String, dynamic> json) =>
+      PromptTuningConfig(
+        minSampleSize: json['min_sample_size'] ?? 20,
+        trialPeriodDays: json['trial_period_days'] ?? 14,
+        trialExtensionDays: json['trial_extension_days'] ?? 7,
+        trashRetentionDays: json['trash_retention_days'] ?? 14,
+      );
+}
+
+/// A general admin-bell notification (prompt-tuning decision, analytics alert,
+/// or any system event). Backed by GET /api/admin/notifications.
+class AdminNotification {
+  final String id;
+  final String type;
+  final String title;
+  final String message;
+
+  /// 'info' | 'success' | 'warning' | 'error' — drives the card's icon/colour.
+  final String severity;
+  final bool read;
+  final String? createdAt;
+
+  /// e.g. an adjustment_id — carried so a tap can deep-link.
+  final String? relatedId;
+
+  /// Client route to open on tap, e.g. '/adjustment/dim1' or '/gap-report'.
+  final String? actionUrl;
+
+  AdminNotification({
+    required this.id,
+    required this.type,
+    required this.title,
+    required this.message,
+    required this.severity,
+    required this.read,
+    required this.createdAt,
+    required this.relatedId,
+    required this.actionUrl,
+  });
+
+  /// `read` is authoritative from the server; this copy lets the panel show a
+  /// card as read immediately after a tap without a refetch.
+  AdminNotification copyWith({bool? read}) => AdminNotification(
+    id: id,
+    type: type,
+    title: title,
+    message: message,
+    severity: severity,
+    read: read ?? this.read,
+    createdAt: createdAt,
+    relatedId: relatedId,
+    actionUrl: actionUrl,
+  );
+
+  factory AdminNotification.fromJson(Map<String, dynamic> json) =>
+      AdminNotification(
+        id: json['id'] ?? '',
+        type: json['type'] ?? '',
+        title: json['title'] ?? '',
+        message: json['message'] ?? '',
+        severity: json['severity'] ?? 'info',
+        read: json['read'] ?? false,
+        createdAt: json['created_at'],
+        relatedId: json['related_id'],
+        actionUrl: json['action_url'],
+      );
+}
+
+/// Result of POST /analyze-prompt-tuning — proposals, not yet applied.
+class PromptTuningProposal {
+  final List<PromptTuningAdjustment> adjustments;
+  final int periodDays;
+  final int sampleSize;
+
+  PromptTuningProposal({
+    required this.adjustments,
+    required this.periodDays,
+    required this.sampleSize,
+  });
+
+  factory PromptTuningProposal.fromJson(Map<String, dynamic> json) =>
+      PromptTuningProposal(
+        adjustments: ((json['proposed_adjustments'] ?? []) as List)
+            .map(
+              (e) =>
+                  PromptTuningAdjustment.fromJson(Map<String, dynamic>.from(e)),
+            )
+            .toList(),
+        periodDays: json['period_days'] ?? 0,
+        sampleSize: json['sample_size'] ?? 0,
+      );
+}
+
+/// Result of GET /active-prompt-tuning — what is live in the prompt now
+/// (trial + permanent), plus the counts that drive the section badges.
+class ActivePromptTuning {
+  final List<PromptTuningAdjustment> adjustments;
+  final int count;
+  final int trialCount;
+  final int permanentCount;
+  final int trashCount;
+  final String? updatedAt;
+
+  ActivePromptTuning({
+    required this.adjustments,
+    required this.count,
+    required this.trialCount,
+    required this.permanentCount,
+    required this.trashCount,
+    required this.updatedAt,
+  });
+
+  factory ActivePromptTuning.fromJson(Map<String, dynamic> json) =>
+      ActivePromptTuning(
+        adjustments: ((json['active_adjustments'] ?? []) as List)
+            .map(
+              (e) =>
+                  PromptTuningAdjustment.fromJson(Map<String, dynamic>.from(e)),
+            )
+            .toList(),
+        count: json['count'] ?? 0,
+        trialCount: json['trial_count'] ?? 0,
+        permanentCount: json['permanent_count'] ?? 0,
+        trashCount: json['trash_count'] ?? 0,
+        updatedAt: json['updated_at'],
+      );
+}
+
+/// Result of POST /apply-prompt-tuning. `appliedCount` is the source of truth —
+/// an approved id that no longer triggers appears in neither list, and one that
+/// was already active appears in `skippedIds`.
+class ApplyTuningResult {
+  final int appliedCount;
+  final List<String> appliedIds;
+  final List<String> skippedIds;
+
+  ApplyTuningResult({
+    required this.appliedCount,
+    required this.appliedIds,
+    required this.skippedIds,
+  });
+
+  factory ApplyTuningResult.fromJson(Map<String, dynamic> json) =>
+      ApplyTuningResult(
+        appliedCount: json['applied_count'] ?? 0,
+        appliedIds: List<String>.from(json['applied_ids'] ?? []),
+        skippedIds: List<String>.from(json['skipped_ids'] ?? []),
+      );
 }

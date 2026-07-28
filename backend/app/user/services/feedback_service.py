@@ -65,6 +65,27 @@ def log_feedback(
     except Exception as exc:
         logger.warning("chat_feedback log failed: %s", exc)
 
+    _link_pattern_feedback(conversation_id, message_text, feedback)
+
+
+def _link_pattern_feedback(
+    conversation_id: str, message_text: str, feedback: str
+) -> None:
+    """Attribute this vote to the admin-approved pattern override that routed
+    the turn, if any (Step 5). Never raises.
+
+    Runs outside the try above so a Firestore failure doesn't skip it and vice
+    versa — the two records are independent. Almost every turn matches no
+    override, in which case this is one in-memory scan of a bounded ledger and
+    no file write at all.
+    """
+    try:
+        from app.user.services.pattern_override_store import record_feedback
+
+        record_feedback(conversation_id, message_text, feedback)
+    except Exception as exc:
+        logger.debug("pattern feedback link skipped: %s", exc)
+
 
 def get_conversation_feedback(user_id: str, conversation_id: str) -> dict:
     """Return the caller's votes for a conversation as {message_index: feedback}.

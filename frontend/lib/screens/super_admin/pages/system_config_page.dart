@@ -1,6 +1,12 @@
 // lib/screens/super_admin/pages/system_config_page.dart
 // Superadmin-only runtime configuration — editable rate limits, a read-only
-// Admin API toggle (env-var backed), and a save action.
+// Admin API toggle (env-var backed), the prompt-tuning lifecycle settings, and
+// save actions.
+//
+// The two config blocks are backed by different endpoints and saved
+// separately: rate limits are in-memory server-side, while the prompt-tuning
+// values are persisted to Firestore because running trials depend on them
+// across restarts.
 
 import 'package:flutter/material.dart';
 import '../../../models/admin_models.dart';
@@ -15,15 +21,63 @@ class SystemConfigPage extends StatefulWidget {
   State<SystemConfigPage> createState() => _SystemConfigPageState();
 }
 
+/// One editable prompt-tuning setting: its controller and the inclusive bounds
+/// the backend enforces, kept together so the client can reject a bad value
+/// before the request instead of surfacing a 422.
+class _TuningField {
+  final String label;
+  final String help;
+  final int min;
+  final int max;
+  final TextEditingController controller = TextEditingController();
+
+  _TuningField(this.label, this.help, this.min, this.max);
+}
+
 class _SystemConfigPageState extends State<SystemConfigPage> {
   final _superadmin = SuperadminService();
   final _adminLimitController = TextEditingController();
   final _superLimitController = TextEditingController();
 
+  // Bounds mirror system_config_service._BOUNDS on the backend.
+  final _minSample = _TuningField(
+    'Min sample size',
+    'Interactions needed before a trial can be judged',
+    1,
+    10000,
+  );
+  final _trialPeriod = _TuningField(
+    'Trial period',
+    'Days a new adjustment runs before validation',
+    1,
+    90,
+  );
+  final _trialExtension = _TuningField(
+    'Trial extension',
+    'Days added when there is too little data (max 2 times)',
+    1,
+    30,
+  );
+  final _trashRetention = _TuningField(
+    'Trash retention',
+    'Days a removed adjustment stays restorable',
+    1,
+    365,
+  );
+
+  late final List<_TuningField> _tuningFields = [
+    _minSample,
+    _trialPeriod,
+    _trialExtension,
+    _trashRetention,
+  ];
+
   bool _loading = true;
   bool _saving = false;
+  bool _savingTuning = false;
   String? _error;
   SuperadminConfig? _config;
+  PromptTuningConfig? _tuningConfig;
 
   @override
   void initState() {
@@ -35,6 +89,9 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
   void dispose() {
     _adminLimitController.dispose();
     _superLimitController.dispose();
+    for (final f in _tuningFields) {
+      f.controller.dispose();
+    }
     super.dispose();
   }
 
@@ -63,6 +120,26 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
       }
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+    // Loaded separately so a prompt-tuning failure never blanks the rate-limit
+    // section (and vice versa) — they're independent endpoints.
+    await _loadTuningConfig();
+  }
+
+  Future<void> _loadTuningConfig() async {
+    try {
+      final config = await _superadmin.getPromptTuningConfig();
+      if (!mounted) return;
+      setState(() {
+        _tuningConfig = config;
+        _minSample.controller.text = '${config.minSampleSize}';
+        _trialPeriod.controller.text = '${config.trialPeriodDays}';
+        _trialExtension.controller.text = '${config.trialExtensionDays}';
+        _trashRetention.controller.text = '${config.trashRetentionDays}';
+      });
+    } catch (_) {
+      // Section renders its own unavailable state.
+      if (mounted) setState(() => _tuningConfig = null);
     }
   }
 
@@ -107,6 +184,43 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
     }
   }
 
+  Future<void> _saveTuning() async {
+    // Validate every field before sending, so one bad value doesn't half-apply
+    // the section (PATCH would accept the others).
+    final values = <_TuningField, int>{};
+    for (final f in _tuningFields) {
+      final parsed = int.tryParse(f.controller.text.trim());
+      if (parsed == null) {
+        _showSnack('${f.label} must be a whole number', isError: true);
+        return;
+      }
+      if (parsed < f.min || parsed > f.max) {
+        _showSnack(
+          '${f.label} must be between ${f.min} and ${f.max}',
+          isError: true,
+        );
+        return;
+      }
+      values[f] = parsed;
+    }
+
+    setState(() => _savingTuning = true);
+    try {
+      final updated = await _superadmin.updatePromptTuningConfig(
+        minSampleSize: values[_minSample],
+        trialPeriodDays: values[_trialPeriod],
+        trialExtensionDays: values[_trialExtension],
+        trashRetentionDays: values[_trashRetention],
+      );
+      if (mounted) setState(() => _tuningConfig = updated);
+      _showSnack('Prompt tuning settings saved');
+    } catch (e) {
+      _showSnack(adminErrorMessage(e), isError: true);
+    } finally {
+      if (mounted) setState(() => _savingTuning = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -119,7 +233,7 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
       children: [
         AdminPageHeader(
           title: 'System config',
-          subtitle: 'Runtime rate limits & API toggle',
+          subtitle: 'Runtime rate limits, API toggle & prompt tuning',
           onRefresh: _load,
         ),
         const SizedBox(height: 16),
@@ -144,7 +258,7 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
                       ),
                     )
                   : const Icon(Icons.save_outlined),
-              label: Text(_saving ? 'Saving…' : 'Save configuration'),
+              label: Text(_saving ? 'Saving…' : 'Save rate limits'),
             ),
           ),
           const SizedBox(height: 8),
@@ -153,8 +267,119 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
             'already-registered routes at runtime (see superadmin_service).',
             style: TextStyle(fontSize: 11, color: AppTheme.textMuted),
           ),
+          const SizedBox(height: 24),
+          _buildPromptTuningSettings(),
         ],
       ],
+    );
+  }
+
+  // ── Prompt tuning lifecycle settings ───────────────────────────────────────
+
+  Widget _buildPromptTuningSettings() {
+    if (_tuningConfig == null) {
+      return AdminSectionCard(
+        title: 'Prompt tuning',
+        child: Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Could not load prompt-tuning settings.',
+                style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+              ),
+            ),
+            TextButton(
+              onPressed: _loadTuningConfig,
+              child: const Text('Retry'),
+            ),
+          ],
+        ),
+      );
+    }
+    return AdminSectionCard(
+      title: 'Prompt tuning lifecycle',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Controls how long an applied adjustment is trialled before the '
+            'system promotes or removes it, and how long removed adjustments '
+            'stay restorable. Changes apply to trials started from now on.',
+            style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+          ),
+          const SizedBox(height: 14),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final narrow = constraints.maxWidth < 480;
+              final fields = _tuningFields.map(_tuningNumberField).toList();
+              if (narrow) {
+                return Column(
+                  children: [
+                    for (var i = 0; i < fields.length; i++) ...[
+                      if (i > 0) const SizedBox(height: 12),
+                      fields[i],
+                    ],
+                  ],
+                );
+              }
+              return Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(child: fields[0]),
+                      const SizedBox(width: 12),
+                      Expanded(child: fields[1]),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(child: fields[2]),
+                      const SizedBox(width: 12),
+                      Expanded(child: fields[3]),
+                    ],
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _savingTuning ? null : _saveTuning,
+              icon: _savingTuning
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.save_outlined),
+              label: Text(
+                _savingTuning ? 'Saving…' : 'Save prompt tuning settings',
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _tuningNumberField(_TuningField field) {
+    final isDays = field.label != 'Min sample size';
+    return TextField(
+      controller: field.controller,
+      keyboardType: TextInputType.number,
+      decoration: InputDecoration(
+        labelText: field.label,
+        helperText: field.help,
+        helperMaxLines: 2,
+        isDense: true,
+        suffixText: isDays ? 'days' : null,
+      ),
     );
   }
 

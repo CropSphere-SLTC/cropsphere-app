@@ -251,9 +251,24 @@ jobs:
             --ignore-vuln PYSEC-2026-3447 \
 
       - name: Validate ML model tests
+        # Scoped to the five ML model services (M1-M5) — this job validates the
+        # models, not the whole app. Two things make that scoping explicit:
+        #   -o addopts=""  overrides pyproject's `--cov=app`. pytest-cov ACCUMULATES
+        #                  --cov flags, so without this the CLI --cov below would
+        #                  widen coverage to the entire app instead of narrowing it,
+        #                  and every non-ML feature shipped would drag this gate down.
+        #   --cov=<module> dotted module paths, because the services moved out of
+        #                  app/services/ (now empty) into app/user/services/.
+        # M6 (chatbot RAG) is deliberately excluded: it is gated by the backend
+        # job's full-suite 70% threshold, not by the ML model job.
         run: |
-          pytest tests/ -v -k "yield or weather or price or demand or recommend or chat" \
-            --cov=app/services \
+          pytest tests/ -v -o addopts="" \
+            -k "yield or weather or price or demand or recommend" \
+            --cov=app.user.services.yield_service \
+            --cov=app.user.services.weather_service \
+            --cov=app.user.services.price_service \
+            --cov=app.user.services.demand_service \
+            --cov=app.user.services.recommend_service \
             --cov-report=term-missing \
             --cov-report=html \
             --cov-fail-under=60

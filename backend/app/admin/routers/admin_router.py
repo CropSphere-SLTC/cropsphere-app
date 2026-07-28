@@ -5,14 +5,20 @@ only. All business logic lives in app.admin.services.admin_service.
 """
 
 import logging
+from typing import Optional
 
-from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 
 from app.admin.services import admin_service
 from app.admin.services import gap_report_service
 from app.middleware.rate_limit import limiter
-from app.middleware.roles import require_admin, get_current_role
+from app.middleware.roles import (
+    get_current_role,
+    get_current_uid,
+    require_admin,
+    require_superadmin,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +34,24 @@ class RoleUpdate(BaseModel):
 
 class BanUpdate(BaseModel):
     is_banned: bool
+
+
+class ApprovedTuning(BaseModel):
+    approved_ids: list[str]  # adjustment ids the admin approved to apply
+    # Optional per-apply override of the configured trial length. Bounded so a
+    # client can't start a 100-year trial; None = use the system config value.
+    trial_period_days: Optional[int] = Field(None, ge=1, le=90)
+
+
+class RemovalRequest(BaseModel):
+    """Manual removal requires a reason — Step 5 makes the comment mandatory so
+    the trash always carries the 'why' alongside the 'who'."""
+
+    comment: str = Field(..., min_length=3, max_length=500)
+
+
+class EmailPreferenceUpdate(BaseModel):
+    email_notifications: bool
 
 
 # ── User management ───────────────────────────────────────────────────────────
@@ -148,3 +172,227 @@ def rebuild_fewshot(request: Request):
     _reload_fewshot_examples()
     count = sum(len(v) for v in out.get("examples", {}).values())
     return {"status": "ok", "examples_count": count}
+
+
+# ── Prompt tuning (analytics-driven, review-gated) ────────────────────────────
+
+
+@router.post("/analyze-prompt-tuning", dependencies=[Depends(require_superadmin)])
+@limiter.limit("5/minute")
+def analyze_prompt_tuning(request: Request, days: int = 7):
+    """Analyze recent analytics + feedback and PROPOSE prompt tuning
+    adjustments. Read-only — saves and applies nothing.
+
+    Admin-only. Rate limited: 5 req/min. Returns the proposed adjustments plus
+    the period and sample size the proposal was drawn from.
+    """
+    from app.user.services.prompt_tuning_service import (
+        analyze_and_generate_tuning,
+    )
+
+    out = analyze_and_generate_tuning(days)
+    return {
+        "proposed_adjustments": out["adjustments"],
+        "period_days": out["period_days"],
+        "sample_size": out["sample_size"],
+    }
+
+
+@router.post("/apply-prompt-tuning", dependencies=[Depends(require_superadmin)])
+@limiter.limit("5/minute")
+def apply_prompt_tuning(
+    request: Request,
+    body: ApprovedTuning,
+    days: int = 7,
+    actor: dict = Depends(get_current_role),
+):
+    """Start a TRIAL for each admin-approved adjustment id and reload the cache.
+
+    Re-runs the analysis server-side and keeps the approved subset, so the
+    applied instructions always come from a trusted source (not a client body).
+    Each applied adjustment captures its baseline metric at this moment and
+    gets a trial_ends_at from the system config (or body.trial_period_days).
+    Superadmin-only. Rate limited: 5 req/min.
+
+    Returns applied/skipped id lists — `skipped` holds ids that were already
+    active; ids that no longer trigger appear in neither.
+    """
+    from app.user.services.chatbot_service import _reload_prompt_tuning
+    from app.user.services.prompt_tuning_service import apply_approved
+
+    result = apply_approved(
+        body.approved_ids,
+        days,
+        actor_uid=actor["uid"],
+        trial_period_days=body.trial_period_days,
+    )
+    _reload_prompt_tuning()
+    return {
+        "status": "ok",
+        "applied_count": len(result["applied"]),
+        "applied_ids": result["applied"],
+        "skipped_ids": result["skipped"],
+    }
+
+
+@router.get("/active-prompt-tuning", dependencies=[Depends(require_superadmin)])
+@limiter.limit("10/minute")
+def active_prompt_tuning(request: Request):
+    """Return the live tuning adjustments (trial + permanent) — exactly what is
+    in the prompt right now. Superadmin-only. Rate limited: 10 req/min.
+    """
+    from app.user.services.prompt_tuning_service import load_active_tuning
+
+    active = load_active_tuning()
+    adjustments = active.get("adjustments", [])
+    return {
+        "active_adjustments": adjustments,
+        "count": len(adjustments),
+        "trial_count": sum(1 for a in adjustments if a.get("status") == "trial"),
+        "permanent_count": sum(
+            1 for a in adjustments if a.get("status") == "permanent"
+        ),
+        "trash_count": active.get("trash_count", 0),
+        "updated_at": active.get("updated_at"),
+    }
+
+
+@router.delete("/clear-prompt-tuning", dependencies=[Depends(require_superadmin)])
+@limiter.limit("5/minute")
+def clear_prompt_tuning(request: Request, actor: dict = Depends(get_current_role)):
+    """Move all active tuning to the trash — the chatbot reverts to its static
+    prompt. Reversible until retention expires. Superadmin-only. 5 req/min.
+    """
+    from app.user.services.chatbot_service import _reload_prompt_tuning
+    from app.user.services.prompt_tuning_service import clear_tuning
+
+    result = clear_tuning(actor["uid"])
+    _reload_prompt_tuning()
+    return {"status": "ok", "cleared_count": len(result["cleared"])}
+
+
+# ── Prompt tuning trash ───────────────────────────────────────────────────────
+
+
+@router.get("/prompt-tuning-trash", dependencies=[Depends(require_superadmin)])
+@limiter.limit("10/minute")
+def prompt_tuning_trash(request: Request):
+    """Return trashed adjustments, newest first, with their retention deadline
+    and whether they can still be restored. Superadmin-only. 10 req/min."""
+    from app.user.services import prompt_tuning_store as store_mod
+
+    store = store_mod.load()
+    items = sorted(
+        store.get("trash", []),
+        key=lambda t: t.get("trashed_at") or "",
+        reverse=True,
+    )
+    return {"trash": items, "count": len(items)}
+
+
+@router.post(
+    "/restore-from-trash/{adjustment_id}", dependencies=[Depends(require_superadmin)]
+)
+@limiter.limit("5/minute")
+def restore_from_trash(
+    request: Request,
+    adjustment_id: str,
+    actor: dict = Depends(get_current_role),
+):
+    """Restore a trashed adjustment as a FRESH trial (new clock, extensions
+    reset) and reload the live cache. Superadmin-only. 5 req/min.
+
+    404 if the id isn't in the trash; 409 if an adjustment with that id is
+    already active.
+    """
+    from app.user.services import prompt_tuning_store as store_mod
+    from app.user.services.chatbot_service import _reload_prompt_tuning
+
+    result = store_mod.restore(adjustment_id, actor["uid"])
+    if not result["ok"]:
+        if result["error"] == "already_active":
+            raise HTTPException(status_code=409, detail="Adjustment is already active")
+        raise HTTPException(status_code=404, detail="Adjustment not found in trash")
+    _reload_prompt_tuning()
+    return {"status": "ok", "adjustment": result["adjustment"]}
+
+
+# ── Admin notifications (the bell) ────────────────────────────────────────────
+
+
+@router.get("/notifications", dependencies=[Depends(require_admin)])
+@limiter.limit("30/minute")
+def list_notifications(request: Request, limit: int = 20, unread_only: bool = False):
+    """Recent admin notifications, newest first. Admin-readable.
+
+    `limit` is clamped to 1..100 server-side; `unread_only` filters to unread.
+    Rate limit 30/min leaves headroom for the bell's 60s poll plus manual
+    refreshes. See app.admin.services.notification_service.
+    """
+    from app.admin.services.notification_service import get_notifications
+
+    items = get_notifications(limit=limit, unread_only=unread_only)
+    return {"notifications": items, "total": len(items)}
+
+
+@router.get("/notifications/unread-count", dependencies=[Depends(require_admin)])
+@limiter.limit("60/minute")
+def notifications_unread_count(request: Request):
+    """Unread notification count for the bell badge. Admin-readable.
+
+    Higher rate limit (60/min) because this is the endpoint the badge polls
+    every 60 seconds; the count is capped server-side (the UI shows '9+').
+    """
+    from app.admin.services.notification_service import get_unread_count
+
+    return {"count": get_unread_count()}
+
+
+@router.post(
+    "/notifications/{notification_id}/read", dependencies=[Depends(require_admin)]
+)
+@limiter.limit("60/minute")
+def notification_mark_read(request: Request, notification_id: str):
+    """Mark one notification read (tapping a card). Admin-readable. Idempotent —
+    an unknown id is a no-op, not an error."""
+    from app.admin.services.notification_service import mark_read
+
+    mark_read(notification_id)
+    return {"status": "ok"}
+
+
+@router.post("/notifications/read-all", dependencies=[Depends(require_admin)])
+@limiter.limit("20/minute")
+def notifications_mark_all_read(request: Request):
+    """Mark every notification read ('Mark all read'). Admin-readable."""
+    from app.admin.services.notification_service import mark_all_read
+
+    mark_all_read()
+    return {"status": "ok"}
+
+
+# ── Email alert preference (per admin) ────────────────────────────────────────
+
+
+@router.get("/email-preferences", dependencies=[Depends(require_admin)])
+@limiter.limit("20/minute")
+def get_email_preferences(request: Request, uid: str = Depends(get_current_uid)):
+    """Whether the calling admin receives email alerts (default True)."""
+    from app.admin.services.notification_service import get_email_preference
+
+    return {"email_notifications": get_email_preference(uid)}
+
+
+@router.patch("/email-preferences", dependencies=[Depends(require_admin)])
+@limiter.limit("20/minute")
+def update_email_preferences(
+    request: Request,
+    body: EmailPreferenceUpdate,
+    uid: str = Depends(get_current_uid),
+):
+    """Turn the calling admin's email alerts on or off. Merges into their
+    existing preferences (never clobbers other keys)."""
+    from app.admin.services.notification_service import set_email_preference
+
+    value = set_email_preference(uid, body.email_notifications)
+    return {"email_notifications": value}

@@ -14,10 +14,13 @@ import 'shared/pages/audit_logs_page.dart';
 import 'shared/pages/dashboard_page.dart';
 import 'shared/pages/gap_report_page.dart';
 import 'shared/pages/prediction_logs_page.dart';
+import 'shared/pages/prompt_tuning_page.dart';
 import 'shared/pages/security_page.dart';
 import 'shared/pages/system_health_page.dart';
 import 'shared/pages/user_management_page.dart';
 import 'shared/widgets/admin_sidebar.dart';
+import 'shared/widgets/notification_bell.dart';
+import '../super_admin/pages/adjustment_detail_screen.dart';
 import '../super_admin/pages/maintenance_page.dart';
 import '../super_admin/pages/system_config_page.dart';
 // User-app screens, reachable from the sidebar's "App" section.
@@ -58,12 +61,26 @@ class _AdminShellState extends State<AdminShell> {
   bool get _isSuper => widget.role == 'superadmin';
 
   bool _isSuperOnly(AdminPage p) =>
-      p == AdminPage.systemConfig || p == AdminPage.maintenance;
+      p == AdminPage.systemConfig ||
+      p == AdminPage.maintenance ||
+      p == AdminPage.promptTuning;
 
   void _select(AdminPage page) {
     // Guard: never render a superadmin-only page for an admin.
     if (!_isSuper && _isSuperOnly(page)) return;
     setState(() => _page = page);
+  }
+
+  // Deep-link from an adjustment notification. The detail view is
+  // superadmin-gated (backend returns 403 for admins), so a plain admin only
+  // gets the notification marked read — no dead-end navigation.
+  void _openAdjustment(String adjustmentId) {
+    if (!_isSuper) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => AdjustmentDetailScreen(adjustmentId: adjustmentId),
+      ),
+    );
   }
 
   // Maps a user screen's base-index navigation (0=Home … 6=Chat) onto the
@@ -105,7 +122,9 @@ class _AdminShellState extends State<AdminShell> {
       case AdminPage.users:
         return UserManagementPage(role: widget.role);
       case AdminPage.gapReport:
-        return const GapReportPage();
+        return GapReportPage(role: widget.role, onNavigate: _select);
+      case AdminPage.promptTuning:
+        return const PromptTuningPage();
       case AdminPage.auditLogs:
         return AuditLogsPage(role: widget.role);
       case AdminPage.predictionLogs:
@@ -171,6 +190,10 @@ class _AdminShellState extends State<AdminShell> {
         elevation: 0,
         title: Text(adminPageTitle(_page)),
         actions: [
+          NotificationBell(
+            onOpenGapReport: () => _select(AdminPage.gapReport),
+            onOpenAdjustment: _openAdjustment,
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: ProfileAvatarButton(

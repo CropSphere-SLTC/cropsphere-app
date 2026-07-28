@@ -413,6 +413,9 @@ _capabilities_cache: dict | None = None
 # JSON file that fewshot_service writes. None = not yet loaded; {} = loaded but
 # empty (no file / unreadable) — the chatbot works fine either way.
 _fewshot_examples: dict | None = None
+# Admin-approved, analytics-derived prompt tuning (see prompt_tuning_service).
+# Same None/{} cache semantics as _fewshot_examples; empty = static prompt.
+_prompt_tuning: dict | None = None
 # Common Sri Lankan crops/districts NOT in our dataset. Lets a near-miss be
 # caught proactively even when retrieval finds semantically-similar covered
 # chunks (e.g. "carrot price in Galle" retrieves carrot chunks for other
@@ -2090,6 +2093,80 @@ def _reload_fewshot_examples() -> dict:
     return _load_fewshot_examples()
 
 
+def _load_prompt_tuning() -> dict:
+    """Load the prompt-tuning store, cached for the process lifetime.
+
+    Returns the full store dict ({active, trash, audit_log}) so the trial
+    check below can read lifecycle dates without a second disk hit. Returns an
+    empty store if the file is missing or unreadable — the chatbot runs on its
+    static prompt, which is the intended graceful default.
+    """
+    global _prompt_tuning
+    if _prompt_tuning is None:
+        try:
+            from app.user.services.prompt_tuning_store import load as _load_store
+
+            _prompt_tuning = _load_store()
+        except Exception as exc:
+            logger.warning("prompt-tuning load failed: %s", exc)
+            _prompt_tuning = {}
+    return _prompt_tuning
+
+
+def _reload_prompt_tuning() -> dict:
+    """Drop the cache and reload — called by the admin lifecycle endpoints and
+    by the validation pass after the store changes on disk."""
+    global _prompt_tuning
+    _prompt_tuning = None
+    return _load_prompt_tuning()
+
+
+def _check_prompt_tuning_trials(store: dict) -> None:
+    """Fire the auto-validation pass if a trial has run its course.
+
+    Deliberately cheap: the due-check is a date comparison against the store
+    dict already in memory (no I/O), and the pass itself is throttled and runs
+    on a background thread — this is on the chat request path and must never
+    add latency. Any failure is swallowed for the same reason.
+    """
+    try:
+        from app.admin.services.tuning_validation_service import maybe_run_validations
+
+        maybe_run_validations(store)
+    except Exception as exc:
+        logger.debug("tuning validation check skipped: %s", exc)
+
+
+def _format_prompt_tuning_injection() -> str:
+    """Render live tuning adjustments into one supplementary system message,
+    or "" when there are none.
+
+    Only adjustments with status "trial" or "permanent" are injected —
+    anything trashed or auto-removed is skipped. ONLY the fixed-template
+    instruction strings are emitted: tuning can add guidance but never alters
+    Part A rules, the refusal text, the 'Reasoning:' prefix, the no-calc rule,
+    or the earnings anchor (see prompt_tuning_service safety notes). Admin
+    comments and trigger text never reach the prompt.
+    """
+    from app.user.services.prompt_tuning_store import LIVE_STATUSES
+
+    store = _load_prompt_tuning()
+    _check_prompt_tuning_trials(store)
+    lines = [
+        a["instruction"]
+        for a in store.get("active", [])
+        if isinstance(a, dict)
+        and a.get("status") in LIVE_STATUSES
+        and isinstance(a.get("instruction"), str)
+        and a["instruction"].strip()
+    ]
+    if not lines:
+        return ""
+    return "SYSTEM ADJUSTMENTS (based on recent usage patterns):\n" + "\n".join(
+        f"- {line}" for line in lines
+    )
+
+
 def _build_messages(system: str, context: dict, req: ChatRequest, message: str) -> list:
     """Assemble the Groq message list: system prompt, RAG context, history,
     current message.
@@ -2145,6 +2222,15 @@ def _build_messages(system: str, context: dict, req: ChatRequest, message: str) 
                 f"A: {_ex.get('answer', '')}"
             )
         msgs.append({"role": "system", "content": "".join(_parts)})
+    # Prompt tuning adjustments — admin-approved, analytics-derived supplementary
+    # instructions (see prompt_tuning_service). Its own system message AFTER the
+    # few-shot examples and BEFORE the all-crops injection. Only ADDS guidance;
+    # never modifies Part A rules, the refusal text, the 'Reasoning:' prefix, the
+    # no-calc rule, or the earnings anchor. Skipped entirely when the tuning file
+    # is empty or missing.
+    _tuning = _format_prompt_tuning_injection()
+    if _tuning:
+        msgs.append({"role": "system", "content": _tuning})
     # "All crops" queries: top-k retrieval only surfaces 2-3 crops' worth of
     # chunks, so the LLM can't know the other crops exist at all. Inject the
     # full crop list from our own dataset metadata as extra context so it

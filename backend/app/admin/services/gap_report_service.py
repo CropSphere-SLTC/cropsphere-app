@@ -129,7 +129,7 @@ def _build_report(days: int) -> dict:
 
     feedback_summary = _aggregate_feedback(_fetch_feedback(db, days))
 
-    return {
+    report = {
         "period": f"last_{days}_days",
         "total_interactions": total,
         "response_breakdown": response_breakdown,
@@ -152,6 +152,24 @@ def _build_report(days: int) -> dict:
         "feedback_summary": feedback_summary,
         "fewshot": _fewshot_info(),
     }
+
+    # Raise admin alerts (high refusal / low satisfaction / milestone) from the
+    # data we just aggregated — no extra Firestore scan. Best-effort and fully
+    # isolated: an alert failure must never break the gap report. It self-dedups
+    # to once per 24h per alert type, so the 5-min report cache is fine.
+    _maybe_alert(report)
+    return report
+
+
+def _maybe_alert(report: dict) -> None:
+    """Fire analytics-alert notifications from a built report. Swallows all
+    errors — the report is the caller's product, alerts are a side effect."""
+    try:
+        from app.admin.services.notification_service import check_analytics_alerts
+
+        check_analytics_alerts(report)
+    except Exception as exc:
+        logger.debug("analytics alert check skipped: %s", exc)
 
 
 def _fewshot_info() -> dict:

@@ -186,10 +186,13 @@ def save(store: dict) -> dict:
                 json.dump(store, fh, indent=2, ensure_ascii=False)
             os.replace(tmp, TUNING_PATH)
         except Exception:
-            # Leave no orphan tmp file behind on a failed write.
             try:
-                os.unlink(tmp)
+                os.unlink(tmp)  # leave no orphan tmp behind on a failed write
             except OSError:
+                # Cleanup is best-effort: the tmp file may never have been
+                # created, or the same condition that broke the write blocks
+                # the unlink. Either way the write error re-raised below is
+                # the one worth surfacing, so this is deliberately swallowed.
                 pass
             raise
     except Exception as exc:

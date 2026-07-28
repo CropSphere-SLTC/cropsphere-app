@@ -7,6 +7,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import '../config/app_config.dart';
 import '../models/admin_models.dart';
+import '../models/pattern_models.dart';
 
 class AdminService {
   static final AdminService _instance = AdminService._internal();
@@ -200,6 +201,75 @@ class AdminService {
   // Note: prompt-tuning auto-validation events (promote / auto-remove / extend /
   // needs-review) now surface through the general admin notification bell
   // (NotificationService), not a bespoke tuning feed.
+
+  // ── Pattern overrides ────────────────────────────────────────────────────────
+  // Analysis and every mutation are superadmin-only; the two read endpoints are
+  // admin-readable so a plain admin can still inspect what is live.
+
+  // Finds messages that should have matched a routing pattern but didn't, and
+  // proposes phrases. Read-only — saves nothing.
+  Future<PatternAnalysis> analyzePatterns({int days = 14}) async {
+    final response = await _dio.post(
+      '/api/admin/analyze-patterns',
+      queryParameters: {'days': days},
+    );
+    return PatternAnalysis.fromJson(response.data);
+  }
+
+  // Approves the selected proposals. `phrase` may differ from what was
+  // proposed — the admin can edit it — but the category and evidence count are
+  // taken from the server's own analysis, and every phrase is re-validated
+  // server-side. Rejected selections come back in `skipped` with a reason
+  // rather than failing the whole call.
+  Future<ApplyPatternsResult> applyPatterns(
+    List<Map<String, dynamic>> patterns, {
+    int days = 14,
+  }) async {
+    final response = await _dio.post(
+      '/api/admin/apply-patterns',
+      queryParameters: {'days': days},
+      data: {'patterns': patterns},
+    );
+    return ApplyPatternsResult.fromJson(response.data);
+  }
+
+  Future<ActivePatterns> getActivePatterns() async {
+    final response = await _dio.get('/api/admin/active-patterns');
+    return ActivePatterns.fromJson(response.data);
+  }
+
+  Future<List<PatternOverride>> getRevokedPatterns() async {
+    final response = await _dio.get('/api/admin/revoked-patterns');
+    final items = response.data['revoked'] as List? ?? [];
+    return items
+        .map((r) => PatternOverride.fromJson(Map<String, dynamic>.from(r)))
+        .toList();
+  }
+
+  Future<PatternAnalytics> getPatternAnalytics(String patternId) async {
+    final response = await _dio.get('/api/admin/pattern-analytics/$patternId');
+    return PatternAnalytics.fromJson(response.data);
+  }
+
+  // Retires an active pattern. The reason is mandatory server-side (3–500
+  // chars) — a shorter one is rejected with 422.
+  Future<void> revokePattern(String patternId, String reason) async {
+    await _dio.post(
+      '/api/admin/revoke-pattern/$patternId',
+      data: {'reason': reason},
+    );
+  }
+
+  // Brings a revoked pattern back with counters reset to zero. 409 if a
+  // pattern with that id is already active.
+  Future<void> restorePattern(String patternId) async {
+    await _dio.post('/api/admin/restore-pattern/$patternId');
+  }
+
+  // Permanent — only works on revoked patterns, never on a live one.
+  Future<void> deletePattern(String patternId) async {
+    await _dio.delete('/api/admin/delete-pattern/$patternId');
+  }
 
   // ── Email alert preference (per admin) ───────────────────────────────────────
 

@@ -368,6 +368,9 @@ def _period_days(period) -> int:
         if isinstance(period, str) and period.startswith("last_"):
             return int(period.split("_")[1])
     except (ValueError, IndexError):
+        # Malformed period string ("last_", "weekly"). The 7-day default below
+        # is the right answer for a label we can't parse — the alert text is
+        # cosmetic and must never fail the report that triggered it.
         pass
     return 7
 

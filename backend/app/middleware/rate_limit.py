@@ -35,5 +35,8 @@ def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> Res
             limit=str(getattr(exc, "detail", "") or ""),
         )
     except Exception:
+        # Security logging is best-effort and must never mask the 429 itself:
+        # if recording the violation fails (Firestore down, bad request state),
+        # the client still gets its rate-limit response from the handler below.
         pass
     return _slowapi_handler(request, exc)

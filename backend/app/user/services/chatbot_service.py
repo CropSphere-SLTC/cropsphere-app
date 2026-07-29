@@ -20,6 +20,7 @@ from html.parser import HTMLParser
 
 from app.models.loader import model_loader
 from app.models.schemas import ChatRequest, ChatResponse
+from app.user.services import chip_config_store
 from app.user.services.analytics_service import log_chat_interaction
 from app.utils.firestore import audit_log
 
@@ -259,18 +260,25 @@ _STREAM_ERROR_MESSAGES = {
     "stream_interrupted": "Response was interrupted.",
     "empty_response": "No response received. Try rephrasing your question.",
 }
-# Substrings identifying assistant replies that carry no crop/district topic
-# (refusals in any template shape, and capability summaries). Consumed by the
-# retrieval-context history filter so a refused/administrative turn never
-# steers the next question's retrieval. MUST stay in sync with the templates
-# in _build_refusal() and _capability_reply().
-_NON_TOPIC_SIGNATURES = (
+# Substrings identifying an assistant reply that refused the question, in any
+# template shape. Split out from _NON_TOPIC_SIGNATURES below so the follow-up
+# handling can ask the narrower question "was the last turn a refusal?" without
+# also matching the capability summary, which is not a refusal. MUST stay in
+# sync with the templates in _build_refusal().
+_REFUSAL_SIGNATURES = (
     _OUT_OF_SCOPE_MARKER,  # canned LLM-side refusal
     "but not for that district",  # near-miss refusal: crop covered
     "but not that crop",  # near-miss refusal: district covered
     "outside my dataset",  # generic refusal template 1
     "I don't have data on that yet",  # generic refusal template 2
     "beyond my data for now",  # generic refusal template 3
+)
+# Substrings identifying assistant replies that carry no crop/district topic
+# (refusals in any template shape, and capability summaries). Consumed by the
+# retrieval-context history filter so a refused/administrative turn never
+# steers the next question's retrieval. MUST stay in sync with the templates
+# in _build_refusal() and _capability_reply().
+_NON_TOPIC_SIGNATURES = _REFUSAL_SIGNATURES + (
     "I currently have data on",  # capability summary
 )
 # Case-insensitive patterns that route a message to the capability summary
@@ -298,6 +306,87 @@ _EARNINGS_OFFER_PHRASE = "tell me your land size"
 # top-k retrieval only surfaces 2-3 crops for these, so the full list is
 # injected separately (see _build_messages).
 _ALL_CROPS_PATTERNS = ("all crops", "every crop", "all the crops")
+# ── Follow-up continuation ────────────────────────────────────────────────────
+# A short reply like "yes explain", "why?" or "and the price?" carries almost no
+# agricultural signal of its own, so retrieval on the message alone scores near
+# zero, the grounding guard fires, and the farmer gets "out of scope" one turn
+# after a perfectly good answer. _reformulate_query rebuilds the RETRIEVAL query
+# from the topic already on screen; the message sent to Groq is never touched.
+# The recency blend in _rag_context is not enough on its own — the current
+# message carries _QUERY_WEIGHT (0.7) of the embedding, so a contentless one
+# drags the blend below the floor no matter how good the context is.
+#
+# Whole messages (lowercased, punctuation stripped) that are nothing but a
+# continuation request. Matched EXACTLY, so a real question that merely contains
+# "how" or "more" is never caught here.
+_FOLLOWUP_EXACT = frozenset(
+    {
+        "yes",
+        "yes please",
+        "yeah",
+        "yep",
+        "ya",
+        "ok",
+        "okay",
+        "sure",
+        "please",
+        "go on",
+        "go ahead",
+        "continue",
+        "carry on",
+        "more",
+        "tell me more",
+        "more info",
+        "more details",
+        "explain",
+        "yes explain",
+        "explain that",
+        "explain it",
+        "show me",
+        "show me more",
+        "why",
+        "how",
+        "how so",
+        "why so",
+        "and",
+        "and then",
+        "then",
+        "next",
+        "what else",
+        "anything else",
+        "i see",
+    }
+)
+# Openings that mark a partial follow-up — the farmer is adding a dimension to
+# the question they just asked ("and the price?", "for Maize?"), not starting
+# over. Only consulted for messages under _FOLLOWUP_MAX_LEN.
+_FOLLOWUP_PREFIXES = (
+    "and ",
+    "what about",
+    "how about",
+    "but ",
+    "also ",
+    "or ",
+    "for ",
+    "in ",
+    "about ",
+)
+# A short message opening with one of these is an assent to whatever the bot
+# just offered ("yes explain", "sure tell me more"), not a new question.
+_AFFIRMATIVE_TOKENS = frozenset(
+    {"yes", "yeah", "yep", "ya", "ok", "okay", "sure", "please"}
+)
+# "that"/"it" in a short message with no crop or district named can only refer
+# back to the previous turn ("how does it work?", "why is that?").
+_FOLLOWUP_PRONOUNS = frozenset({"that", "it", "this", "them", "those", "these", "they"})
+_WH_TOKENS = frozenset({"why", "how", "what", "when", "where", "which", "who"})
+# Length ceiling for the heuristic (not the exact-match) half of the follow-up
+# check. Anything longer says enough to stand on its own as a query.
+_FOLLOWUP_MAX_LEN = 50
+# How much of the inherited question is prepended to the retrieval query. Long
+# enough for a full farmer question, short enough that the follow-up's own
+# wording still moves the embedding.
+_FOLLOWUP_TOPIC_MAX_LEN = 200
 # Combo patterns: verb + any qualifier — requires BOTH so a real question
 # like "explain carrot yield" (has agricultural content) doesn't match.
 _REFORMULATION_PATTERNS = (
@@ -517,11 +606,12 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
         saved_crop = _prefs.get("preferred_crop")
         saved_district = _prefs.get("preferred_district")
 
-    # Bare land-unit reply to the bot's own clarifying question (e.g. the
-    # user just replies "perches") — rebuilt into a real query for retrieval
-    # only, before any capability/gazetteer check or retrieval itself runs.
-    # See _expand_clarifying_reply for why this is needed.
-    retrieval_query = _expand_clarifying_reply(clean, req.conversation_history)
+    # Context-rebuilt retrieval query: a bare land-unit reply to the bot's own
+    # clarifying question ("perches"), or a short follow-up with no
+    # agricultural signal of its own ("yes explain", "and the price?"), is
+    # rebuilt into a query with real content — for retrieval ONLY, before any
+    # capability/gazetteer check or retrieval itself runs. See _retrieval_query.
+    retrieval_query = _retrieval_query(clean, req.conversation_history)
 
     # ── Language detection ──────────────────────────────────────────────────
     # If user specified language explicitly, use it; otherwise auto-detect
@@ -681,6 +771,23 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
         # LLM, so it cannot answer from its own general knowledge (e.g.
         # "what's the weather on Mars").
         if not context["chunks"]:
+            # ...unless we already refused the turn before and the farmer is
+            # still trying. Repeating the same text teaches them nothing, so
+            # ask which crop and district they mean instead. Still no Groq
+            # call, so the grounding property is unchanged.
+            if _should_retry_after_refusal(clean, req.conversation_history):
+                reply, cq_followups = _build_clarification(
+                    clean, context, req.conversation_history
+                )
+                _emit_analytics(
+                    req, clean, "clarification", "Moderate confidence", context, start
+                )
+                return ChatResponse(
+                    reply=reply,
+                    sources_used=[],
+                    suggested_followups=cq_followups,
+                    confidence="Moderate confidence",
+                )
             _emit_analytics(req, clean, "refusal", confidence, context, start)
             return ChatResponse(
                 reply=_build_refusal(clean),
@@ -734,11 +841,14 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
 
         # Cache the reply for future repeated questions
 
-        _emit_analytics(req, clean, "answer", confidence, context, start)
+        followups, chip_meta = _resolved_followups(context, clean, req)
+        _emit_analytics(
+            req, clean, "answer", confidence, context, start, chip_meta=chip_meta
+        )
         return ChatResponse(
             reply=reply,
             sources_used=context["sources"],
-            suggested_followups=_smart_followups(context, clean, req),
+            suggested_followups=followups,
             confidence=confidence,
         )
     except Exception as exc:
@@ -781,9 +891,9 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
         saved_crop = _prefs.get("preferred_crop")
         saved_district = _prefs.get("preferred_district")
 
-    # Bare land-unit reply to the bot's own clarifying question — rebuilt
-    # into a real query for retrieval only. See _expand_clarifying_reply.
-    retrieval_query = _expand_clarifying_reply(clean, req.conversation_history)
+    # Context-rebuilt retrieval query (land-unit reply / short follow-up) —
+    # retrieval only, same as chat(). See _retrieval_query.
+    retrieval_query = _retrieval_query(clean, req.conversation_history)
 
     def _persist(full_reply: str) -> str:
         """Save the completed turn; failure logs but never breaks the stream."""
@@ -934,7 +1044,11 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
         history=req.conversation_history,
     )
     confidence = _confidence_label(context)
-    followups = _smart_followups(context, clean, req)
+    # Mined-first chips for the answer path. The branches below replace
+    # `followups` with their own fixed sets (clarification / refusal / …);
+    # chip_meta is only reported to analytics on the answer path, which is the
+    # only one that actually shows resolved chips.
+    followups, chip_meta = _resolved_followups(context, clean, req)
 
     def _metadata(conv_id: str) -> dict:
         return {
@@ -990,6 +1104,21 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
     # Groq call. Reassigning followups here is picked up by the _metadata
     # closure below.
     if not context["chunks"]:
+        # Second refusal in a row — ask instead of repeating. See chat().
+        if _should_retry_after_refusal(clean, req.conversation_history):
+            reply, cq_followups = _build_clarification(
+                clean, context, req.conversation_history
+            )
+            followups = cq_followups
+            yield {"type": "text", "content": reply}
+            conv_id = _persist(reply)
+            logger.info("[STREAM COMPLETE] conv=%s len=%d", conv_id, len(reply))
+            confidence = "Moderate confidence"
+            yield _metadata(conv_id)
+            _emit_analytics(
+                req, clean, "clarification", "Moderate confidence", context, start
+            )
+            return
         reply = _build_refusal(clean)
         followups = _refusal_followups(clean)
         yield {"type": "text", "content": reply}
@@ -1068,7 +1197,7 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
     conv_id = _persist(full)
     logger.info("[STREAM COMPLETE] conv=%s len=%d", conv_id, len(full))
     yield _metadata(conv_id)
-    _emit_analytics(req, clean, "answer", confidence, context, start)
+    _emit_analytics(req, clean, "answer", confidence, context, start, chip_meta=chip_meta)
 
 
 def _stream_error_code(exc: Exception, has_partial: bool) -> str:
@@ -1184,7 +1313,11 @@ def _system_prompt(req: ChatRequest) -> str:
         "'You can earn around 522,368 LKR per acre' NOT '8,162 kg/acre * "
         "64 LKR/kg = 522,368 LKR/acre'. Only show calculation steps if "
         "the user explicitly asks with words like 'how', 'calculate', "
-        "'show me the math', or 'explain the calculation'."
+        "'show me the math', or 'explain the calculation'.\n"
+        "6. If the user sends a short follow-up like 'yes', 'explain', or "
+        "'tell me more', continue explaining the topic from your previous "
+        "response. Do not say you don't have data if you were just "
+        "discussing that topic."
     )
 
 
@@ -1234,6 +1367,206 @@ def _expand_clarifying_reply(message: str, history: list) -> str:
         if turn.role == "user":
             return f"{turn.content} {message}"
     return message
+
+
+def _normalise_followup(message: str) -> str:
+    """Lowercase, drop punctuation, collapse whitespace — the shape the
+    follow-up tables above are written in ("Yes, explain!" -> "yes explain")."""
+    return " ".join(re.findall(r"[a-z0-9]+", message.lower()))
+
+
+def _looks_like_followup(message: str) -> bool:
+    """True when the message reads as a continuation of the previous turn
+    rather than a question that stands on its own.
+
+    Two halves: an exact table of pure continuation requests ("yes explain",
+    "tell me more", "go on"), and heuristics for short messages — an
+    affirmative opening, a partial-question connector ("and the price?"), a
+    pronoun with nothing for it to refer to in the message itself ("why is
+    that?"), or a bare wh-word ("how come?"). The heuristics never fire on a
+    message that names its own crop or district, since that message already
+    carries the retrieval signal it needs.
+
+    History-independent on purpose: _is_followup adds the "there IS a previous
+    turn" half, and _followup_context uses this alone to skip past earlier
+    follow-ups while walking back to the last real question.
+    """
+    msg = _normalise_followup(message)
+    if not msg:
+        return False
+    if msg in _FOLLOWUP_EXACT:
+        return True
+    if len(msg) > _FOLLOWUP_MAX_LEN:
+        return False
+    words = msg.split()
+    if any(msg.startswith(p) for p in _FOLLOWUP_PREFIXES):
+        return True
+    if words[0] in _AFFIRMATIVE_TOKENS and len(words) <= 4:
+        return True
+    if any(_extract_context_terms(msg)):
+        return False
+    if set(words) & _FOLLOWUP_PRONOUNS:
+        return True
+    return words[0] in _WH_TOKENS and len(words) <= 3
+
+
+def _is_followup(message: str, history: list | None) -> bool:
+    """True when the message is a follow-up AND there is a previous assistant
+    turn for it to follow up on. A follow-up shape on the very first turn of a
+    conversation is just a vague question — it gets the normal treatment."""
+    if not history:
+        return False
+    if _last_assistant_reply(history) is None:
+        return False
+    return _looks_like_followup(message)
+
+
+def _followup_context(history: list | None) -> tuple:
+    """The topic a short follow-up is attaching itself to.
+
+    Walks the conversation newest-first and returns (question, crop, district):
+      question — the most recent USER message that was a real question (not
+                 itself a follow-up), "" when there is none
+      crop /
+      district — the covered crop/district named in the most recent topical
+                 assistant reply, falling back to that question; None when
+                 neither names one
+    Turns whose assistant reply was a refusal or the capability summary are
+    skipped — the same recency filter _rag_context and _recent_topic use. That
+    filter is also what stops a repeated "out of scope" loop: the second short
+    message reaches back PAST the refusal to the topic that actually worked.
+    Newest wins for every field, so a topic switch mid-conversation is not
+    overridden by the older question underneath it.
+
+    Inputs: history (ConversationTurn list, most recent turn last).
+    Outputs: (question, crop, district) — all empty/None when the history holds
+    nothing topical.
+    """
+    turns = history or []
+    question = ""
+    crop = district = None
+    for i in range(len(turns) - 1, -1, -1):
+        turn = turns[i]
+        if turn.role == "assistant":
+            if _is_non_topic_reply(turn.content):
+                continue
+            a_crop, a_district = _extract_context_terms(turn.content)
+            crop = crop or a_crop
+            district = district or a_district
+            continue
+        nxt = turns[i + 1] if i + 1 < len(turns) else None
+        if nxt and nxt.role == "assistant" and _is_non_topic_reply(nxt.content):
+            continue  # refused / capability topic — not what the user meant
+        if _looks_like_followup(turn.content):
+            continue  # a follow-up of its own carries no topic
+        if not question:
+            question = turn.content
+            u_crop, u_district = _extract_context_terms(turn.content)
+            crop = crop or u_crop
+            district = district or u_district
+    return question, crop, district
+
+
+def _strip_terms(text: str, terms: list) -> str:
+    """Remove whole-word occurrences of `terms` from `text` (case-insensitive),
+    collapsing the whitespace left behind."""
+    out = text
+    for term in terms:
+        if term:
+            out = re.sub(rf"\b{re.escape(term)}\b", " ", out, flags=re.IGNORECASE)
+    return " ".join(out.split())
+
+
+def _reformulate_query(message: str, history: list | None) -> str:
+    """Rebuild a short follow-up into a retrieval query with real content.
+
+    "yes explain" has no semantic overlap with any knowledge chunk, so on its
+    own it scores below _MIN_RELEVANCE and the grounding guard refuses it one
+    turn after a good answer. Prepending the topic the farmer is following up
+    on ("how do I test my soil" + crop/district from the last answer) gives
+    retrieval something to match, and the follow-up's own words still steer
+    which part of that topic wins — "and the price?" pulls price chunks for the
+    crop already under discussion.
+
+    Only the dimensions the follow-up did NOT name itself are inherited, and
+    the inherited name is stripped from the carried-over question: "tell me
+    about Maize" followed by "and Cowpea?" must retrieve Cowpea, not Maize.
+
+    Only the retrieval query is affected — the message audited, routed, and
+    sent to Groq as the "user" turn is untouched. Groq already receives the
+    conversation history, so it resolves the reference itself.
+
+    Inputs: message (sanitised current user text); history (ConversationTurn
+    list from the request, most recent turn last).
+    Outputs: the rebuilt query, or the original message when this is not a
+    follow-up or the history holds no topic to inherit.
+    """
+    if not _is_followup(message, history):
+        return message
+    question, crop, district = _followup_context(history)
+    msg_crop, msg_district = _extract_context_terms(message)
+
+    drop = [crop if msg_crop else None, district if msg_district else None]
+    topic = _strip_terms(question, drop)[:_FOLLOWUP_TOPIC_MAX_LEN]
+    parts = [topic]
+    if crop and not msg_crop:
+        parts.append(crop)
+    if district and not msg_district:
+        parts.append(district)
+    if not any(parts):
+        return message  # nothing topical to inherit — leave the query alone
+    parts.append(message)
+    return " ".join(p for p in parts if p)[:_MAX_LEN]
+
+
+def _retrieval_query(message: str, history: list | None) -> str:
+    """The query used for RAG retrieval only, never for routing or for Groq.
+
+    Chains the two context rebuilds, most specific first: a bare land-unit
+    reply to the bot's own clarifying question (_expand_clarifying_reply), then
+    the general short-follow-up case (_reformulate_query). At most one applies
+    — a unit reply is already expanded with the question it answers.
+    """
+    expanded = _expand_clarifying_reply(message, history)
+    if expanded != message:
+        return expanded
+    return _reformulate_query(message, history)
+
+
+def _last_reply_was_refusal(history: list | None) -> bool:
+    """True when the bot's most recent turn refused the question, in any
+    refusal template (canned, near-miss, or generic)."""
+    last = _last_assistant_reply(history)
+    return bool(last) and any(sig in last for sig in _REFUSAL_SIGNATURES)
+
+
+def _should_retry_after_refusal(message: str, history: list | None) -> bool:
+    """True when the grounding guard is about to refuse a message that the bot
+    ALREADY refused the turn before — repeating the same "out of scope" text is
+    a dead end for the farmer, so the caller asks a clarifying question instead
+    and lets _followup_context reach further back for the real topic.
+
+    Deliberately narrow. It fires only for a follow-up ("try again with the
+    same intent") or a message with clear agricultural intent; a genuinely
+    unrelated question (weather on Mars, a joke) still gets the refusal, twice
+    if asked twice. An explicitly uncovered crop/district never reaches here at
+    all — _explicit_miss answers that earlier with a specific, useful pointer,
+    which is better than a clarifying question.
+    """
+    if not _last_reply_was_refusal(history):
+        return False
+    return _looks_like_followup(message) or _has_agricultural_intent(message)
+
+
+def _resolves_from_followup_context(message: str, history: list | None) -> bool:
+    """True when the message is a follow-up whose crop or district we can read
+    off the conversation. The vague/ambiguous checks below ask the farmer WHICH
+    crop and district they mean; when the previous turn already answered that,
+    asking again is a worse response than just answering."""
+    if not _is_followup(message, history):
+        return False
+    _question, crop, district = _followup_context(history)
+    return bool(crop or district)
 
 
 def _is_reformulation_request(message: str) -> bool:
@@ -1366,6 +1699,8 @@ def _is_vague_agricultural_query(
         return False
     if _is_all_crops_query(message) or _is_previous_clarification(history):
         return False
+    if _resolves_from_followup_context(message, history):
+        return False
     caps = _dataset_capabilities()
     msg = message.lower()
     if any(c.lower() in msg for c in caps["crops"]):
@@ -1401,6 +1736,8 @@ def _is_ambiguous_query(message: str, context: dict, history: list | None) -> bo
     if not _has_agricultural_intent(message):
         return False
     if _is_all_crops_query(message) or _is_previous_clarification(history):
+        return False
+    if _resolves_from_followup_context(message, history):
         return False
     caps = _dataset_capabilities()
     msg = message.lower()
@@ -2635,6 +2972,71 @@ def _detect_knowledge_level(message: str, history: list | None = None) -> str:
     return current
 
 
+def _chip_context(context: dict, req: ChatRequest) -> dict:
+    """The crop/district/season a turn's chips are addressed by.
+
+    Same resolution order _smart_followups uses — the top retrieved chunk
+    first, then the UI's dropdown filters — so mined chips and hardcoded chips
+    describe the same context. Season is derived from the current date (there
+    is no per-request season on ChatRequest).
+    """
+    top = (context or {}).get("chunks", [{}])[0] if (context or {}).get("chunks") else {}
+    return {
+        "crop": top.get("crop") or (req.crop.value if req.crop else None),
+        "district": top.get("district") or (req.district.value if req.district else None),
+        "season": chip_config_store.season_for(),
+    }
+
+
+def _resolved_followups(context: dict, message: str, req: ChatRequest) -> tuple:
+    """Follow-up chips for this turn, mined-first with a hardcoded fallback.
+
+    Resolves the chip templates for (question_type, crop, district, season)
+    through the cascading resolver (chip_config_store.resolve_chips), fills
+    {crop}/{district} from the live context, and drops any chip whose
+    placeholders the context can't satisfy. If nothing survives — no config,
+    thin data, or unfillable templates — falls back to _smart_followups, which
+    remains the source of truth for a cold install.
+
+    Outputs (chips, meta) where meta is {"source", "context", "templates"}:
+    `templates` maps each rendered chip back to the template it came from, so
+    the analytics thread can record WHICH chip a farmer tapped (Step 6).
+    Never raises — any failure degrades to the hardcoded chips.
+    """
+    ctx = _chip_context(context, req)
+    qtype = _question_type(message)
+    try:
+        resolved = chip_config_store.resolve_chips(qtype, **ctx)
+    except Exception as exc:  # defensive: chips must never break a reply
+        logger.debug("chip resolve failed: %s", exc)
+        resolved = []
+
+    chips, templates, source = [], {}, None
+    for chip in resolved:
+        filled = chip_config_store.fill_template(
+            chip["template"], crop=ctx["crop"], district=ctx["district"]
+        )
+        if not filled:
+            continue
+        chips.append(filled)
+        templates[filled] = chip["template"]
+        source = source or chip.get("source")
+
+    if not chips:
+        return _smart_followups(context, message, req), {
+            "source": "hardcoded",
+            "question_type": qtype,
+            "context": ctx,
+            "templates": {},
+        }
+    return chips, {
+        "source": source or "mined",
+        "question_type": qtype,
+        "context": ctx,
+        "templates": templates,
+    }
+
+
 def _smart_followups(context: dict, message: str, req: ChatRequest) -> list:
     """Generate 3 tappable follow-up chips from what was just answered,
     instead of a fixed template: the top retrieved chunk's crop/district
@@ -2768,7 +3170,30 @@ def _detect_if_chip_tapped(message: str, previous_followups: list) -> bool:
     return any(norm == (f or "").strip().lower() for f in previous_followups)
 
 
-def _reconstruct_previous_followups(req: ChatRequest) -> list:
+def _tapped_chip(message: str, previous: tuple) -> dict | None:
+    """Identify WHICH chip the farmer tapped, not just that they tapped one.
+
+    Inputs: the current message and (chips, meta) from
+    _reconstruct_previous_followups.
+    Outputs: {"template", "source", "context"} for the matched chip, or None
+    when the message wasn't a chip tap. A hardcoded chip has no template, so
+    it reports its rendered text — the miner only ranks templates, but the
+    admin screen can still show that a hardcoded chip was the one tapped.
+    """
+    chips, meta = previous
+    if not _detect_if_chip_tapped(message, chips):
+        return None
+    norm = message.strip().lower()
+    matched = next((c for c in chips if (c or "").strip().lower() == norm), None)
+    templates = (meta or {}).get("templates") or {}
+    return {
+        "template": templates.get(matched, matched),
+        "source": (meta or {}).get("source") or "hardcoded",
+        "context": (meta or {}).get("context") or {},
+    }
+
+
+def _reconstruct_previous_followups(req: ChatRequest) -> tuple:
     """Recompute the suggested_followups the PREVIOUS assistant turn showed.
 
     The API never persists or echoes suggested_followups, so to tell whether
@@ -2776,9 +3201,14 @@ def _reconstruct_previous_followups(req: ChatRequest) -> list:
     through the same path selection chat() uses and rebuild its followups —
     re-running RAG retrieval for the retrieval-based paths. Called ONLY from
     the _emit_analytics background thread, so the extra retrieval never adds
-    latency to the live response. Returns [] when there is no prior user turn
-    or reconstruction fails.
+    latency to the live response.
+
+    Returns (chips, meta): meta carries the chip source and the rendered->
+    template map for the answer path (Step 6), and is empty for the fixed-chip
+    paths (refusal / clarification / capability) which have no templates.
+    Returns ([], {}) when there is no prior user turn or reconstruction fails.
     """
+    empty: tuple = ([], {})
     try:
         history = req.conversation_history or []
         prev_idx = next(
@@ -2786,36 +3216,38 @@ def _reconstruct_previous_followups(req: ChatRequest) -> list:
             None,
         )
         if prev_idx is None:
-            return []
+            return empty
         prev_msg = _strip_html(history[prev_idx].content)[:_MAX_LEN]
         prior = history[:prev_idx]
         district = req.district.value if req.district else ""
         crop = req.crop.value if req.crop else ""
 
         if _is_context_statement(prev_msg):
-            return _build_context_ack(prev_msg)[1]
+            return _build_context_ack(prev_msg)[1], {}
         if _is_capability_question(prev_msg):
-            return _capability_reply()[1]
+            return _capability_reply()[1], {}
         miss = _explicit_miss(prev_msg)
         if miss:
-            return _refusal_followups(prev_msg, near=miss)
+            return _refusal_followups(prev_msg, near=miss), {}
         if _is_reformulation_request(prev_msg) and _last_assistant_reply(prior):
-            return _default_followups(req)
+            return _default_followups(req), {}
 
-        retrieval_query = _expand_clarifying_reply(prev_msg, prior)
+        retrieval_query = _retrieval_query(prev_msg, prior)
         context = _rag_context(
             retrieval_query, district=district, crop=crop, history=prior
         )
         if _is_vague_agricultural_query(prev_msg, context, prior):
-            return _build_clarification(prev_msg, context, prior)[1]
+            return _build_clarification(prev_msg, context, prior)[1], {}
         if not context["chunks"]:
-            return _refusal_followups(prev_msg)
+            if _should_retry_after_refusal(prev_msg, prior):
+                return _build_clarification(prev_msg, context, prior)[1], {}
+            return _refusal_followups(prev_msg), {}
         if _is_ambiguous_query(prev_msg, context, prior):
-            return _build_clarification(prev_msg, context, prior)[1]
-        return _smart_followups(context, prev_msg, req)
+            return _build_clarification(prev_msg, context, prior)[1], {}
+        return _resolved_followups(context, prev_msg, req)
     except Exception as exc:
         logger.debug("followup reconstruction failed: %s", exc)
-        return []
+        return empty
 
 
 def _emit_analytics(
@@ -2827,6 +3259,7 @@ def _emit_analytics(
     start: float,
     near_miss_type: str | None = None,
     used_saved_context: bool = False,
+    chip_meta: dict | None = None,
 ) -> None:
     """Fire-and-forget: record one chat_analytics document for this turn.
 
@@ -2835,6 +3268,11 @@ def _emit_analytics(
     followups which may re-run RAG retrieval (too heavy for the hot path).
     response_time_ms is sampled HERE (just before the caller returns / finishes
     the stream) so it reflects end-to-end handling. Never raises.
+
+    chip_meta is what _resolved_followups returned for THIS turn (source +
+    context of the chips being shown), passed by the answer paths only. It is
+    what makes per-context chip tap rates computable later: the shown context
+    is the denominator, the tapped chip the numerator.
 
     The override match is read HERE too, on the request thread, because it is
     thread-local: reading it inside the analytics thread would always see None.
@@ -2854,6 +3292,7 @@ def _emit_analytics(
                 elapsed_ms,
                 used_saved_context,
                 override_match,
+                chip_meta,
             ),
             daemon=True,
         ).start()
@@ -2871,14 +3310,22 @@ def _run_analytics(
     elapsed_ms: int,
     used_saved_context: bool = False,
     override_match: dict | None = None,
+    chip_meta: dict | None = None,
 ) -> None:
     """Background-thread body: reconstruct chip context, assemble the record,
     hand it to log_chat_interaction, and persist any override pattern hit.
     Errors are swallowed."""
     try:
         ctx = context or {}
+        tapped = _tapped_chip(message, _reconstruct_previous_followups(req))
+        shown = chip_meta or {}
         data = {
             "user_id": _anonymize_uid(req.user_id),
+            # Present from turn 2 onwards; None on a conversation's first turn,
+            # since the server mints the id in persist_chat_turn only after
+            # chat() returns. conversation_miner_service._stitch_orphans
+            # reattaches those heads when it reconstructs conversations.
+            "conversation_id": req.conversation_id or None,
             "question": message[:200],
             "question_type": _question_type(message),
             # Recomputed here (deterministic) — matches the level
@@ -2893,9 +3340,19 @@ def _run_analytics(
             "crop_mentioned": _detect_crop_mention(message),
             "district_mentioned": _detect_district_mention(message),
             "near_miss_type": near_miss_type,
-            "followup_chip_tapped": _detect_if_chip_tapped(
-                message, _reconstruct_previous_followups(req)
-            ),
+            # Cultivation season this turn happened in — stored rather than
+            # derived later so a mining run over old data stays stable even if
+            # the season boundaries are ever retuned.
+            "season": chip_config_store.season_for(),
+            "followup_chip_tapped": tapped is not None,
+            # Which chip was tapped and in which context (Step 6) — feeds the
+            # next mining cycle's per-template tap rates.
+            "tapped_chip_template": (tapped or {}).get("template"),
+            "tapped_chip_source": (tapped or {}).get("source"),
+            "tapped_chip_context": (tapped or {}).get("context"),
+            # Which chips this turn SHOWED — the denominator for tap rate.
+            "chip_source": shown.get("source"),
+            "chip_context": shown.get("context"),
             "session_message_count": len(req.conversation_history) + 1,
             "model_used": req.model,
             "response_time_ms": elapsed_ms,
@@ -2908,8 +3365,39 @@ def _run_analytics(
         }
         log_chat_interaction(data)
         _record_pattern_hit(override_match, req, message)
+        _check_chip_trend(shown)
     except Exception as exc:
         logger.warning("analytics assembly failed: %s", exc)
+
+
+def _check_chip_trend(chip_meta: dict) -> None:
+    """Hand this turn's chip context to the trend detector (Step 7).
+
+    Already on the analytics background thread. The detector self-throttles to
+    one check per hour per context, so this is a dict lookup on all but a
+    handful of requests. Never raises — a trend check must never cost a chat
+    reply, and a missing admin module (import-order or partial deploy) is a
+    debug-level non-event.
+    """
+    ctx = (chip_meta or {}).get("context") or {}
+    if not chip_meta or not chip_meta.get("source"):
+        return
+    try:
+        from app.admin.services.conversation_miner_service import check_chip_trend
+
+        check_chip_trend(
+            _question_type_from_context(chip_meta),
+            crop=ctx.get("crop"),
+            district=ctx.get("district"),
+        )
+    except Exception as exc:
+        logger.debug("chip trend check skipped: %s", exc)
+
+
+def _question_type_from_context(chip_meta: dict) -> str:
+    """The question bucket the shown chips were resolved for. Stored on the
+    meta by _resolved_followups so the trend check doesn't re-classify."""
+    return (chip_meta or {}).get("question_type") or "general"
 
 
 def _record_pattern_hit(

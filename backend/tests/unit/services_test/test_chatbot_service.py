@@ -1294,3 +1294,351 @@ def test_format_prompt_tuning_injection_skips_non_live_statuses():
     assert "Live one." in out
     assert "Removed one." not in out
     assert "No status." not in out
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Follow-up continuation — _looks_like_followup / _is_followup /
+# _followup_context / _reformulate_query / _retrieval_query
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.fixture
+def _caps(monkeypatch):
+    """Pin the dataset capabilities so follow-up detection doesn't depend on
+    whether rag_artifacts is loaded in this environment."""
+    monkeypatch.setattr(cs, "_capabilities_cache", _enum_caps())
+    return _enum_caps()
+
+
+REFUSAL_REPLY = cs._OUT_OF_SCOPE_REPLY
+ANSWER_REPLY = (
+    "Reasoning: CropSphere data for Carrot in Badulla, Inter season.\n\n"
+    "You can expect around 20,169 kg from one hectare."
+)
+
+
+def _turns(*pairs):
+    return [ConversationTurn(role=r, content=c) for r, c in pairs]
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "yes",
+        "Yes!",
+        "yes explain",
+        "sure",
+        "ok",
+        "tell me more",
+        "go on",
+        "continue",
+        "yes please",
+        "explain that",
+        "show me",
+        "what about that?",
+        "how does it work?",
+        "why is that?",
+        "can you explain it?",
+        "why?",
+        "and the price?",
+        "what about weather?",
+        "for Maize?",
+    ],
+)
+def test_looks_like_followup_true(_caps, message):
+    assert cs._looks_like_followup(message) is True
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "What is the best planting season for Maize in Jaffna?",
+        "Cowpea price in Ampara",
+        "how much can I earn from 2 acres of groundnut",
+        "what crops do you cover?",
+        "Compare carrot yield in Badulla with Nuwara Eliya for the Maha season",
+        "",
+    ],
+)
+def test_looks_like_followup_false(_caps, message):
+    assert cs._looks_like_followup(message) is False
+
+
+def test_is_followup_needs_a_previous_assistant_turn(_caps):
+    """A follow-up shape on the conversation's first turn is just a vague
+    question — there is nothing to continue."""
+    assert cs._is_followup("yes explain", []) is False
+    assert cs._is_followup("yes explain", _turns(("user", "how to test soil"))) is False
+    history = _turns(("user", "how to test soil"), ("assistant", ANSWER_REPLY))
+    assert cs._is_followup("yes explain", history) is True
+
+
+def test_followup_context_reads_topic_from_last_exchange(_caps):
+    history = _turns(("user", "how to test soil"), ("assistant", ANSWER_REPLY))
+    question, crop, district = cs._followup_context(history)
+    assert question == "how to test soil"
+    assert (crop, district) == ("Carrot", "Badulla")
+
+
+def test_followup_context_skips_refused_turn_and_reaches_back(_caps):
+    """The repeated-out-of-scope case: the refused turn must not become the
+    topic, so the walk continues to the question that actually worked."""
+    history = _turns(
+        ("user", "carrot yield in Badulla"),
+        ("assistant", ANSWER_REPLY),
+        ("user", "what about the moon"),
+        ("assistant", REFUSAL_REPLY),
+    )
+    question, crop, district = cs._followup_context(history)
+    assert question == "carrot yield in Badulla"
+    assert (crop, district) == ("Carrot", "Badulla")
+
+
+def test_followup_context_skips_earlier_followups(_caps):
+    """"yes explain" is not a topic — the walk keeps going past it."""
+    history = _turns(
+        ("user", "how to test soil"),
+        ("assistant", ANSWER_REPLY),
+        ("user", "yes explain"),
+        ("assistant", "Reasoning: more soil detail.\n\nUse a pH kit."),
+    )
+    assert cs._followup_context(history)[0] == "how to test soil"
+
+
+def test_followup_context_newest_topic_wins(_caps):
+    """A mid-conversation topic switch must not be overridden by the older
+    question underneath it."""
+    history = _turns(
+        ("user", "Maize in Jaffna"),
+        ("assistant", "Reasoning: CropSphere data for Maize in Jaffna."),
+        ("user", "and Cowpea?"),
+        ("assistant", "Reasoning: CropSphere data for Cowpea in Jaffna."),
+    )
+    _question, crop, district = cs._followup_context(history)
+    assert (crop, district) == ("Cowpea", "Jaffna")
+
+
+def test_followup_context_empty_history(_caps):
+    assert cs._followup_context([]) == ("", None, None)
+
+
+def test_reformulate_query_prepends_topic(_caps):
+    """The bug: "yes explain" alone matches no chunk. It must carry the
+    previous question and its crop/district into retrieval."""
+    history = _turns(("user", "how to test soil"), ("assistant", ANSWER_REPLY))
+    query = cs._reformulate_query("yes explain", history)
+    assert query.startswith("how to test soil")
+    assert "Carrot" in query and "Badulla" in query
+    assert query.endswith("yes explain")
+
+
+def test_reformulate_query_partial_followup_keeps_previous_topic(_caps):
+    history = _turns(
+        ("user", "best crop for Nuwara Eliya"),
+        ("assistant", "Reasoning: CropSphere data for Carrot in Nuwara Eliya."),
+    )
+    query = cs._reformulate_query("what about price?", history)
+    assert "Nuwara Eliya" in query
+    assert "Carrot" in query
+    assert query.endswith("what about price?")
+
+
+def test_reformulate_query_own_crop_replaces_inherited_one(_caps):
+    """"and Cowpea?" after a Maize answer must retrieve Cowpea — the inherited
+    crop is dropped from the carried-over question, not stacked on top of it."""
+    history = _turns(
+        ("user", "tell me about Maize"),
+        ("assistant", "Reasoning: CropSphere data for Maize in Anuradhapura."),
+    )
+    query = cs._reformulate_query("and Cowpea?", history)
+    assert "Maize" not in query
+    assert "Cowpea" in query
+    assert "Anuradhapura" in query
+
+
+def test_reformulate_query_leaves_real_questions_alone(_caps):
+    history = _turns(("user", "how to test soil"), ("assistant", ANSWER_REPLY))
+    msg = "What is the best planting season for Maize in Jaffna?"
+    assert cs._reformulate_query(msg, history) == msg
+
+
+def test_reformulate_query_without_topic_returns_message(_caps):
+    """Nothing topical in history (only a refusal) — leave the query alone
+    rather than prepending noise."""
+    history = _turns(("user", "weather on Mars"), ("assistant", REFUSAL_REPLY))
+    assert cs._reformulate_query("yes explain", history) == "yes explain"
+
+
+def test_reformulate_query_caps_the_inherited_topic(_caps):
+    """A long previous question must not swamp the follow-up's own wording in
+    the blended embedding."""
+    long_question = ("carrot yield in Badulla " * 20)[:480]
+    history = _turns(("user", long_question), ("assistant", ANSWER_REPLY))
+    query = cs._reformulate_query("yes explain", history)
+    assert len(query) <= cs._MAX_LEN
+    assert len(query) < len(long_question)
+    assert query.endswith("yes explain")
+
+
+def test_retrieval_query_unit_reply_still_wins(_caps):
+    """A bare land-unit reply keeps its own (more specific) expansion — the
+    follow-up rebuild must not shadow _expand_clarifying_reply."""
+    history = _turns(
+        ("user", "carrot yield in Badulla"),
+        ("assistant", "Would you like me to work out how much you could earn? "
+                      "Just tell me your land size in acres or perches."),
+    )
+    assert cs._retrieval_query("2 acres", history) == "carrot yield in Badulla 2 acres"
+
+
+def test_retrieval_query_falls_through_to_followup_rebuild(_caps):
+    history = _turns(("user", "how to test soil"), ("assistant", ANSWER_REPLY))
+    assert cs._retrieval_query("yes explain", history) != "yes explain"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Repeated "Out of scope" loop
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_should_retry_after_refusal_only_after_a_refusal(_caps):
+    answered = _turns(("user", "carrot yield in Badulla"), ("assistant", ANSWER_REPLY))
+    refused = _turns(("user", "weather on Mars"), ("assistant", REFUSAL_REPLY))
+    assert cs._should_retry_after_refusal("yes explain", answered) is False
+    assert cs._should_retry_after_refusal("yes explain", refused) is True
+
+
+def test_should_retry_after_refusal_covers_agricultural_rephrase(_caps):
+    """Not only follow-up shapes — a farming question asked again in different
+    words must not hit the same refusal twice. "Farming" here is
+    _has_agricultural_intent's existing definition, unchanged by this path."""
+    refused = _turns(("user", "what should I plant"), ("assistant", REFUSAL_REPLY))
+    assert cs._should_retry_after_refusal("which crop grows best?", refused) is True
+
+
+def test_should_retry_after_refusal_ignores_unrelated_questions(_caps):
+    """Junk still gets refused, twice if asked twice — the grounding guard is
+    the primary defence and must not be talked out of it."""
+    refused = _turns(("user", "weather on Mars"), ("assistant", REFUSAL_REPLY))
+    assert cs._should_retry_after_refusal("tell me a joke", refused) is False
+
+
+def test_chat_does_not_repeat_out_of_scope_for_followup(_caps):
+    """End to end: after a refusal, another short follow-up that still
+    retrieves nothing gets a clarifying question, not a second refusal."""
+    history = _turns(
+        ("user", "carrot yield in Badulla"),
+        ("assistant", ANSWER_REPLY),
+        ("user", "what about the moon"),
+        ("assistant", REFUSAL_REPLY),
+    )
+    req = _make_request(message="yes explain", conversation_history=history)
+    with patch("app.user.services.chatbot_service._safe_audit"), patch(
+        "app.user.services.chatbot_service._explicit_miss", return_value=None
+    ), patch(
+        "app.user.services.chatbot_service._rag_context",
+        return_value={"chunks": [], "sources": [], "score": 0.0},
+    ):
+        resp = cs.chat(req, SETTINGS)
+    assert resp.confidence != "Out of scope"
+    assert cs._OUT_OF_SCOPE_MARKER not in resp.reply
+    assert cs._CLARIFICATION_MARKER in resp.reply
+
+
+def test_chat_still_refuses_unrelated_question_after_refusal(_caps):
+    history = _turns(
+        ("user", "weather on Mars"),
+        ("assistant", REFUSAL_REPLY),
+    )
+    req = _make_request(message="tell me a joke", conversation_history=history)
+    with patch("app.user.services.chatbot_service._safe_audit"), patch(
+        "app.user.services.chatbot_service._explicit_miss", return_value=None
+    ), patch(
+        "app.user.services.chatbot_service._rag_context",
+        return_value={"chunks": [], "sources": [], "score": 0.0},
+    ):
+        resp = cs.chat(req, SETTINGS)
+    assert resp.confidence == "Out of scope"
+
+
+def test_chat_retrieves_with_the_reformulated_query(_caps):
+    """The rebuilt query goes to retrieval; the ORIGINAL message is what
+    reaches Groq."""
+    history = _turns(("user", "how to test soil"), ("assistant", ANSWER_REPLY))
+    req = _make_request(message="yes explain", conversation_history=history)
+    context = {
+        "chunks": [{"text": "soil data", "source": "src", "score": 0.9}],
+        "sources": ["src"],
+        "score": 0.9,
+    }
+    groq = _groq_reply("Reasoning: used src.\n\nHere is more on soil testing.")
+    with patch("app.user.services.chatbot_service._safe_audit"), patch(
+        "app.user.services.chatbot_service._explicit_miss", return_value=None
+    ), patch(
+        "app.user.services.chatbot_service._rag_context", return_value=context
+    ) as mock_rag, patch(
+        "groq.Groq", return_value=groq
+    ):
+        resp = cs.chat(req, SETTINGS)
+    assert "how to test soil" in mock_rag.call_args.args[0]
+    sent = groq.chat.completions.create.call_args.kwargs["messages"]
+    assert sent[-1] == {"role": "user", "content": "yes explain"}
+    assert resp.confidence == "High confidence"
+
+
+def test_chat_stream_does_not_repeat_out_of_scope_for_followup(_caps):
+    history = _turns(
+        ("user", "carrot yield in Badulla"),
+        ("assistant", ANSWER_REPLY),
+        ("user", "what about the moon"),
+        ("assistant", REFUSAL_REPLY),
+    )
+    req = _make_request(message="yes explain", conversation_history=history)
+    with patch("app.user.services.chatbot_service._safe_audit"), patch(
+        "app.user.services.chatbot_service._explicit_miss", return_value=None
+    ), patch(
+        "app.user.services.chatbot_service._rag_context",
+        return_value={"chunks": [], "sources": [], "score": 0.0},
+    ), patch(
+        "app.user.services.chat_history_service.persist_chat_turn",
+        return_value="conv-1",
+    ):
+        events = list(cs.chat_stream(req, SETTINGS, "uid-1"))
+    text = "".join(e["content"] for e in events if e["type"] == "text")
+    meta = next(e for e in events if e["type"] == "metadata")
+    assert cs._OUT_OF_SCOPE_MARKER not in text
+    assert meta["confidence"] == "Moderate confidence"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Follow-ups are not "vague" or "ambiguous" — the topic is already known
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_vague_query_check_skips_resolved_followup(_caps):
+    """"what about price?" names no crop or district, but the previous turn
+    did — asking the farmer to repeat it would be a worse answer."""
+    history = _turns(("user", "carrot yield in Badulla"), ("assistant", ANSWER_REPLY))
+    context = {"chunks": [], "sources": [], "score": 0.4}
+    assert cs._is_vague_agricultural_query("what about price?", context, history) is False
+    assert cs._is_vague_agricultural_query("what about price?", context, []) is True
+
+
+def test_ambiguous_query_check_skips_resolved_followup(_caps):
+    history = _turns(("user", "carrot yield in Badulla"), ("assistant", ANSWER_REPLY))
+    context = {
+        "chunks": [
+            {"crop": "Carrot", "district": "Badulla"},
+            {"crop": "Maize", "district": "Jaffna"},
+        ],
+        "sources": [],
+        "score": 0.4,
+    }
+    assert cs._is_ambiguous_query("what about price?", context, history) is False
+    assert cs._is_ambiguous_query("what about price?", context, []) is True
+
+
+def test_system_prompt_tells_llama_to_continue_followups():
+    prompt = cs._system_prompt(_make_request())
+    assert "short follow-up" in prompt
+    assert "continue explaining the topic from your previous response" in prompt

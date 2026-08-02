@@ -6,6 +6,7 @@
 
 import 'package:flutter/material.dart';
 import '../../../../models/admin_models.dart';
+import '../../../../models/conversation_models.dart';
 import '../../../../models/pattern_models.dart';
 import '../../../../services/admin_service.dart';
 import '../../../../widgets/app_theme.dart';
@@ -176,6 +177,8 @@ class _GapReportPageState extends State<GapReportPage> {
             _buildFewshotCard(report.fewshot),
             const SizedBox(height: 16),
             _buildPatternHealthCard(report.patternHealth),
+            const SizedBox(height: 16),
+            _buildConversationHealthCard(report.conversationHealth),
             if (_isSuper && widget.onNavigate != null) ...[
               const SizedBox(height: 16),
               _buildPromptTuningCard(),
@@ -396,6 +399,155 @@ class _GapReportPageState extends State<GapReportPage> {
   // Pattern Health: how the admin-approved routing overrides are performing.
   // Visible to admins too (the underlying reads are admin-readable), but only a
   // superadmin gets the tap-through, since managing them is superadmin-only.
+  // Conversation Health (Step 10) — how conversations actually go: how long
+  // they run, where farmers abandon them, the flows they follow, and whether
+  // follow-up chips are still being tapped. Taps through to the Chip Manager.
+  Widget _buildConversationHealthCard(ConversationHealth health) {
+    if (health.totalConversations == 0) {
+      return _sectionCard(
+        'Conversation health',
+        _emptyLine('No conversations reconstructed in this window.'),
+      );
+    }
+    final trend = health.chipTapTrend;
+    final trendColor = trend.change > 0.01
+        ? AppTheme.success
+        : trend.change < -0.01
+        ? AppTheme.error
+        : AppTheme.textSecondary;
+
+    return _sectionCard(
+      'Conversation health',
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _healthStat(
+                'Avg length',
+                '${health.avgConversationLength}',
+                'messages',
+              ),
+              _healthStat(
+                'Single-turn',
+                '${(health.singleTurnRate * 100).toStringAsFixed(0)}%',
+                'asked once, left',
+              ),
+              _healthStat(
+                'Chip taps',
+                '${(trend.thisWeek * 100).toStringAsFixed(0)}%',
+                trend.change == 0
+                    ? 'flat vs last week'
+                    : '${trend.change > 0 ? '+' : ''}'
+                          '${(trend.change * 100).toStringAsFixed(0)} pts '
+                          'vs last week',
+                color: trendColor,
+              ),
+            ],
+          ),
+          const Divider(height: 24),
+          const Text(
+            'Drop-off by response type',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              color: AppTheme.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 6),
+          _DropOffList(dropOff: health.dropOffByResponse),
+          if (health.topFlows.isNotEmpty) ...[
+            const Divider(height: 24),
+            const Text(
+              'Most common flows',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: AppTheme.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 6),
+            for (final flow in health.topFlows)
+              _flowRow(flow, AppTheme.textSecondary),
+          ],
+          if (health.problemFlows.isNotEmpty) ...[
+            const Divider(height: 24),
+            const Text(
+              'Problem flows (ended on a refusal)',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: AppTheme.error,
+              ),
+            ),
+            const SizedBox(height: 6),
+            for (final flow in health.problemFlows)
+              _flowRow(flow, AppTheme.error),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _healthStat(
+    String label,
+    String value,
+    String hint, {
+    Color color = AppTheme.primary,
+  }) {
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.textPrimary,
+            ),
+          ),
+          Text(
+            hint,
+            style: const TextStyle(fontSize: 10, color: AppTheme.textMuted),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _flowRow(ConversationFlow flow, Color color) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              flow.flow,
+              style: TextStyle(fontSize: 12, color: color),
+            ),
+          ),
+          Text(
+            '${flow.count}',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildPatternHealthCard(PatternHealth health) {
     final canManage = _isSuper && widget.onNavigate != null;
     final needsReview = health.needsReviewCount;
@@ -864,5 +1016,85 @@ class _GapReportPageState extends State<GapReportPage> {
       default:
         return AppTheme.textMuted;
     }
+  }
+}
+
+/// Drop-off rates per response state, as a stacked leave/continue bar. Lived in
+/// the deleted chip_ui.dart; the gap report is its only consumer now.
+class _DropOffList extends StatelessWidget {
+  final ConversationDropOff dropOff;
+
+  const _DropOffList({required this.dropOff});
+
+  @override
+  Widget build(BuildContext context) {
+    final buckets = dropOff.all;
+    if (buckets.values.every((b) => b.sampleSize == 0)) {
+      return const Text(
+        'No refusals, low-confidence answers or clarifications in this window.',
+        style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final entry in buckets.entries)
+          if (entry.value.sampleSize > 0) _row(entry.key, entry.value),
+      ],
+    );
+  }
+
+  Widget _row(String label, ConversationDropOffBucket bucket) {
+    final leaveColor = bucket.leaveRate >= 0.6
+        ? AppTheme.error
+        : bucket.leaveRate >= 0.35
+        ? AppTheme.warning
+        : AppTheme.success;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.textPrimary,
+                  ),
+                ),
+              ),
+              Text(
+                '${(bucket.leaveRate * 100).toStringAsFixed(0)}% leave  ·  '
+                '${(bucket.secondaryRate * 100).toStringAsFixed(0)}% '
+                '${bucket.secondaryLabel}',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: leaveColor,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 3),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: bucket.leaveRate.clamp(0.0, 1.0),
+              minHeight: 5,
+              backgroundColor: AppTheme.success.withValues(alpha: 0.18),
+              valueColor: AlwaysStoppedAnimation(leaveColor),
+            ),
+          ),
+          Text(
+            '${bucket.sampleSize} turn${bucket.sampleSize == 1 ? '' : 's'}',
+            style: const TextStyle(fontSize: 10, color: AppTheme.textMuted),
+          ),
+        ],
+      ),
+    );
   }
 }

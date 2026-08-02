@@ -152,6 +152,7 @@ def _build_report(days: int) -> dict:
         "feedback_summary": feedback_summary,
         "fewshot": _fewshot_info(),
         "pattern_health": _pattern_health(days),
+        "conversation_health": _conversation_health(docs),
     }
 
     # Raise admin alerts (high refusal / low satisfaction / milestone) from the
@@ -191,6 +192,32 @@ def _pattern_health(days: int) -> dict:
             "avg_satisfaction": 0.0,
             "needs_review_count": 0,
             "last_analysis_at": None,
+        }
+
+
+def _conversation_health(docs: list) -> dict:
+    """Conversation Health block (Step 10): drop-off rates, common flows and
+    the chip tap trend.
+
+    Reuses the documents this report ALREADY fetched, so the block costs no
+    extra Firestore reads. Never raises — a failure yields a zeroed block so
+    the rest of the report still renders.
+    """
+    try:
+        from app.admin.services.conversation_miner_service import conversation_health
+
+        return conversation_health(docs)
+    except Exception as exc:
+        logger.debug("conversation health skipped: %s", exc)
+        return {
+            "total_conversations": 0,
+            "avg_conversation_length": 0.0,
+            "single_turn_rate": 0.0,
+            "drop_off_by_response": {},
+            "drop_off_by_question_type": [],
+            "top_flows": [],
+            "problem_flows": [],
+            "chip_tap_trend": {"this_week": 0.0, "last_week": 0.0, "change": 0.0},
         }
 
 

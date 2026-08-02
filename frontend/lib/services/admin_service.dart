@@ -69,7 +69,9 @@ class AdminService {
       if (e.response?.statusCode != 429) rethrow;
       final retryAfter =
           int.tryParse(e.response?.headers.value('retry-after') ?? '') ?? 3;
-      debugPrint('AdminService: $path rate limited, retrying in ${retryAfter}s');
+      debugPrint(
+        'AdminService: $path rate limited, retrying in ${retryAfter}s',
+      );
       await Future.delayed(Duration(seconds: retryAfter));
       return _dio.get<T>(path);
     }

@@ -314,9 +314,7 @@ def test_get_system_stats_never_scans_the_whole_collection():
     _patched_stats(mock_db)
 
     collection.stream.assert_not_called()
-    collection.order_by.assert_called_once_with(
-        "timestamp", direction="DESCENDING"
-    )
+    collection.order_by.assert_called_once_with("timestamp", direction="DESCENDING")
     collection.order_by.return_value.limit.assert_called_once_with(
         admin_service._ENDPOINT_SAMPLE_SIZE
     )

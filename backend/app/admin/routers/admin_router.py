@@ -307,7 +307,9 @@ def active_prompt_tuning(request: Request):
         "active_adjustments": adjustments,
         "count": len(adjustments),
         "trial_count": sum(1 for a in adjustments if a.get("status") == "trial"),
-        "permanent_count": sum(1 for a in adjustments if a.get("status") == "permanent"),
+        "permanent_count": sum(
+            1 for a in adjustments if a.get("status") == "permanent"
+        ),
         "trash_count": active.get("trash_count", 0),
         "updated_at": active.get("updated_at"),
     }
@@ -346,7 +348,9 @@ def prompt_tuning_trash(request: Request):
     return {"trash": items, "count": len(items)}
 
 
-@router.post("/restore-from-trash/{adjustment_id}", dependencies=[Depends(require_superadmin)])
+@router.post(
+    "/restore-from-trash/{adjustment_id}", dependencies=[Depends(require_superadmin)]
+)
 @limiter.limit("5/minute")
 def restore_from_trash(
     request: Request,
@@ -420,7 +424,9 @@ def apply_patterns(
         }
         for p in body.patterns
     ]
-    result = pattern_analyzer_service.apply_proposals(selections, actor_uid=actor["uid"], days=days)
+    result = pattern_analyzer_service.apply_proposals(
+        selections, actor_uid=actor["uid"], days=days
+    )
     _reload_pattern_overrides()
     return {
         "status": "ok",
@@ -498,7 +504,9 @@ def revoke_pattern(
     return {"status": "ok", "pattern": result["item"]}
 
 
-@router.post("/restore-pattern/{pattern_id}", dependencies=[Depends(require_superadmin)])
+@router.post(
+    "/restore-pattern/{pattern_id}", dependencies=[Depends(require_superadmin)]
+)
 @limiter.limit("10/minute")
 def restore_pattern(
     request: Request,
@@ -523,7 +531,9 @@ def restore_pattern(
     return {"status": "ok", "pattern": result["item"]}
 
 
-@router.delete("/delete-pattern/{pattern_id}", dependencies=[Depends(require_superadmin)])
+@router.delete(
+    "/delete-pattern/{pattern_id}", dependencies=[Depends(require_superadmin)]
+)
 @limiter.limit("10/minute")
 def delete_pattern(
     request: Request,
@@ -601,7 +611,9 @@ def notifications_unread_count(request: Request):
     return {"count": get_unread_count()}
 
 
-@router.post("/notifications/{notification_id}/read", dependencies=[Depends(require_admin)])
+@router.post(
+    "/notifications/{notification_id}/read", dependencies=[Depends(require_admin)]
+)
 @limiter.limit("60/minute")
 def notification_mark_read(request: Request, notification_id: str):
     """Mark one notification read (tapping a card). Admin-readable. Idempotent —

@@ -234,10 +234,7 @@ class _SystemHealthPageState extends State<SystemHealthPage> {
           const SizedBox(height: 2),
           Text(
             subtitle,
-            style: const TextStyle(
-              fontSize: 12,
-              color: AppTheme.textSecondary,
-            ),
+            style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
           ),
         ],
         const SizedBox(height: 10),

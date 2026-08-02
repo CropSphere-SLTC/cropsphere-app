@@ -1395,7 +1395,7 @@ def test_followup_context_skips_refused_turn_and_reaches_back(_caps):
 
 
 def test_followup_context_skips_earlier_followups(_caps):
-    """"yes explain" is not a topic — the walk keeps going past it."""
+    """ "yes explain" is not a topic — the walk keeps going past it."""
     history = _turns(
         ("user", "how to test soil"),
         ("assistant", ANSWER_REPLY),
@@ -1444,7 +1444,7 @@ def test_reformulate_query_partial_followup_keeps_previous_topic(_caps):
 
 
 def test_reformulate_query_own_crop_replaces_inherited_one(_caps):
-    """"and Cowpea?" after a Maize answer must retrieve Cowpea — the inherited
+    """ "and Cowpea?" after a Maize answer must retrieve Cowpea — the inherited
     crop is dropped from the carried-over question, not stacked on top of it."""
     history = _turns(
         ("user", "tell me about Maize"),
@@ -1485,8 +1485,11 @@ def test_retrieval_query_unit_reply_still_wins(_caps):
     follow-up rebuild must not shadow _expand_clarifying_reply."""
     history = _turns(
         ("user", "carrot yield in Badulla"),
-        ("assistant", "Would you like me to work out how much you could earn? "
-                      "Just tell me your land size in acres or perches."),
+        (
+            "assistant",
+            "Would you like me to work out how much you could earn? "
+            "Just tell me your land size in acres or perches.",
+        ),
     )
     assert cs._retrieval_query("2 acres", history) == "carrot yield in Badulla 2 acres"
 
@@ -1616,11 +1619,13 @@ def test_chat_stream_does_not_repeat_out_of_scope_for_followup(_caps):
 
 
 def test_vague_query_check_skips_resolved_followup(_caps):
-    """"what about price?" names no crop or district, but the previous turn
+    """ "what about price?" names no crop or district, but the previous turn
     did — asking the farmer to repeat it would be a worse answer."""
     history = _turns(("user", "carrot yield in Badulla"), ("assistant", ANSWER_REPLY))
     context = {"chunks": [], "sources": [], "score": 0.4}
-    assert cs._is_vague_agricultural_query("what about price?", context, history) is False
+    assert (
+        cs._is_vague_agricultural_query("what about price?", context, history) is False
+    )
     assert cs._is_vague_agricultural_query("what about price?", context, []) is True
 
 
@@ -1642,3 +1647,150 @@ def test_system_prompt_tells_llama_to_continue_followups():
     prompt = cs._system_prompt(_make_request())
     assert "short follow-up" in prompt
     assert "continue explaining the topic from your previous response" in prompt
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LLM-generated follow-up chips
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_parse_followups_strips_marker_lines_from_the_reply():
+    raw = (
+        "Reasoning: CropSphere data.\n\nYou can expect 20,169 kg.\n\n"
+        "FOLLOWUP: Prevention methods for carrot pests\n"
+        "FOLLOWUP: How do these pests spread\n"
+        "FOLLOWUP: More about carrot diseases"
+    )
+    clean, followups = cs._parse_followups_from_response(raw)
+    assert "FOLLOWUP" not in clean
+    assert clean.endswith("20,169 kg.")
+    assert followups == [
+        "Prevention methods for carrot pests",
+        "How do these pests spread",
+        "More about carrot diseases",
+    ]
+
+
+def test_parse_followups_returns_reply_unchanged_when_none_present():
+    reply = "Just an answer with no suggestions."
+    assert cs._parse_followups_from_response(reply) == (reply, [])
+
+
+def test_parse_followups_caps_at_three_but_still_strips_extras():
+    raw = "Answer.\n" + "\n".join(f"FOLLOWUP: q{i}" for i in range(6))
+    clean, followups = cs._parse_followups_from_response(raw)
+    assert len(followups) == 3
+    assert "FOLLOWUP" not in clean  # surplus lines never reach the farmer
+
+
+def test_parse_followups_drops_blank_and_overlong_suggestions():
+    raw = "Answer.\nFOLLOWUP:   \nFOLLOWUP: " + ("x" * 200) + "\nFOLLOWUP: fine one"
+    clean, followups = cs._parse_followups_from_response(raw)
+    assert followups == ["fine one"]
+    assert "FOLLOWUP" not in clean
+
+
+def test_parse_followups_handles_empty_reply():
+    assert cs._parse_followups_from_response("") == ("", [])
+
+
+# ── Bot-question detection ────────────────────────────────────────────────────
+
+
+def test_earnings_offer_is_not_treated_as_a_bot_question():
+    """The earnings offer is a soft suggestion — contextual chips must win."""
+    reply = (
+        "You can expect around 20,169 kg per hectare.\n\n"
+        "Would you like me to work out how much you could earn? "
+        "Just tell me your land size in acres or perches."
+    )
+    assert cs._extract_bot_question_options(reply) is None
+
+
+def test_unit_clarification_yields_every_option():
+    reply = "Thanks!\n\nIs that 3 acres, 3 hectares, or 3 perches?"
+    assert cs._extract_bot_question_options(reply) == [
+        "3 acres",
+        "3 hectares",
+        "3 perches",
+    ]
+
+
+def test_crop_selection_question_drops_the_lead_in():
+    reply = (
+        "Happy to help.\n\nWhich crop are you asking about — Carrot, Maize, or Cowpea?"
+    )
+    assert cs._extract_bot_question_options(reply) == ["Carrot", "Maize", "Cowpea"]
+
+
+def test_bulleted_options_become_chips():
+    reply = (
+        "I can cover these:\n\n- Carrot\n- Maize\n- Cowpea\n\nWhich one shall I use?"
+    )
+    assert cs._extract_bot_question_options(reply) == ["Carrot", "Maize", "Cowpea"]
+
+
+def test_genuine_yes_no_question_gets_yes_no_chips():
+    reply = "Prices move weekly.\n\nShall I compare Badulla with Jaffna?"
+    assert cs._extract_bot_question_options(reply) == ["Yes please", "No thanks"]
+
+
+def test_plain_answer_has_no_bot_question():
+    assert (
+        cs._extract_bot_question_options("Carrots yield 20,169 kg in Badulla.") is None
+    )
+
+
+# ── Priority resolution ───────────────────────────────────────────────────────
+
+
+def _req():
+    from app.models.schemas import ChatRequest
+
+    return ChatRequest(message="carrot yield in jaffna", user_id="u1")
+
+
+def test_bot_question_beats_llm_suggestions():
+    reply = "Sure.\n\nIs that 3 acres, 3 hectares, or 3 perches?"
+    chips, meta = cs._resolve_followup_chips(
+        reply, ["something else"], {"chunks": []}, "3", _req()
+    )
+    assert meta["source"] == "bot_question"
+    assert chips[0] == "3 acres"
+
+
+def test_validated_llm_suggestions_are_used(monkeypatch):
+    monkeypatch.setattr(cs, "_validate_followup_chips", lambda f: f)
+    chips, meta = cs._resolve_followup_chips(
+        "An answer.", ["a", "b"], {"chunks": []}, "q", _req()
+    )
+    assert chips == ["a", "b"]
+    assert meta["source"] == "llm_generated"
+    assert meta["generated"] == 2 and meta["validated_count"] == 2
+
+
+def test_falls_back_to_templates_when_every_suggestion_fails_validation(monkeypatch):
+    monkeypatch.setattr(cs, "_validate_followup_chips", lambda f: [])
+    chips, meta = cs._resolve_followup_chips(
+        "An answer.", ["ungrounded"], {"chunks": []}, "q", _req()
+    )
+    assert meta["source"] == "template_fallback"
+    assert chips  # the safety net always produces something
+
+
+def test_falls_back_to_templates_when_model_suggested_nothing():
+    chips, meta = cs._resolve_followup_chips(
+        "An answer.", [], {"chunks": []}, "q", _req()
+    )
+    assert meta["source"] == "template_fallback"
+    assert meta["generated"] == 0
+
+
+def test_validation_fails_open_without_rag(monkeypatch):
+    """Losing every chip to a missing model is worse than an imperfect chip."""
+    monkeypatch.setattr(cs.model_loader, "get_model", lambda name: None)
+    assert cs._validate_followup_chips(["a", "b"]) == ["a", "b"]
+
+
+def test_validation_of_empty_list_is_empty():
+    assert cs._validate_followup_chips([]) == []

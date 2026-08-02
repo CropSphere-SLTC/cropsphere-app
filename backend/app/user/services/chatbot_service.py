@@ -15,12 +15,13 @@ import random
 import re
 import threading
 import time
+from collections import OrderedDict
+from datetime import datetime, timezone
 
 from html.parser import HTMLParser
 
 from app.models.loader import model_loader
 from app.models.schemas import ChatRequest, ChatResponse
-from app.user.services import chip_config_store
 from app.user.services.analytics_service import log_chat_interaction
 from app.utils.firestore import audit_log
 
@@ -302,6 +303,26 @@ _UNIT_KEYWORDS = ("acre", "hectare", "perch", "ha")
 # estimate your earnings? Just tell me your land size...") — the other
 # trigger (besides the clarifying question above) for rebuilding a reply.
 _EARNINGS_OFFER_PHRASE = "tell me your land size"
+# Marker the LLM prefixes each suggested follow-up with (see _system_prompt
+# Rule 7). Parsed out of the reply by _parse_followups_from_response BEFORE
+# the text is shown or persisted — a farmer must never see this token.
+_FOLLOWUP_PREFIX = "FOLLOWUP:"
+# Chips shown per (user, conversation), so the next turn can detect a tap.
+# LLM chips are generated per-reply and cannot be recomputed, so this replaces
+# reconstruction on the answer path. Bounded FIFO — see _remember_shown_chips.
+_shown_chips: "OrderedDict[str, tuple]" = OrderedDict()
+_shown_chips_lock = threading.Lock()
+_SHOWN_CHIPS_CAP = 500
+_MAX_LLM_FOLLOWUPS = 3
+# Upper bound on a generated chip. Rule 7 asks for under 10 words; this is the
+# hard stop so a runaway generation can't produce an unusable chip.
+_MAX_FOLLOWUP_LEN = 120
+# Interrogative opener that precedes the first option in an inline choice
+# ("Is that 3 acres, 3 hectares, or 3 perches?") — stripped so the first
+# option survives instead of being discarded with the lead-in.
+_QUESTION_LEADIN_RE = re.compile(
+    r"^(?:is|are|was|were)\s+(?:that|it|these|those)\s+", re.IGNORECASE
+)
 # Phrases that ask about every crop at once rather than one specific crop —
 # top-k retrieval only surfaces 2-3 crops for these, so the full list is
 # injected separately (see _build_messages).
@@ -490,7 +511,7 @@ _CONTEXT_STATEMENT_PHRASES = (
     "i have a farm in",
 )
 # Keywords used by _question_type to classify what kind of question was
-# just answered, so _smart_followups can suggest a natural next step.
+# just answered, so _fallback_followups can suggest a natural next step.
 # "earn"/"money" are their own bucket, not folded into price, so the
 # EARNINGS follow-up set below is actually reachable.
 _YIELD_TYPE_KEYWORDS = ("yield", "harvest", "grow")
@@ -830,6 +851,11 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
         )
         reply = response.choices[0].message.content
 
+        # Strip the model's FOLLOWUP: lines BEFORE anything else touches the
+        # text — everything downstream (the response body, persistence, the
+        # refusal marker check) must see only the farmer-facing answer.
+        reply, llm_followups = _parse_followups_from_response(reply)
+
         # LLM-level refusal: retrieval cleared the relevance floor but the
         # chunks didn't actually answer the question (e.g. rice query,
         # carrot chunks), so the model used the canned refusal. Override
@@ -841,7 +867,10 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
 
         # Cache the reply for future repeated questions
 
-        followups, chip_meta = _resolved_followups(context, clean, req)
+        followups, chip_meta = _resolve_followup_chips(
+            reply, llm_followups, context, clean, req
+        )
+        _remember_shown_chips(req, followups, chip_meta)
         _emit_analytics(
             req, clean, "answer", confidence, context, start, chip_meta=chip_meta
         )
@@ -1044,11 +1073,19 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
         history=req.conversation_history,
     )
     confidence = _confidence_label(context)
-    # Mined-first chips for the answer path. The branches below replace
-    # `followups` with their own fixed sets (clarification / refusal / …);
-    # chip_meta is only reported to analytics on the answer path, which is the
-    # only one that actually shows resolved chips.
-    followups, chip_meta = _resolved_followups(context, clean, req)
+    # Template chips as the starting value. The special-path branches below
+    # replace `followups` with their own fixed sets (clarification / refusal /
+    # …), and the ANSWER path replaces it again after the stream completes —
+    # the LLM's suggestions only exist once the full text has arrived. The
+    # closure below reads `followups` at call time, so each path's final
+    # assignment is what the metadata event carries.
+    followups = _fallback_followups(context, clean, req)
+    chip_meta = {
+        "source": "template_fallback",
+        "generated": 0,
+        "validated_count": 0,
+        "validated": False,
+    }
 
     def _metadata(conv_id: str) -> dict:
         return {
@@ -1179,6 +1216,16 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
         return
 
     full = "".join(parts)
+
+    # The FOLLOWUP: lines arrive at the tail of the stream, so they have
+    # already been yielded as text events by the loop above and are briefly
+    # visible in the bubble. Strip them from the authoritative copy here:
+    # what gets persisted, length-logged and re-rendered by the client on the
+    # metadata event is clean. (Future enhancement: buffer trailing deltas and
+    # withhold any line starting with the prefix, removing the flicker
+    # entirely — Option B. Option A is deliberate for now.)
+    full, llm_followups = _parse_followups_from_response(full)
+
     if not full.strip():
         yield {
             "type": "error",
@@ -1194,10 +1241,19 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
         confidence = "Out of scope"
         context["sources"] = []
 
+    # Rebind before _metadata() is called — the closure reads these at call
+    # time, so this is what the client receives.
+    followups, chip_meta = _resolve_followup_chips(
+        full, llm_followups, context, clean, req
+    )
+    _remember_shown_chips(req, followups, chip_meta)
+
     conv_id = _persist(full)
     logger.info("[STREAM COMPLETE] conv=%s len=%d", conv_id, len(full))
     yield _metadata(conv_id)
-    _emit_analytics(req, clean, "answer", confidence, context, start, chip_meta=chip_meta)
+    _emit_analytics(
+        req, clean, "answer", confidence, context, start, chip_meta=chip_meta
+    )
 
 
 def _stream_error_code(exc: Exception, has_partial: bool) -> str:
@@ -1317,7 +1373,23 @@ def _system_prompt(req: ChatRequest) -> str:
         "6. If the user sends a short follow-up like 'yes', 'explain', or "
         "'tell me more', continue explaining the topic from your previous "
         "response. Do not say you don't have data if you were just "
-        "discussing that topic."
+        "discussing that topic.\n"
+        # Numbered 7, not 6: Part A already has a Rule 6 above. Two rules
+        # sharing a number is the kind of thing an LLM silently skips.
+        f"7. After your answer, suggest exactly 3 short follow-up questions "
+        f"the farmer might want to ask next, based on what you just told "
+        f"them. Put each on its own line starting with '{_FOLLOWUP_PREFIX}' "
+        f"at the very end of your response:\n"
+        f"{_FOLLOWUP_PREFIX} Prevention methods for carrot pests\n"
+        f"{_FOLLOWUP_PREFIX} How do these pests spread\n"
+        f"{_FOLLOWUP_PREFIX} More about carrot diseases in Badulla\n"
+        "Rules for followup suggestions:\n"
+        "- Must be directly related to your answer content\n"
+        "- Must be questions you can answer from the dataset\n"
+        "- Keep each under 10 words\n"
+        "- All three must be different from each other\n"
+        "- Don't suggest what you already answered\n"
+        "- Frame as the farmer would ask, not formally"
     )
 
 
@@ -2879,7 +2951,7 @@ def _default_followups(req: ChatRequest) -> list:
 
 def _question_type(message: str) -> str:
     """Classify what kind of question was just answered, from keywords in
-    the user's message — drives which template _smart_followups picks."""
+    the user's message — drives which template _fallback_followups picks."""
     msg = message.lower()
     if any(k in msg for k in _YIELD_TYPE_KEYWORDS):
         return "yield"
@@ -2972,72 +3044,223 @@ def _detect_knowledge_level(message: str, history: list | None = None) -> str:
     return current
 
 
-def _chip_context(context: dict, req: ChatRequest) -> dict:
-    """The crop/district/season a turn's chips are addressed by.
+def _parse_followups_from_response(reply: str) -> tuple:
+    """Split an LLM reply into its answer text and its FOLLOWUP: suggestions.
 
-    Same resolution order _smart_followups uses — the top retrieved chunk
-    first, then the UI's dropdown filters — so mined chips and hardcoded chips
-    describe the same context. Season is derived from the current date (there
-    is no per-request season on ChatRequest).
+    Rule 7 of _system_prompt tells the model to append up to 3 lines prefixed
+    with _FOLLOWUP_PREFIX. This strips them out.
+
+    Inputs: reply — the raw generated text.
+    Outputs: (clean_reply, followups). With no FOLLOWUP lines, returns the
+    reply unchanged and []. Bounded to _MAX_LLM_FOLLOWUPS; over-long or blank
+    suggestions are dropped rather than shown.
+    Security assumption: the caller MUST use clean_reply for anything the
+    farmer sees or that is persisted — the raw reply still contains the
+    marker tokens, which are an internal protocol, not content.
     """
-    top = (context or {}).get("chunks", [{}])[0] if (context or {}).get("chunks") else {}
-    return {
-        "crop": top.get("crop") or (req.crop.value if req.crop else None),
-        "district": top.get("district") or (req.district.value if req.district else None),
-        "season": chip_config_store.season_for(),
-    }
+    if not reply:
+        return reply, []
+
+    followups: list = []
+    answer_lines: list = []
+    for line in reply.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith(_FOLLOWUP_PREFIX):
+            # Drop the line from the answer either way — a malformed or
+            # surplus suggestion must still never reach the chat bubble.
+            candidate = stripped[len(_FOLLOWUP_PREFIX) :].strip()
+            if candidate and len(candidate) <= _MAX_FOLLOWUP_LEN:
+                if len(followups) < _MAX_LLM_FOLLOWUPS:
+                    followups.append(candidate)
+        else:
+            answer_lines.append(line)
+
+    return "\n".join(answer_lines).strip(), followups
 
 
-def _resolved_followups(context: dict, message: str, req: ChatRequest) -> tuple:
-    """Follow-up chips for this turn, mined-first with a hardcoded fallback.
+def _validate_followup_chips(followups: list) -> list:
+    """Drop generated chips the chatbot could not actually answer.
 
-    Resolves the chip templates for (question_type, crop, district, season)
-    through the cascading resolver (chip_config_store.resolve_chips), fills
-    {crop}/{district} from the live context, and drops any chip whose
-    placeholders the context can't satisfy. If nothing survives — no config,
-    thin data, or unfillable templates — falls back to _smart_followups, which
-    remains the source of truth for a cold install.
+    A suggestion the farmer taps becomes their next question, so an
+    ungrounded chip is a refusal waiting to happen. Each is scored against
+    the RAG corpus and kept only if it clears _MIN_RELEVANCE — the same floor
+    the live grounding guard uses.
 
-    Outputs (chips, meta) where meta is {"source", "context", "templates"}:
-    `templates` maps each rendered chip back to the template it came from, so
-    the analytics thread can record WHICH chip a farmer tapped (Step 6).
-    Never raises — any failure degrades to the hardcoded chips.
+    Inputs: followups — parsed suggestion strings.
+    Outputs: the subset that is answerable, order preserved.
+    All three are encoded in ONE batch call, so validation costs a single
+    forward pass on the cached encoder rather than three.
+    Fails OPEN: if the RAG artifacts or encoder are unavailable the
+    suggestions are returned as-is — losing every chip to a transient model
+    problem is worse than showing one that may miss.
     """
-    ctx = _chip_context(context, req)
-    qtype = _question_type(message)
+    if not followups:
+        return []
+    rag = model_loader.get_model("rag_artifacts")
+    if rag is None:
+        return followups
     try:
-        resolved = chip_config_store.resolve_chips(qtype, **ctx)
-    except Exception as exc:  # defensive: chips must never break a reply
-        logger.debug("chip resolve failed: %s", exc)
-        resolved = []
+        from sentence_transformers import util
 
-    chips, templates, source = [], {}, None
-    for chip in resolved:
-        filled = chip_config_store.fill_template(
-            chip["template"], crop=ctx["crop"], district=ctx["district"]
+        embeddings = rag.get("chunk_embeddings")
+        if embeddings is None:
+            return followups
+        encoder = _get_encoder()
+        q_embs = encoder.encode(followups, convert_to_tensor=True)
+        sims = util.cos_sim(q_embs, embeddings)
+        return [
+            followup
+            for i, followup in enumerate(followups)
+            if float(sims[i].max()) >= _MIN_RELEVANCE
+        ]
+    except Exception as exc:
+        logger.debug("followup validation skipped: %s", exc)
+        return followups
+
+
+def _extract_bot_question_options(reply: str) -> list | None:
+    """Turn a question the bot asked the FARMER into tappable answer chips.
+
+    When the reply ends by asking the farmer to choose, the useful next action
+    is answering that question — not asking a new one — so these options take
+    priority over generated suggestions (see _resolve_followup_chips).
+
+    Detects: an inline "X, Y, or Z?" choice (covers both the land-unit
+    clarification and crop/district selection), a bulleted option list, and a
+    genuine yes/no question.
+
+    DELIBERATE EXCLUSION: the earnings offer (_EARNINGS_OFFER_PHRASE, "tell me
+    your land size") is a soft suggestion the farmer can ignore, not a choice
+    they must make. _FORMATTING_RULES asks for it on most answers, so treating
+    it as a question would replace the contextual chips nearly every turn.
+
+    Inputs: reply — the cleaned answer text.
+    Outputs: a list of chip strings, or None when the bot asked nothing that
+    needs answering. Never raises.
+    """
+    if not reply:
+        return None
+    try:
+        # Only the last few lines can carry the closing question; scanning the
+        # whole answer would match rhetorical questions inside the advice.
+        tail = "\n".join([ln for ln in reply.strip().split("\n") if ln.strip()][-3:])
+        lowered = tail.lower()
+
+        # The earnings offer is never a bot question — bail before anything
+        # else can match it (its "Would you like me to..." would hit Pattern 4).
+        if _EARNINGS_OFFER_PHRASE in lowered:
+            return None
+
+        # Pattern 3: a bulleted option list ("- Carrot\n- Maize\n- Cowpea").
+        bullets = [
+            re.sub(r"^[-*•]\s*", "", ln).strip().rstrip(".")
+            for ln in reply.strip().split("\n")
+            if re.match(r"^\s*[-*•]\s+\S", ln)
+        ]
+        bullets = [b for b in bullets if 0 < len(b) <= _MAX_FOLLOWUP_LEN]
+        if len(bullets) >= 2 and "?" in lowered:
+            return bullets[:_MAX_LLM_FOLLOWUPS]
+
+        question = next(
+            (s for s in reversed(re.split(r"(?<=[.?!])\s+", tail)) if "?" in s),
+            "",
+        ).strip()
+        if not question:
+            return None
+
+        # Patterns 1 + 2: "Is that X, Y, or Z?" / "Which crop — X, Y, or Z?".
+        # Take the text after the last dash/colon when present so the lead-in
+        # ("Which crop are you asking about —") doesn't become an option.
+        body = (
+            re.split(r"[—:–-]", question)[-1]
+            if re.search(r"[—:–]", question)
+            else question
         )
-        if not filled:
-            continue
-        chips.append(filled)
-        templates[filled] = chip["template"]
-        source = source or chip.get("source")
+        body = body.strip().rstrip("?").strip()
+        if re.search(r",.*\bor\b", body, re.IGNORECASE):
+            parts = [
+                p.strip().strip(".").strip()
+                for p in re.split(r",|\bor\b", body, flags=re.IGNORECASE)
+            ]
+            options = []
+            for i, part in enumerate(parts):
+                # The first segment carries the interrogative lead-in ("Is
+                # that 3 acres"). Strip the lead-in rather than dropping the
+                # segment — the option is the part after it.
+                if i == 0:
+                    part = _QUESTION_LEADIN_RE.sub("", part).strip()
+                if not part or len(part) > _MAX_FOLLOWUP_LEN:
+                    continue
+                # Anything still opening with an interrogative is lead-in
+                # prose, not a choice the farmer can tap.
+                if re.match(
+                    r"^(is|are|was|which|what|do|does|would|shall)\b", part, re.I
+                ):
+                    continue
+                options.append(part)
+            if len(options) >= 2:
+                return options[:_MAX_LLM_FOLLOWUPS]
 
-    if not chips:
-        return _smart_followups(context, message, req), {
-            "source": "hardcoded",
-            "question_type": qtype,
-            "context": ctx,
-            "templates": {},
+        # Pattern 4: a genuine yes/no question. The earnings offer already
+        # returned above, so what reaches here is a real either/or.
+        if re.search(
+            r"\b(would you like|do you want|shall i|should i|can i)\b", question, re.I
+        ):
+            return ["Yes please", "No thanks"]
+        return None
+    except Exception as exc:  # chips must never break a reply
+        logger.debug("bot-question extraction failed: %s", exc)
+        return None
+
+
+def _resolve_followup_chips(
+    reply: str,
+    llm_followups: list,
+    context: dict,
+    message: str,
+    req: ChatRequest,
+) -> tuple:
+    """Pick which follow-up chips this turn shows (Step 7).
+
+    Priority:
+      1. Bot-question options — the farmer needs to answer, not branch away.
+      2. RAG-validated LLM suggestions — contextual to the actual answer.
+      3. _fallback_followups — the template safety net.
+
+    Inputs: the CLEANED reply (FOLLOWUP lines already stripped), the parsed
+    suggestions, the RAG context, the user message and the request.
+    Outputs: (chips, meta) where meta feeds the analytics fields in Step 9 —
+    source, how many were generated, and how many survived validation.
+    Never raises: any failure lands on the template fallback.
+    """
+    bot_options = _extract_bot_question_options(reply)
+    if bot_options:
+        return bot_options, {
+            "source": "bot_question",
+            "generated": len(llm_followups),
+            "validated_count": 0,
+            "validated": False,
         }
-    return chips, {
-        "source": source or "mined",
-        "question_type": qtype,
-        "context": ctx,
-        "templates": templates,
+
+    if llm_followups:
+        validated = _validate_followup_chips(llm_followups)
+        if validated:
+            return validated, {
+                "source": "llm_generated",
+                "generated": len(llm_followups),
+                "validated_count": len(validated),
+                "validated": True,
+            }
+
+    return _fallback_followups(context, message, req), {
+        "source": "template_fallback",
+        "generated": len(llm_followups),
+        "validated_count": 0,
+        "validated": bool(llm_followups),
     }
 
 
-def _smart_followups(context: dict, message: str, req: ChatRequest) -> list:
+def _fallback_followups(context: dict, message: str, req: ChatRequest) -> list:
     """Generate 3 tappable follow-up chips from what was just answered,
     instead of a fixed template: the top retrieved chunk's crop/district
     (falling back to the UI's dropdown filters, then to the static
@@ -3173,39 +3396,92 @@ def _detect_if_chip_tapped(message: str, previous_followups: list) -> bool:
 def _tapped_chip(message: str, previous: tuple) -> dict | None:
     """Identify WHICH chip the farmer tapped, not just that they tapped one.
 
-    Inputs: the current message and (chips, meta) from
-    _reconstruct_previous_followups.
-    Outputs: {"template", "source", "context"} for the matched chip, or None
-    when the message wasn't a chip tap. A hardcoded chip has no template, so
-    it reports its rendered text — the miner only ranks templates, but the
-    admin screen can still show that a hardcoded chip was the one tapped.
+    Inputs: the current message and (chips, meta) — from _recall_shown_chips
+    when available, else _reconstruct_previous_followups.
+    Outputs: {"template", "source"} for the matched chip, or None when the
+    message wasn't a chip tap. Chips are now generated per reply rather than
+    rendered from a template, so "template" carries the chip text itself and
+    "source" says how it was produced (llm_generated / bot_question /
+    template_fallback).
     """
     chips, meta = previous
     if not _detect_if_chip_tapped(message, chips):
         return None
     norm = message.strip().lower()
     matched = next((c for c in chips if (c or "").strip().lower() == norm), None)
-    templates = (meta or {}).get("templates") or {}
     return {
-        "template": templates.get(matched, matched),
-        "source": (meta or {}).get("source") or "hardcoded",
-        "context": (meta or {}).get("context") or {},
+        "template": matched or message[:200],
+        "source": (meta or {}).get("source") or "template_fallback",
     }
+
+
+def _season_for_now() -> str:
+    """The active Sri Lankan cultivation season, from today's date.
+
+    Nov 1 - Mar 31 Maha, Apr 1 - Aug 31 Yala, Sep 1 - Oct 31 Inter. Stamped on
+    every analytics document so conversation analysis can slice by season
+    without re-deriving it from timestamps later.
+    """
+    month = datetime.now(timezone.utc).month
+    if month in (11, 12, 1, 2, 3):
+        return "Maha"
+    if 4 <= month <= 8:
+        return "Yala"
+    return "Inter"
+
+
+def _shown_key(req: ChatRequest) -> str:
+    """Cache key for the chips a farmer was last shown: their anonymised uid
+    plus the conversation when known (None on a conversation's first turn, so
+    the uid alone has to carry it)."""
+    return f"{_anonymize_uid(req.user_id)}|{req.conversation_id or ''}"
+
+
+def _remember_shown_chips(req: ChatRequest, chips: list, meta: dict) -> None:
+    """Record the chips this turn is about to show, so the NEXT turn can tell
+    whether the farmer tapped one.
+
+    LLM-generated chips cannot be reconstructed after the fact — replaying the
+    turn would need a fresh, non-deterministic Groq call — so tap detection
+    reads this instead of recomputing. Bounded and in-process: a restart or an
+    eviction simply means one turn's tap goes uncounted, consistent with
+    analytics being best-effort everywhere else. Never raises.
+    """
+    try:
+        with _shown_chips_lock:
+            _shown_chips[_shown_key(req)] = (list(chips or []), dict(meta or {}))
+            while len(_shown_chips) > _SHOWN_CHIPS_CAP:
+                _shown_chips.popitem(last=False)  # evict oldest
+    except Exception as exc:
+        logger.debug("chip memo failed: %s", exc)
+
+
+def _recall_shown_chips(req: ChatRequest) -> tuple:
+    """The (chips, meta) shown on the previous turn, or ([], {}) on a miss."""
+    try:
+        with _shown_chips_lock:
+            return _shown_chips.get(_shown_key(req), ([], {}))
+    except Exception:
+        return ([], {})
 
 
 def _reconstruct_previous_followups(req: ChatRequest) -> tuple:
     """Recompute the suggested_followups the PREVIOUS assistant turn showed.
 
-    The API never persists or echoes suggested_followups, so to tell whether
-    the current message was a tapped chip we replay the previous USER turn
-    through the same path selection chat() uses and rebuild its followups —
-    re-running RAG retrieval for the retrieval-based paths. Called ONLY from
-    the _emit_analytics background thread, so the extra retrieval never adds
-    latency to the live response.
+    Used only when _recall_shown_chips misses (process restart, cache
+    eviction, or a conversation id that appeared between turns). Replays the
+    previous USER turn through the same path selection chat() uses — which
+    reproduces the FIXED-chip paths exactly (refusal / clarification /
+    capability / context ack).
 
-    Returns (chips, meta): meta carries the chip source and the rendered->
-    template map for the answer path (Step 6), and is empty for the fixed-chip
-    paths (refusal / clarification / capability) which have no templates.
+    The normal answer path is NOT reconstructable any more: its chips come
+    from the LLM's own suggestions for that specific reply. It therefore
+    returns the template fallback, which is what that turn would have shown
+    had generation produced nothing — a lower bound, never a false positive
+    on some other chip set.
+
+    Called ONLY from the _emit_analytics background thread, so the extra
+    retrieval never adds latency to the live response.
     Returns ([], {}) when there is no prior user turn or reconstruction fails.
     """
     empty: tuple = ([], {})
@@ -3244,7 +3520,12 @@ def _reconstruct_previous_followups(req: ChatRequest) -> tuple:
             return _refusal_followups(prev_msg), {}
         if _is_ambiguous_query(prev_msg, context, prior):
             return _build_clarification(prev_msg, context, prior)[1], {}
-        return _resolved_followups(context, prev_msg, req)
+        return _fallback_followups(context, prev_msg, req), {
+            "source": "template_fallback",
+            "generated": 0,
+            "validated_count": 0,
+            "validated": False,
+        }
     except Exception as exc:
         logger.debug("followup reconstruction failed: %s", exc)
         return empty
@@ -3312,12 +3593,17 @@ def _run_analytics(
     override_match: dict | None = None,
     chip_meta: dict | None = None,
 ) -> None:
-    """Background-thread body: reconstruct chip context, assemble the record,
-    hand it to log_chat_interaction, and persist any override pattern hit.
+    """Background-thread body: detect a chip tap, assemble the record, hand it
+    to log_chat_interaction, and persist any override pattern hit.
     Errors are swallowed."""
     try:
         ctx = context or {}
-        tapped = _tapped_chip(message, _reconstruct_previous_followups(req))
+        # Prefer what was actually shown last turn; fall back to replaying the
+        # previous turn only on a cache miss (see _reconstruct_previous_followups).
+        previous = _recall_shown_chips(req)
+        if not previous[0]:
+            previous = _reconstruct_previous_followups(req)
+        tapped = _tapped_chip(message, previous)
         shown = chip_meta or {}
         data = {
             "user_id": _anonymize_uid(req.user_id),
@@ -3341,18 +3627,20 @@ def _run_analytics(
             "district_mentioned": _detect_district_mention(message),
             "near_miss_type": near_miss_type,
             # Cultivation season this turn happened in — stored rather than
-            # derived later so a mining run over old data stays stable even if
-            # the season boundaries are ever retuned.
-            "season": chip_config_store.season_for(),
+            # derived later so an analytics run over old data stays stable
+            # even if the season boundaries are ever retuned.
+            "season": _season_for_now(),
             "followup_chip_tapped": tapped is not None,
-            # Which chip was tapped and in which context (Step 6) — feeds the
-            # next mining cycle's per-template tap rates.
+            # Which chip text was tapped, and where that chip came from.
             "tapped_chip_template": (tapped or {}).get("template"),
             "tapped_chip_source": (tapped or {}).get("source"),
-            "tapped_chip_context": (tapped or {}).get("context"),
-            # Which chips this turn SHOWED — the denominator for tap rate.
-            "chip_source": shown.get("source"),
-            "chip_context": shown.get("context"),
+            # How this turn's chips were produced (Step 9): llm_generated /
+            # bot_question / template_fallback, plus how many the model
+            # suggested and how many survived RAG validation.
+            "followup_source": shown.get("source"),
+            "followup_validated": bool(shown.get("validated")),
+            "followups_generated": int(shown.get("generated") or 0),
+            "followups_validated": int(shown.get("validated_count") or 0),
             "session_message_count": len(req.conversation_history) + 1,
             "model_used": req.model,
             "response_time_ms": elapsed_ms,
@@ -3365,39 +3653,8 @@ def _run_analytics(
         }
         log_chat_interaction(data)
         _record_pattern_hit(override_match, req, message)
-        _check_chip_trend(shown)
     except Exception as exc:
         logger.warning("analytics assembly failed: %s", exc)
-
-
-def _check_chip_trend(chip_meta: dict) -> None:
-    """Hand this turn's chip context to the trend detector (Step 7).
-
-    Already on the analytics background thread. The detector self-throttles to
-    one check per hour per context, so this is a dict lookup on all but a
-    handful of requests. Never raises — a trend check must never cost a chat
-    reply, and a missing admin module (import-order or partial deploy) is a
-    debug-level non-event.
-    """
-    ctx = (chip_meta or {}).get("context") or {}
-    if not chip_meta or not chip_meta.get("source"):
-        return
-    try:
-        from app.admin.services.conversation_miner_service import check_chip_trend
-
-        check_chip_trend(
-            _question_type_from_context(chip_meta),
-            crop=ctx.get("crop"),
-            district=ctx.get("district"),
-        )
-    except Exception as exc:
-        logger.debug("chip trend check skipped: %s", exc)
-
-
-def _question_type_from_context(chip_meta: dict) -> str:
-    """The question bucket the shown chips were resolved for. Stored on the
-    meta by _resolved_followups so the trend check doesn't re-classify."""
-    return (chip_meta or {}).get("question_type") or "general"
 
 
 def _record_pattern_hit(

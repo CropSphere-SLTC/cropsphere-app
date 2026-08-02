@@ -420,6 +420,15 @@ class _ChatScreenState extends State<ChatScreen> {
             setState(() {
               bubble['confidence'] = event['confidence'] as String? ?? '';
               bubble['sources'] = List<String>.from(event['sources'] ?? []);
+              // The model appends its follow-up suggestions as "FOLLOWUP:"
+              // lines at the very end of the answer, so they stream into the
+              // bubble as ordinary text before the server can strip them.
+              // Metadata arrives once the stream is complete — replace the
+              // bubble with the clean text here. The server already strips
+              // them from what it persists, so this only fixes the live view.
+              bubble['content'] = _stripFollowupMarkers(
+                bubble['content'] as String? ?? '',
+              );
               _suggestedFollowups = List<String>.from(
                 event['suggested_followups'] ?? [],
               );
@@ -427,6 +436,12 @@ class _ChatScreenState extends State<ChatScreen> {
           case 'error':
             setState(() {
               bubble['errorCode'] = event['code'] as String? ?? 'server_error';
+              // A failed stream never reaches metadata, so clean the partial
+              // text here too — the farmer must never be left looking at a
+              // raw "FOLLOWUP:" line.
+              bubble['content'] = _stripFollowupMarkers(
+                bubble['content'] as String? ?? '',
+              );
             });
           case 'done':
             completed = true;
@@ -471,6 +486,22 @@ class _ChatScreenState extends State<ChatScreen> {
     if (retryFor == null) return;
     setState(() => _displayMessages.remove(bubble));
     await _sendMessageStreaming(retryFor, isRetry: true);
+  }
+
+  /// Removes the model's "FOLLOWUP:" suggestion lines from streamed text.
+  ///
+  /// The suggestions are an internal protocol between the prompt and the
+  /// backend parser (see chatbot_service._parse_followups_from_response) — they
+  /// arrive at the tail of the stream and become the chips in the metadata
+  /// event. They must never remain visible as answer text. The backend already
+  /// strips them from the persisted copy; this cleans the live bubble.
+  String _stripFollowupMarkers(String text) {
+    if (!text.contains('FOLLOWUP:')) return text;
+    return text
+        .split('\n')
+        .where((line) => !line.trimLeft().startsWith('FOLLOWUP:'))
+        .join('\n')
+        .trimRight();
   }
 
   void _scrollToBottom() {

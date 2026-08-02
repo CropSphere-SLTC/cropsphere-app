@@ -110,6 +110,53 @@ def test_admin_stats_returns_200(client, mock_valid_token, valid_auth_header):
     assert "models_loaded" in body
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# /access — the cheap nav gate
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.parametrize("role", ["admin", "superadmin"])
+def test_access_returns_granted_and_role(
+    client, mock_valid_token, valid_auth_header, role
+):
+    with patch("app.utils.firestore.get_user_role", return_value=role):
+        resp = client.get("/api/admin/access", headers=valid_auth_header)
+
+    assert resp.status_code == 200
+    assert resp.json() == {"access": "granted", "role": role}
+
+
+def test_access_denies_regular_user(client, mock_valid_token, valid_auth_header):
+    with patch("app.utils.firestore.get_user_role", return_value="user"):
+        resp = client.get("/api/admin/access", headers=valid_auth_header)
+    assert resp.status_code == 403
+
+
+def test_access_denies_banned_user(client, mock_valid_token, valid_auth_header):
+    with patch("app.utils.firestore.get_user_role", return_value="banned"):
+        resp = client.get("/api/admin/access", headers=valid_auth_header)
+    assert resp.status_code == 403
+
+
+def test_access_requires_jwt(client, mock_expired_token):
+    assert client.get("/api/admin/access").status_code == 401
+
+
+def test_access_touches_neither_psutil_nor_firestore_reads(
+    client, mock_valid_token, valid_auth_header
+):
+    """The whole point of this endpoint: the nav gate must not pay for a 1s CPU
+    sample or an audit-log read just to learn the caller is an admin."""
+    with patch("app.utils.firestore.get_user_role", return_value="admin"), patch(
+        "psutil.cpu_percent"
+    ) as cpu, patch("app.utils.firestore.get_db") as get_db:
+        resp = client.get("/api/admin/access", headers=valid_auth_header)
+
+    assert resp.status_code == 200
+    cpu.assert_not_called()
+    get_db.assert_not_called()
+
+
 def test_non_admin_gets_403_on_gap_report(client, mock_valid_token, valid_auth_header):
     with patch("app.utils.firestore.get_user_role", return_value="user"):
         resp = client.get("/api/admin/gap-report", headers=valid_auth_header)

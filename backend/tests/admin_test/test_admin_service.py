@@ -256,14 +256,26 @@ def test_delete_user_firestore_failure_raises_500():
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def test_get_system_stats_returns_expected_shape():
-    mock_db = MagicMock()
-    mock_db.collection.return_value.stream.return_value = [
-        _mock_doc({"endpoint": "/api/yield/predict"}),
-        _mock_doc({"endpoint": "/api/yield/predict"}),
-        _mock_doc({"endpoint": "/api/price/predict"}),
-    ]
+def _stats_db(sample_docs, *, count=None):
+    """Firestore double for get_system_stats: a bounded recent-logs query plus
+    an optional count() aggregation. `count=None` simulates a backend where the
+    aggregation is unavailable."""
+    collection = MagicMock()
+    collection.order_by.return_value.limit.return_value.stream.return_value = (
+        sample_docs
+    )
+    if count is None:
+        collection.count.side_effect = RuntimeError("aggregation unsupported")
+    else:
+        agg_result = MagicMock()
+        agg_result.value = count
+        collection.count.return_value.get.return_value = [[agg_result]]
+    db = MagicMock()
+    db.collection.return_value = collection
+    return db, collection
 
+
+def _patched_stats(mock_db):
     with patch("app.utils.firestore.get_db", return_value=mock_db), patch(
         "app.models.loader.model_loader.get_model", return_value=object()
     ), patch("psutil.cpu_percent", return_value=12.5), patch(
@@ -272,13 +284,50 @@ def test_get_system_stats_returns_expected_shape():
         mock_vm.return_value.total = 16 * 1024**3
         mock_vm.return_value.used = 8 * 1024**3
         mock_vm.return_value.percent = 50.0
+        return admin_service.get_system_stats()
 
-        result = admin_service.get_system_stats()
+
+SAMPLE_LOGS = [
+    _mock_doc({"endpoint": "/api/yield/predict"}),
+    _mock_doc({"endpoint": "/api/yield/predict"}),
+    _mock_doc({"endpoint": "/api/price/predict"}),
+]
+
+
+def test_get_system_stats_returns_expected_shape():
+    mock_db, _ = _stats_db(SAMPLE_LOGS, count=4213)
+    result = _patched_stats(mock_db)
 
     assert result["cpu_percent"] == 12.5
-    assert result["total_requests"] == 3
+    # Exact all-time total comes from the aggregation, not the bounded sample.
+    assert result["total_requests"] == 4213
+    assert result["requests_sampled"] == 3
     assert result["requests_by_endpoint"]["/api/yield/predict"] == 2
     assert all(result["models_loaded"].values())
+
+
+def test_get_system_stats_never_scans_the_whole_collection():
+    """audit_logs grows without bound (one doc per prediction AND per chat
+    turn), so the breakdown must read a bounded, ordered slice — an unbounded
+    .stream() is what made this endpoint time out."""
+    mock_db, collection = _stats_db(SAMPLE_LOGS, count=10)
+    _patched_stats(mock_db)
+
+    collection.stream.assert_not_called()
+    collection.order_by.assert_called_once_with("timestamp", direction="DESCENDING")
+    collection.order_by.return_value.limit.assert_called_once_with(
+        admin_service._ENDPOINT_SAMPLE_SIZE
+    )
+
+
+def test_get_system_stats_falls_back_when_count_unavailable():
+    """No count() support (older emulator, restricted permissions) must not
+    fail the whole call — report what the sample actually saw."""
+    mock_db, _ = _stats_db(SAMPLE_LOGS, count=None)
+    result = _patched_stats(mock_db)
+
+    assert result["total_requests"] == 3
+    assert result["requests_sampled"] == 3
 
 
 def test_get_system_stats_firestore_failure_raises_500():

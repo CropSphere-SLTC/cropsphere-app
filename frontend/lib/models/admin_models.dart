@@ -1,6 +1,7 @@
 // lib/models/admin_models.dart
 // Request and response models matching admin_router.py schemas exactly
 
+import 'conversation_models.dart';
 import 'pattern_models.dart';
 
 class AdminStats {
@@ -11,6 +12,12 @@ class AdminStats {
   final Map<String, bool> modelsLoaded;
   final int totalRequests;
   final Map<String, int> requestsByEndpoint;
+
+  /// How many audit-log documents `requestsByEndpoint` was computed from. The
+  /// server bounds that breakdown to the most recent N requests (the
+  /// collection grows without limit), while `totalRequests` stays exact. 0
+  /// when the server didn't report it.
+  final int requestsSampled;
   final String timestamp;
 
   AdminStats({
@@ -21,6 +28,7 @@ class AdminStats {
     required this.modelsLoaded,
     required this.totalRequests,
     required this.requestsByEndpoint,
+    required this.requestsSampled,
     required this.timestamp,
   });
 
@@ -34,6 +42,7 @@ class AdminStats {
     requestsByEndpoint: Map<String, int>.from(
       json['requests_by_endpoint'] ?? {},
     ),
+    requestsSampled: json['requests_sampled'] ?? 0,
     timestamp: json['timestamp'] ?? '',
   );
 }
@@ -101,6 +110,7 @@ class GapReport {
   final FeedbackSummary feedbackSummary;
   final FewshotInfo fewshot;
   final PatternHealth patternHealth;
+  final ConversationHealth conversationHealth;
 
   GapReport({
     required this.period,
@@ -117,6 +127,7 @@ class GapReport {
     required this.feedbackSummary,
     required this.fewshot,
     required this.patternHealth,
+    required this.conversationHealth,
   });
 
   factory GapReport.fromJson(Map<String, dynamic> json) => GapReport(
@@ -151,6 +162,9 @@ class GapReport {
     ),
     patternHealth: PatternHealth.fromJson(
       Map<String, dynamic>.from(json['pattern_health'] ?? {}),
+    ),
+    conversationHealth: ConversationHealth.fromJson(
+      Map<String, dynamic>.from(json['conversation_health'] ?? {}),
     ),
   );
 }

@@ -132,13 +132,43 @@ def delete_user(request: Request, uid: str, actor: dict = Depends(get_current_ro
     return admin_service.delete_user(uid, actor)
 
 
+# ── Access check ──────────────────────────────────────────────────────────────
+
+
+@router.get("/access", dependencies=[Depends(require_admin)])
+@limiter.limit("60/minute")
+def admin_access(request: Request, actor: dict = Depends(get_current_role)):
+    """Confirm the caller is admin/superadmin, and say which.
+
+    Exists so the client's admin nav gate has something cheap to call. It used
+    to poll /stats for this, which meant one role check consumed a slot in that
+    endpoint's 10/min budget — and the gate re-runs on app boot, on every
+    foreground resume, and on every Home tap, so it routinely starved the two
+    pages that actually display stats. This does one role lookup: no psutil
+    sampling, no Firestore scan.
+
+    Inputs: none (uid comes from the verified JWT).
+    Outputs: {"access": "granted", "role": "admin"|"superadmin"}.
+    Security assumption: require_admin has already rejected regular, banned,
+    and unauthenticated callers with 403/401 — reaching the body means access
+    is granted, and the role returned is the server's resolved role, never a
+    client-supplied one.
+    """
+    return {"access": "granted", "role": actor["role"]}
+
+
 # ── System stats ──────────────────────────────────────────────────────────────
 
 
 @router.get("/stats", dependencies=[Depends(require_admin)])
 @limiter.limit("10/minute")
 def system_stats(request: Request):
-    """Return system stats — CPU, RAM, model status, request counts."""
+    """Return system stats — CPU, RAM, model status, request counts.
+
+    Rate limited to 10/min: it samples CPU for a full second and reads audit
+    logs. Callers that only need to know whether the user is an admin should
+    use /access instead.
+    """
     return admin_service.get_system_stats()
 
 
@@ -522,6 +552,32 @@ def delete_pattern(
     if not result["ok"]:
         raise HTTPException(status_code=404, detail="Pattern not found in revoked list")
     return {"status": "ok", "deleted_id": pattern_id}
+
+
+# ── Conversation analytics ────────────────────────────────────────────────────
+# Read-only insight into how conversations actually go. Follow-up chips are
+# generated per reply by the LLM and validated against RAG, so there is no chip
+# configuration to review or write here — this endpoint only reports.
+
+
+@router.post("/mine-patterns", dependencies=[Depends(require_admin)])
+@limiter.limit("3/minute")
+def mine_patterns(request: Request, days: int = 30):
+    """Analyse conversations from the last `days` days. Read-only.
+
+    Reconstructs conversations from chat_analytics and returns drop-off rates,
+    the most common and worst-abandoning flows, per-question-type drop-off and
+    the chip tap trend. Nothing is written — this is reporting only. `days` is
+    clamped to 1..90 in the service. Rate limited hard (3/min): a run scans the
+    window's analytics documents.
+    """
+    from app.admin.services.conversation_miner_service import mine_conversation_patterns
+
+    try:
+        return mine_conversation_patterns(days=days)
+    except Exception as exc:
+        logger.error("conversation analysis failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Analysis failed")
 
 
 # ── Admin notifications (the bell) ────────────────────────────────────────────

@@ -57,14 +57,31 @@ def _yield_req(crop, district, season):
     from app.models.schemas import IrrigationEnum, YieldPredictRequest
 
     return YieldPredictRequest(
-        crop=crop, district=district, season=season, week_of_year=10,
-        rainfall_mm=100.0, temp_min_c=10.0, temp_max_c=22.0, humidity_pct=70.0,
-        wind_speed_kmh=10.0, solar_radiation_mj=15.0, soil_ph=6.0,
-        soil_moisture_pct=55.0, cultivated_area_ha=1.0, seed_variety="Standard",
-        fertilizer_index=0.5, pesticide_index=0.5,
-        irrigation_type=IrrigationEnum.drip, N_index=0.5, P_index=0.5,
-        K_index=0.5, prev_crop="none", demand_index=100.0, inflation_index=1.0,
-        holiday_flag=0, festival_flag=0,
+        crop=crop,
+        district=district,
+        season=season,
+        week_of_year=10,
+        rainfall_mm=100.0,
+        temp_min_c=10.0,
+        temp_max_c=22.0,
+        humidity_pct=70.0,
+        wind_speed_kmh=10.0,
+        solar_radiation_mj=15.0,
+        soil_ph=6.0,
+        soil_moisture_pct=55.0,
+        cultivated_area_ha=1.0,
+        seed_variety="Standard",
+        fertilizer_index=0.5,
+        pesticide_index=0.5,
+        irrigation_type=IrrigationEnum.drip,
+        N_index=0.5,
+        P_index=0.5,
+        K_index=0.5,
+        prev_crop="none",
+        demand_index=100.0,
+        inflation_index=1.0,
+        holiday_flag=0,
+        festival_flag=0,
     )
 
 
@@ -72,10 +89,19 @@ def _price_req(crop, district, season):
     from app.models.schemas import PricePredictRequest
 
     return PricePredictRequest(
-        crop=crop, district=district, season=season, week_of_year=10,
-        inflation_index=1.2, fuel_price_index=1.1, transport_cost_index=1.0,
-        supply_index=100.0, demand_index=110.0, holiday_flag=0, festival_flag=0,
-        farmgate_price_lag1=85.0, farmgate_price_lag2=80.0,
+        crop=crop,
+        district=district,
+        season=season,
+        week_of_year=10,
+        inflation_index=1.2,
+        fuel_price_index=1.1,
+        transport_cost_index=1.0,
+        supply_index=100.0,
+        demand_index=110.0,
+        holiday_flag=0,
+        festival_flag=0,
+        farmgate_price_lag1=85.0,
+        farmgate_price_lag2=80.0,
         farmgate_price_lag4=75.0,
     )
 
@@ -84,10 +110,18 @@ def _demand_req(crop, season):
     from app.models.schemas import DemandPredictRequest
 
     return DemandPredictRequest(
-        crop=crop, season=season, week_of_year=10, demand_lag1=95.0,
-        demand_lag2=90.0, demand_lag4=85.0, retail_price_lkr_kg=120.0,
-        inflation_index=1.2, holiday_flag=0, festival_flag=0,
-        consumer_pref_index=60.0, search_trend_index=45.0,
+        crop=crop,
+        season=season,
+        week_of_year=10,
+        demand_lag1=95.0,
+        demand_lag2=90.0,
+        demand_lag4=85.0,
+        retail_price_lkr_kg=120.0,
+        inflation_index=1.2,
+        holiday_flag=0,
+        festival_flag=0,
+        consumer_pref_index=60.0,
+        search_trend_index=45.0,
     )
 
 
@@ -135,15 +169,29 @@ def _generate_predictions(valid_pairs):
                     f"index is {round(demand)}. Estimated earnings per acre: "
                     f"{round(earnings):,} LKR."
                 )
-                metas.append({"crop": crop_name, "district": district_name,
-                              "season": season_name, "type": "prediction"})
-                records.append({"crop": crop_name, "district": district_name,
-                                "season": season_name, "yield_ha": yield_ha,
-                                "farmgate": farmgate, "earnings": earnings})
+                metas.append(
+                    {
+                        "crop": crop_name,
+                        "district": district_name,
+                        "season": season_name,
+                        "type": "prediction",
+                    }
+                )
+                records.append(
+                    {
+                        "crop": crop_name,
+                        "district": district_name,
+                        "season": season_name,
+                        "yield_ha": yield_ha,
+                        "farmgate": farmgate,
+                        "earnings": earnings,
+                    }
+                )
     print()
     if mocked:
-        log.warning("  ! %d/%d combos returned MOCK data — check models loaded",
-                    mocked, total)
+        log.warning(
+            "  ! %d/%d combos returned MOCK data — check models loaded", mocked, total
+        )
     return chunks, metas, records
 
 
@@ -165,8 +213,9 @@ def _generate_summaries(records):
             f"({round(best['yield_ha']):,} kg/ha). Prices range from "
             f"{round(lo)} to {round(hi)} LKR/kg."
         )
-        metas.append({"crop": crop, "district": "all", "season": "all",
-                      "type": "summary"})
+        metas.append(
+            {"crop": crop, "district": "all", "season": "all", "type": "summary"}
+        )
 
     for district in districts:
         rs = [r for r in records if r["district"] == district]
@@ -177,8 +226,9 @@ def _generate_summaries(records):
             f"The most profitable crop is {best['crop']} with estimated earnings "
             f"of {round(best['earnings']):,} LKR/acre."
         )
-        metas.append({"crop": "all", "district": district, "season": "all",
-                      "type": "summary"})
+        metas.append(
+            {"crop": "all", "district": district, "season": "all", "type": "summary"}
+        )
     return chunks, metas
 
 
@@ -190,8 +240,11 @@ def _generate_weather(districts):
     chunks, metas = [], []
     today = date.today().isoformat()
     for name in districts:
-        resp = forecast_weather(WeatherForecastRequest(
-            district=DistrictEnum(name), start_date=today, weeks_ahead=1))
+        resp = forecast_weather(
+            WeatherForecastRequest(
+                district=DistrictEnum(name), start_date=today, weeks_ahead=1
+            )
+        )
         f = resp.forecasts[0]
         chunks.append(
             f"Weather forecast for {name}: Expected rainfall "
@@ -199,8 +252,9 @@ def _generate_weather(districts):
             f"{round(f.temp_min_c)}-{round(f.temp_max_c)}°C, "
             f"humidity {round(f.humidity_pct)}%."
         )
-        metas.append({"crop": "all", "district": name, "season": "all",
-                      "type": "weather"})
+        metas.append(
+            {"crop": "all", "district": name, "season": "all", "type": "weather"}
+        )
     return chunks, metas
 
 
@@ -214,8 +268,9 @@ def _load_kept(source):
 
     old = joblib.load(source)
     chunks, metas = [], []
-    for text, meta in zip(old.get("knowledge_chunks", []),
-                          old.get("chunk_metadata", [])):
+    for text, meta in zip(
+        old.get("knowledge_chunks", []), old.get("chunk_metadata", [])
+    ):
         if meta.get("type") not in _REGENERATED_TYPES:
             chunks.append(text)
             metas.append(meta)
@@ -224,13 +279,20 @@ def _load_kept(source):
 
 def main():
     ap = argparse.ArgumentParser(description="Generate the M6 RAG artifacts.")
-    ap.add_argument("--model-dir", default=None,
-                    help="Directory with the ML model files.")
-    ap.add_argument("--output", default=None,
-                    help="Output .pkl (default: <model-dir>/M6_rag_artifacts.pkl).")
-    ap.add_argument("--source", default=None,
-                    help="Existing .pkl to preserve non-prediction chunks from "
-                         "(default: same as --output).")
+    ap.add_argument(
+        "--model-dir", default=None, help="Directory with the ML model files."
+    )
+    ap.add_argument(
+        "--output",
+        default=None,
+        help="Output .pkl (default: <model-dir>/M6_rag_artifacts.pkl).",
+    )
+    ap.add_argument(
+        "--source",
+        default=None,
+        help="Existing .pkl to preserve non-prediction chunks from "
+        "(default: same as --output).",
+    )
     args = ap.parse_args()
 
     model_dir = _model_dir(args.model_dir)
@@ -263,8 +325,9 @@ def main():
         "all-MiniLM-L6-v2",
         cache_folder=os.environ.get("SENTENCE_TRANSFORMERS_HOME"),
     )
-    embeddings = encoder.encode(chunks, convert_to_numpy=True,
-                                show_progress_bar=False).astype("float32")
+    embeddings = encoder.encode(
+        chunks, convert_to_numpy=True, show_progress_bar=False
+    ).astype("float32")
 
     artifacts = {
         "knowledge_chunks": chunks,
@@ -282,11 +345,15 @@ def main():
     log.info(
         "Generated %d prediction chunks + %d summary chunks + %d weather "
         "chunks + %d kept chunks = %d total chunks",
-        len(pred_chunks), len(sum_chunks), len(wx_chunks), len(kept_chunks),
+        len(pred_chunks),
+        len(sum_chunks),
+        len(wx_chunks),
+        len(kept_chunks),
         len(chunks),
     )
-    log.info("Embeddings: %s %s | Saved: %s",
-             embeddings.shape, embeddings.dtype, output)
+    log.info(
+        "Embeddings: %s %s | Saved: %s", embeddings.shape, embeddings.dtype, output
+    )
     return 0
 
 

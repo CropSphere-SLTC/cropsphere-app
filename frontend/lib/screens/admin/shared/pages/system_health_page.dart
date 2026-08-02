@@ -115,13 +115,23 @@ class _SystemHealthPageState extends State<SystemHealthPage> {
         if (narrow) {
           return Column(children: [cpu, const SizedBox(height: 12), ram]);
         }
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(child: cpu),
-            const SizedBox(width: 12),
-            Expanded(child: ram),
-          ],
+        // IntrinsicHeight is load-bearing, not cosmetic. This row is a child
+        // of the page's ListView, so it is laid out with an UNBOUNDED height,
+        // and CrossAxisAlignment.stretch sizes children with
+        // BoxConstraints.tightFor(height: constraints.maxHeight) — infinity
+        // here, which throws "BoxConstraints forces an infinite height" and
+        // renders the whole page blank. IntrinsicHeight gives the row a real
+        // height (the taller of the two cards) so stretch still does what it
+        // is here for: equal-height CPU and RAM cards.
+        return IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: cpu),
+              const SizedBox(width: 12),
+              Expanded(child: ram),
+            ],
+          ),
         );
       },
     );
@@ -199,8 +209,16 @@ class _SystemHealthPageState extends State<SystemHealthPage> {
   }
 
   Widget _buildEndpointsTable() {
-    final counts = _stats!.requestsByEndpoint.entries.toList()
+    final stats = _stats!;
+    final counts = stats.requestsByEndpoint.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
+    // The server bounds this breakdown to the most recent N audit logs, so say
+    // so — otherwise the numbers read as all-time and quietly disagree with the
+    // exact "total requests" figure on the dashboard.
+    final sampled = stats.requestsSampled;
+    final subtitle = sampled > 0 && sampled < stats.totalRequests
+        ? 'From the last $sampled requests of ${stats.totalRequests} total'
+        : null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -212,6 +230,16 @@ class _SystemHealthPageState extends State<SystemHealthPage> {
             color: AppTheme.textPrimary,
           ),
         ),
+        if (subtitle != null) ...[
+          const SizedBox(height: 2),
+          Text(
+            subtitle,
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppTheme.textSecondary,
+            ),
+          ),
+        ],
         const SizedBox(height: 10),
         DataTableCard(
           emptyMessage: 'No requests recorded yet',

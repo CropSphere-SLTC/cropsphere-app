@@ -58,36 +58,40 @@ class AdminService {
     );
   }
 
+  // One retry after the server's Retry-After window. A 429 is not a verdict
+  // about the user or the data — it just means we asked too soon — so every
+  // caller of a rate-limited admin endpoint should go through here rather
+  // than surfacing the throttle as an error.
+  Future<Response<T>> _getWithRetryOn429<T>(String path) async {
+    try {
+      return await _dio.get<T>(path);
+    } on DioException catch (e) {
+      if (e.response?.statusCode != 429) rethrow;
+      final retryAfter =
+          int.tryParse(e.response?.headers.value('retry-after') ?? '') ?? 3;
+      debugPrint('AdminService: $path rate limited, retrying in ${retryAfter}s');
+      await Future.delayed(Duration(seconds: retryAfter));
+      return _dio.get<T>(path);
+    }
+  }
+
   // Gates the Admin nav item — 200 means admin/superadmin, 403 means not.
   //
-  // /api/admin/stats is capped at 10 req/min server-side. This same endpoint
-  // is hit here (nav check) AND by the dashboard's own stats load, so a 429
-  // is a real possibility during normal use (e.g. hot-restarts in dev, or a
-  // quick nav-check-then-open-dashboard sequence) — it does NOT mean the
-  // user isn't an admin. Only a 403 is a definitive "not admin" signal;
-  // a 429 gets one retry after the server's Retry-After window.
+  // Uses /api/admin/access (60/min), NOT /api/admin/stats. This gate re-runs on
+  // app boot, on every foreground resume, and on every Home tap; pointing it at
+  // the stats endpoint meant those checks ate the 10/min budget belonging to the
+  // Dashboard and System health pages. /access does a role lookup and nothing
+  // else — no CPU sampling, no Firestore reads.
+  //
+  // Only a 403 is a definitive "not admin" signal. A 429 gets one retry.
   Future<bool> checkAdminAccess() async {
     try {
-      final response = await _dio.get('/api/admin/stats');
+      final response = await _getWithRetryOn429('/api/admin/access');
       return response.statusCode == 200;
     } on DioException catch (e) {
-      final status = e.response?.statusCode;
-      if (status == 429) {
-        final retryAfter =
-            int.tryParse(e.response?.headers.value('retry-after') ?? '') ?? 3;
-        debugPrint(
-          'AdminService.checkAdminAccess: rate limited, retrying in ${retryAfter}s',
-        );
-        await Future.delayed(Duration(seconds: retryAfter));
-        try {
-          final retryResponse = await _dio.get('/api/admin/stats');
-          return retryResponse.statusCode == 200;
-        } catch (retryError) {
-          debugPrint('AdminService.checkAdminAccess retry failed: $retryError');
-          return false;
-        }
-      }
-      debugPrint('AdminService.checkAdminAccess denied: HTTP $status');
+      debugPrint(
+        'AdminService.checkAdminAccess denied: HTTP ${e.response?.statusCode}',
+      );
       return false;
     } catch (e) {
       debugPrint('AdminService.checkAdminAccess failed: $e');
@@ -96,8 +100,8 @@ class AdminService {
   }
 
   Future<AdminStats> getStats() async {
-    final response = await _dio.get('/api/admin/stats');
-    return AdminStats.fromJson(response.data);
+    final response = await _getWithRetryOn429('/api/admin/stats');
+    return AdminStats.fromJson(response.data as Map<String, dynamic>);
   }
 
   Future<List<AdminUser>> getUsers() async {

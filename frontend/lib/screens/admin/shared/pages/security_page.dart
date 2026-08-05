@@ -241,6 +241,47 @@ class _SecurityPageState extends State<SecurityPage> {
     );
   }
 
+  /// Identity cell for a security event. An event the backend could attribute
+  /// renders like every other admin table; an identity only *claimed* by a
+  /// rejected token is marked in warning colour and spelled out in the
+  /// tooltip, so it can never be mistaken for proof that account did anything.
+  Widget _eventIdentity(SecurityEvent e) {
+    if (e.identityVerified) return adminIdentityCell(e.email, e.uid);
+    final claimed = e.claimedEmail.isNotEmpty ? e.claimedEmail : e.claimedUid;
+    if (claimed.isEmpty) {
+      return Text(
+        e.actorLabel,
+        style: const TextStyle(color: AppTheme.textMuted),
+      );
+    }
+    return Tooltip(
+      message:
+          'Claimed by a token that failed signature verification — '
+          'not proof this account was involved.\n$claimed',
+      child: SizedBox(
+        width: 200,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.help_outline,
+              size: 14,
+              color: AppTheme.warning,
+            ),
+            const SizedBox(width: 4),
+            Flexible(
+              child: Text(
+                claimed,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: AppTheme.warning),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildFailedLogins() {
     return _section(
       'Failed login attempts',
@@ -248,18 +289,15 @@ class _SecurityPageState extends State<SecurityPage> {
         emptyMessage: 'No failed logins recorded',
         columns: const [
           DataColumn(label: Text('Timestamp')),
-          DataColumn(label: Text('Email / UID')),
+          DataColumn(label: Text('User')),
           DataColumn(label: Text('IP Address')),
           DataColumn(label: Text('Reason')),
         ],
         rows: _failed.map((e) {
-          final who = e.email.isNotEmpty
-              ? e.email
-              : (e.uid.isNotEmpty ? adminTruncate(e.uid) : '—');
           return DataRow(
             cells: [
               DataCell(Text(adminFormatTimestamp(e.timestamp))),
-              DataCell(Text(who)),
+              DataCell(_eventIdentity(e)),
               DataCell(Text(e.ipAddress.isEmpty ? '—' : e.ipAddress)),
               DataCell(Text(e.details['reason']?.toString() ?? '—')),
             ],
@@ -276,7 +314,8 @@ class _SecurityPageState extends State<SecurityPage> {
         emptyMessage: 'No rate limit violations recorded',
         columns: const [
           DataColumn(label: Text('Timestamp')),
-          DataColumn(label: Text('UID')),
+          DataColumn(label: Text('User')),
+          DataColumn(label: Text('IP Address')),
           DataColumn(label: Text('Endpoint')),
           DataColumn(label: Text('Limit')),
         ],
@@ -284,12 +323,10 @@ class _SecurityPageState extends State<SecurityPage> {
           return DataRow(
             cells: [
               DataCell(Text(adminFormatTimestamp(e.timestamp))),
-              DataCell(
-                Tooltip(
-                  message: e.uid,
-                  child: Text(e.uid.isEmpty ? '—' : adminTruncate(e.uid)),
-                ),
-              ),
+              // Empty for the global limit, which is enforced before auth —
+              // there the IP beside it is the only identity there is.
+              DataCell(_eventIdentity(e)),
+              DataCell(Text(e.ipAddress.isEmpty ? '—' : e.ipAddress)),
               DataCell(Text(e.endpoint.isEmpty ? '—' : e.endpoint)),
               DataCell(Text(e.details['limit']?.toString() ?? '—')),
             ],
@@ -306,21 +343,16 @@ class _SecurityPageState extends State<SecurityPage> {
         emptyMessage: 'No banned access attempts recorded',
         columns: const [
           DataColumn(label: Text('Timestamp')),
-          DataColumn(label: Text('UID')),
-          DataColumn(label: Text('Email')),
+          DataColumn(label: Text('User')),
+          DataColumn(label: Text('IP Address')),
           DataColumn(label: Text('Endpoint')),
         ],
         rows: _banned.map((e) {
           return DataRow(
             cells: [
               DataCell(Text(adminFormatTimestamp(e.timestamp))),
-              DataCell(
-                Tooltip(
-                  message: e.uid,
-                  child: Text(e.uid.isEmpty ? '—' : adminTruncate(e.uid)),
-                ),
-              ),
-              DataCell(Text(e.email.isEmpty ? '—' : e.email)),
+              DataCell(_eventIdentity(e)),
+              DataCell(Text(e.ipAddress.isEmpty ? '—' : e.ipAddress)),
               DataCell(Text(e.endpoint.isEmpty ? '—' : e.endpoint)),
             ],
           );
@@ -417,10 +449,14 @@ class _SecurityPageState extends State<SecurityPage> {
 
   Widget _timelineRow(SecurityEvent e) {
     final color = _eventColor(e.type);
-    final who = e.email.isNotEmpty
-        ? e.email
-        : (e.uid.isNotEmpty ? adminTruncate(e.uid) : 'unknown');
-    final where = e.endpoint.isNotEmpty ? ' · ${e.endpoint}' : '';
+    // actorLabel already spells out an unverified claim and distinguishes
+    // "no token at all" from "we could not attribute this".
+    final who = e.identityVerified && e.email.isEmpty
+        ? adminTruncate(e.uid)
+        : e.actorLabel;
+    final where = e.endpoint.isNotEmpty
+        ? ' · ${e.endpoint}'
+        : (e.ipAddress.isNotEmpty ? ' · ${e.ipAddress}' : '');
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(

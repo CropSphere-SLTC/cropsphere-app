@@ -60,14 +60,27 @@ def _recent_by_type(event_type: str, limit: int) -> dict:
     Fetches a slightly larger recent window ordered by timestamp (single-field
     index) and filters by type in Python — see query_recent_security_events for
     why we avoid a composite index here.
+
+    Rows whose event carries a uid but no email get the account's current email
+    filled in, so the dashboard can name whoever triggered the event instead of
+    showing a bare UID. A stored email always wins: it is what was true at the
+    time, and for a rejected token it may be the only identity there is.
     """
-    from app.utils.firestore import query_recent_security_events
+    from app.utils.firestore import emails_for_uids, query_recent_security_events
 
     # Over-fetch so we still get `limit` of the target type when the recent
     # stream is dominated by other event types; capped to keep reads bounded.
     fetch = min(max(limit * 5, 200), 1000)
     events = query_recent_security_events(limit=fetch)
     filtered = [e for e in events if e.get("type") == event_type][:limit]
+
+    emails = emails_for_uids(
+        e.get("uid") or "" for e in filtered if not e.get("email")
+    )
+    for event in filtered:
+        if not event.get("email"):
+            event["email"] = emails.get(event.get("uid") or "", "")
+
     return {"events": filtered, "total": len(filtered)}
 
 

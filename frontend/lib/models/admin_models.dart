@@ -340,6 +340,29 @@ class SecurityEvent {
     details: Map<String, dynamic>.from(json['details'] ?? {}),
     timestamp: json['timestamp']?.toString() ?? '',
   );
+
+  // Identity a rejected token merely asserted. The backend keeps these out of
+  // uid/email precisely because its signature never verified — anyone can mint
+  // a JWT naming anyone, so this is a lead, not a fact.
+  String get claimedEmail => details['claimed_email']?.toString() ?? '';
+  String get claimedUid => details['claimed_uid']?.toString() ?? '';
+
+  /// Whether the identity on this event was established by the backend rather
+  /// than asserted by the rejected request.
+  bool get identityVerified => uid.isNotEmpty || email.isNotEmpty;
+
+  /// Who this event is about, for display. Never returns a claimed identity
+  /// without saying so — an admin must not read a forged token's email as
+  /// proof that account did anything.
+  String get actorLabel {
+    if (email.isNotEmpty) return email;
+    if (uid.isNotEmpty) return uid;
+    if (claimedEmail.isNotEmpty) return '$claimedEmail (unverified)';
+    if (claimedUid.isNotEmpty) return '$claimedUid (unverified)';
+    return details['reason'] == 'missing_or_malformed_authorization_header'
+        ? 'anonymous · no token'
+        : 'unidentified';
+  }
 }
 
 class ActiveSession {

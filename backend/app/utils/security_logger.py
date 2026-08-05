@@ -104,11 +104,16 @@ def record_failed_login(
     reason: str,
     uid: str = "",
     email: str = "",
+    details: dict = None,
 ) -> None:
     """Log + persist an authentication failure (missing/invalid/expired token).
 
-    uid/email are usually unknown at auth-failure time (the token could not be
-    decoded) and default to empty.
+    uid/email carry the attempting account only when the caller established it
+    from a signature-verified token (expired or revoked); they stay empty when
+    no trustworthy identity exists, which is the case for a missing header or
+    an unverifiable token. `details` may carry extra context — including an
+    identity merely *claimed* by an unverified token, which callers must keep
+    out of uid/email. Defaults to just the reason.
     """
     log_unauthorized_access(endpoint=endpoint, ip_address=ip_address, reason=reason)
     _persist_event(
@@ -117,7 +122,7 @@ def record_failed_login(
         email=email,
         ip_address=ip_address,
         endpoint=endpoint,
-        details={"reason": reason},
+        details=details or {"reason": reason},
     )
 
 

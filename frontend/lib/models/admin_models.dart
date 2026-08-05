@@ -76,6 +76,12 @@ class AuditLog {
   final String timestamp;
   final Map<String, dynamic> details;
 
+  // Resolved by the backend at read time from the users collection. Empty when
+  // the account has since been deleted — the UID is what the log actually
+  // stores, so callers fall back to it rather than showing a blank cell.
+  final String actorEmail;
+  final String targetEmail;
+
   AuditLog({
     required this.actorUid,
     required this.actorRole,
@@ -83,6 +89,8 @@ class AuditLog {
     required this.targetUid,
     required this.timestamp,
     required this.details,
+    this.actorEmail = '',
+    this.targetEmail = '',
   });
 
   factory AuditLog.fromJson(Map<String, dynamic> json) => AuditLog(
@@ -92,7 +100,15 @@ class AuditLog {
     targetUid: json['target_uid'] ?? '',
     timestamp: json['timestamp'] ?? '',
     details: Map<String, dynamic>.from(json['details'] ?? {}),
+    actorEmail: json['actor_email'] ?? '',
+    targetEmail: json['target_email'] ?? '',
   );
+
+  /// What to show for the actor: email when known, UID otherwise.
+  String get actorLabel => actorEmail.isNotEmpty ? actorEmail : actorUid;
+
+  /// What to show for the target: email when known, UID otherwise.
+  String get targetLabel => targetEmail.isNotEmpty ? targetEmail : targetUid;
 }
 
 class GapReport {

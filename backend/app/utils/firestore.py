@@ -553,6 +553,41 @@ def count_active_sessions(hours: int = 24) -> int:
     return sum(1 for _ in docs)
 
 
+def emails_for_uids(uids) -> Dict[str, str]:
+    """Map each UID to that account's current email — used to put a human name
+    on log rows that only store a UID.
+
+    Inputs: an iterable of UIDs (duplicates fine).
+    Outputs: {uid: email}. UIDs with no user document or no email on it are
+    absent from the map, so callers must fall back to displaying the UID.
+
+    Resolved at read time rather than copied onto the log document: the audit
+    collections are deliberately PII-minimal (prediction inputs are hashed,
+    never stored raw), and a stored email would go stale the moment the user
+    changes it. Batched through get_all so one page of logs costs one round
+    trip instead of one read per row. Best-effort by design — a failure logs a
+    warning and returns {} rather than taking down the audit trail itself,
+    which is the part the admin actually needs.
+    """
+    unique = {uid for uid in uids if uid}
+    if not unique:
+        return {}
+    try:
+        db = get_db()
+        refs = [db.collection("users").document(uid) for uid in unique]
+        emails: Dict[str, str] = {}
+        for snap in db.get_all(refs):
+            data = snap.to_dict() or {}
+            uid = getattr(snap, "id", "") or data.get("uid", "")
+            email = data.get("email") or ""
+            if uid and email:
+                emails[uid] = email
+        return emails
+    except Exception as exc:
+        logger.warning("UID→email enrichment unavailable: %s", exc)
+        return {}
+
+
 def list_active_sessions(hours: int = 24, limit: int = 100) -> list:
     """Return active sessions (last_active within `hours`), newest first.
 

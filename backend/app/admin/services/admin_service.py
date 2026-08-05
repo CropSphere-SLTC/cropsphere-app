@@ -272,9 +272,13 @@ def get_audit_logs(limit: int, actor: dict) -> dict:
     """Return admin audit logs.
     Admin sees only admin-level actions (not superadmin actions).
     Superadmin sees all actions.
+
+    Each row carries actor_email/target_email alongside the UIDs so the admin
+    UI can name who acted on whom; the UID stays authoritative and the email is
+    empty string for rows whose account no longer exists.
     """
     try:
-        from app.utils.firestore import get_db
+        from app.utils.firestore import emails_for_uids, get_db
 
         db = get_db()
         query = (
@@ -292,6 +296,16 @@ def get_audit_logs(limit: int, actor: dict) -> dict:
             if "timestamp" in data:
                 data["timestamp"] = data["timestamp"].isoformat()
             logs.append(data)
+
+        emails = emails_for_uids(
+            uid
+            for log in logs
+            for uid in (log.get("actor_uid"), log.get("target_uid"))
+        )
+        for log in logs:
+            log["actor_email"] = emails.get(log.get("actor_uid", ""), "")
+            log["target_email"] = emails.get(log.get("target_uid", ""), "")
+
         return {"logs": logs, "total": len(logs)}
     except Exception as exc:
         logger.error(f"get_audit_logs failed: {exc}")
@@ -299,9 +313,14 @@ def get_audit_logs(limit: int, actor: dict) -> dict:
 
 
 def get_prediction_logs(limit: int) -> dict:
-    """Return prediction audit logs from audit_logs collection."""
+    """Return prediction audit logs from audit_logs collection.
+
+    Each row carries user_email alongside user_id so the admin UI can name the
+    caller; it is empty string when the account no longer exists. The stored
+    document itself stays UID-only — see emails_for_uids.
+    """
     try:
-        from app.utils.firestore import get_db
+        from app.utils.firestore import emails_for_uids, get_db
 
         db = get_db()
         query = (
@@ -315,6 +334,11 @@ def get_prediction_logs(limit: int) -> dict:
             if "timestamp" in data:
                 data["timestamp"] = data["timestamp"].isoformat()
             logs.append(data)
+
+        emails = emails_for_uids(log.get("user_id", "") for log in logs)
+        for log in logs:
+            log["user_email"] = emails.get(log.get("user_id", ""), "")
+
         return {"logs": logs, "total": len(logs)}
     except Exception as exc:
         logger.error(f"get_prediction_logs failed: {exc}")

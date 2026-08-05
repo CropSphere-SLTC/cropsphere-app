@@ -444,3 +444,153 @@ def test_get_prediction_logs_firestore_failure_raises_500():
         with pytest.raises(HTTPException) as exc_info:
             admin_service.get_prediction_logs(50)
     assert exc_info.value.status_code == 500
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Log email enrichment (admins need a name, not just a UID)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _mock_user_snapshot(uid: str, data: dict | None):
+    """Fake DocumentSnapshot as returned by db.get_all — .id plus .to_dict(),
+    where a missing document yields None."""
+    snap = MagicMock()
+    snap.id = uid
+    snap.to_dict.return_value = data
+    return snap
+
+
+def _logs_db(logs_data: list, users: dict | None = None):
+    """Firestore mock streaming `logs_data` as the log query result and
+    resolving get_all against `users` ({uid: user_doc}; a UID missing from the
+    map stands for a deleted account)."""
+    mock_query = MagicMock()
+    mock_query.stream.return_value = [_mock_doc(d) for d in logs_data]
+    mock_db = MagicMock()
+    mock_db.collection.return_value.order_by.return_value.limit.return_value = (
+        mock_query
+    )
+
+    users = users or {}
+    # Each ref remembers the uid it was built from so get_all can answer with
+    # the matching snapshot, mirroring the real client's ref-in/snapshot-out.
+
+    def _document(uid):
+        ref = MagicMock()
+        ref.uid = uid
+        return ref
+
+    mock_db.collection.return_value.document.side_effect = _document
+    mock_db.get_all.side_effect = lambda refs: [
+        _mock_user_snapshot(ref.uid, users.get(ref.uid)) for ref in refs
+    ]
+    return mock_db
+
+
+def test_get_prediction_logs_includes_user_email():
+    mock_db = _logs_db(
+        [{"user_id": "u1", "endpoint": "/api/yield/predict"}],
+        users={"u1": {"uid": "u1", "email": "farmer@x.com"}},
+    )
+
+    with patch("app.utils.firestore.get_db", return_value=mock_db):
+        result = admin_service.get_prediction_logs(50)
+
+    assert result["logs"][0]["user_email"] == "farmer@x.com"
+    # The UID stays authoritative — enrichment adds to it, never replaces it.
+    assert result["logs"][0]["user_id"] == "u1"
+
+
+def test_get_prediction_logs_email_empty_for_deleted_user():
+    """A log row outlives the account it refers to; the row must still render."""
+    mock_db = _logs_db(
+        [{"user_id": "gone", "endpoint": "/api/yield/predict"}],
+        users={},
+    )
+
+    with patch("app.utils.firestore.get_db", return_value=mock_db):
+        result = admin_service.get_prediction_logs(50)
+
+    assert result["logs"][0]["user_email"] == ""
+    assert result["logs"][0]["user_id"] == "gone"
+
+
+def test_get_prediction_logs_survives_enrichment_failure():
+    """The audit trail is the part admins need — a users-collection failure
+    must degrade to blank emails, not a 500."""
+    mock_db = _logs_db([{"user_id": "u1", "endpoint": "/api/yield/predict"}])
+    mock_db.get_all.side_effect = RuntimeError("permission denied")
+
+    with patch("app.utils.firestore.get_db", return_value=mock_db):
+        result = admin_service.get_prediction_logs(50)
+
+    assert result["total"] == 1
+    assert result["logs"][0]["user_email"] == ""
+
+
+def test_get_audit_logs_includes_actor_and_target_emails():
+    mock_db = _logs_db(
+        [
+            {
+                "actor_uid": "a1",
+                "actor_role": "admin",
+                "action": "ban_user",
+                "target_uid": "u1",
+            }
+        ],
+        users={
+            "a1": {"uid": "a1", "email": "admin@x.com"},
+            "u1": {"uid": "u1", "email": "farmer@x.com"},
+        },
+    )
+
+    with patch("app.utils.firestore.get_db", return_value=mock_db):
+        result = admin_service.get_audit_logs(50, SUPERADMIN_ACTOR)
+
+    log = result["logs"][0]
+    assert log["actor_email"] == "admin@x.com"
+    assert log["target_email"] == "farmer@x.com"
+
+
+def test_get_audit_logs_blank_email_for_actions_without_a_target():
+    """System-wide actions carry no target_uid — that must not be looked up
+    or rendered as a stray email."""
+    mock_db = _logs_db(
+        [
+            {
+                "actor_uid": "a1",
+                "actor_role": "admin",
+                "action": "update_config",
+                "target_uid": "",
+            }
+        ],
+        users={"a1": {"uid": "a1", "email": "admin@x.com"}},
+    )
+
+    with patch("app.utils.firestore.get_db", return_value=mock_db):
+        result = admin_service.get_audit_logs(50, SUPERADMIN_ACTOR)
+
+    assert result["logs"][0]["target_email"] == ""
+
+
+def test_get_audit_logs_enrichment_batches_one_read_per_uid():
+    """Two rows touching the same account must cost one lookup, not two."""
+    mock_db = _logs_db(
+        [
+            {"actor_uid": "a1", "actor_role": "admin", "action": "ban_user",
+             "target_uid": "u1"},
+            {"actor_uid": "a1", "actor_role": "admin", "action": "unban_user",
+             "target_uid": "u1"},
+        ],
+        users={
+            "a1": {"uid": "a1", "email": "admin@x.com"},
+            "u1": {"uid": "u1", "email": "farmer@x.com"},
+        },
+    )
+
+    with patch("app.utils.firestore.get_db", return_value=mock_db):
+        result = admin_service.get_audit_logs(50, SUPERADMIN_ACTOR)
+
+    mock_db.get_all.assert_called_once()
+    assert len(mock_db.get_all.call_args[0][0]) == 2
+    assert all(log["actor_email"] == "admin@x.com" for log in result["logs"])

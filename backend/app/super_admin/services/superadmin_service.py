@@ -61,9 +61,13 @@ def get_all_audit_logs(limit: int) -> dict:
 
     Unlike app.admin.services.admin_service.get_audit_logs, nothing is
     filtered out here — superadmin sees the complete trail.
+
+    Rows carry actor_email/target_email next to the UIDs, resolved at read time
+    the same way the admin view does it, so the two audit screens name people
+    identically.
     """
     try:
-        from app.utils.firestore import get_db
+        from app.utils.firestore import emails_for_uids, get_db
 
         db = get_db()
         query = (
@@ -77,6 +81,16 @@ def get_all_audit_logs(limit: int) -> dict:
             if "timestamp" in data:
                 data["timestamp"] = data["timestamp"].isoformat()
             logs.append(data)
+
+        emails = emails_for_uids(
+            uid
+            for log in logs
+            for uid in (log.get("actor_uid"), log.get("target_uid"))
+        )
+        for log in logs:
+            log["actor_email"] = emails.get(log.get("actor_uid", ""), "")
+            log["target_email"] = emails.get(log.get("target_uid", ""), "")
+
         return {"logs": logs, "total": len(logs)}
     except Exception as exc:
         logger.error(f"get_all_audit_logs failed: {exc}")

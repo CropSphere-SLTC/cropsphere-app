@@ -365,6 +365,85 @@ class SecurityEvent {
   }
 }
 
+/// Consecutive security events that are really one incident.
+///
+/// A burst of identical events — the same actor failing login from the same IP
+/// eight times in a minute — is one thing that happened, but the raw timeline
+/// renders it as eight indistinguishable lines that push everything else off
+/// the page. Collapsing them makes the shape of an attack visible: a repeat
+/// count is the signal, and the rows it no longer crowds out are the context.
+class SecurityEventBurst {
+  /// Newest event in the burst; carries the type, identity and endpoint shown.
+  final SecurityEvent latest;
+
+  /// Every event in the burst, newest first (length 1 for an ordinary row).
+  final List<SecurityEvent> events;
+
+  const SecurityEventBurst(this.latest, this.events);
+
+  int get count => events.length;
+  bool get isBurst => events.length > 1;
+  String get type => latest.type;
+
+  /// Timestamp of the oldest event — the start of the burst.
+  String get firstTimestamp => events.last.timestamp;
+
+  /// Endpoint to display: the shared one, or how many were hit. A spray across
+  /// endpoints from one source is itself worth seeing.
+  String get endpointLabel {
+    final endpoints = events
+        .map((e) => e.endpoint)
+        .where((e) => e.isNotEmpty)
+        .toSet();
+    if (endpoints.isEmpty) return '';
+    if (endpoints.length == 1) return endpoints.first;
+    return '${endpoints.length} endpoints';
+  }
+
+  /// Longest gap tolerated between two events of the same burst. Beyond this
+  /// they are separate incidents, however alike they look — a failed login
+  /// today and an identical one last week are not one event.
+  static const Duration window = Duration(minutes: 10);
+
+  /// Collapse a newest-first event list into bursts, preserving order.
+  ///
+  /// Groups only *adjacent* events sharing type, actor and IP, so the timeline
+  /// stays strictly chronological — nothing is reordered or hoisted.
+  static List<SecurityEventBurst> group(List<SecurityEvent> events) {
+    final out = <SecurityEventBurst>[];
+    var current = <SecurityEvent>[];
+
+    bool joins(SecurityEvent e) {
+      if (current.isEmpty) return false;
+      final prev = current.last;
+      if (e.type != prev.type ||
+          e.ipAddress != prev.ipAddress ||
+          e.actorLabel != prev.actorLabel) {
+        return false;
+      }
+      final a = DateTime.tryParse(prev.timestamp);
+      final b = DateTime.tryParse(e.timestamp);
+      // Unparseable timestamps only group with an identical neighbour when we
+      // can measure the gap; otherwise keep them as their own row.
+      if (a == null || b == null) return false;
+      return a.difference(b).abs() <= window;
+    }
+
+    for (final e in events) {
+      if (joins(e)) {
+        current.add(e);
+      } else {
+        if (current.isNotEmpty) {
+          out.add(SecurityEventBurst(current.first, current));
+        }
+        current = [e];
+      }
+    }
+    if (current.isNotEmpty) out.add(SecurityEventBurst(current.first, current));
+    return out;
+  }
+}
+
 class ActiveSession {
   final String uid;
   final String email;

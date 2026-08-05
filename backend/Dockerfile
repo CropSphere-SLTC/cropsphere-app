@@ -20,14 +20,14 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # pulling the multi-GB CUDA torch + nvidia-* wheels as transitive deps
 # (which previously exhausted builder disk), and guarantees ONE consistent
 # torch version in the final image.
-RUN echo "torch==2.12.1+cpu" > /tmp/pip-constraints.txt
+RUN echo "torch==2.13.0+cpu" > /tmp/pip-constraints.txt
 ENV PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu \
     PIP_CONSTRAINT=/tmp/pip-constraints.txt
 
 # Layer 1 — torch (CPU-only, cached across builds)
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --timeout 600 --retries 10 --prefix=/install \
-    torch==2.12.1 --index-url https://download.pytorch.org/whl/cpu
+    torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
 
 # Layer 2 — tensorflow CPU-only (no CUDA bloat)
 RUN --mount=type=cache,target=/root/.cache/pip \

@@ -4,6 +4,7 @@
 
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'session_recovery.dart';
 import '../config/app_config.dart';
 import '../models/chat_history_models.dart';
 
@@ -45,8 +46,12 @@ class ChatHistoryService {
                 opts.headers['Authorization'] = 'Bearer $newToken';
                 final response = await _dio.fetch(opts);
                 return handler.resolve(response);
-              } catch (_) {
-                // Retry failed — fall through to original error.
+              } catch (e) {
+                // Refresh failed. If that means the session is gone — a
+                // force-logout revoked the refresh token — sign out so the
+                // auth gate routes to login rather than stranding the user
+                // in an app where every request 401s.
+                await endSessionIfRevoked(e);
               }
             }
           }

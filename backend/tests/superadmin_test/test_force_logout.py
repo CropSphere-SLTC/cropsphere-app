@@ -16,19 +16,29 @@ from app.super_admin.services import superadmin_service
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def test_force_logout_revokes_tokens_and_audits():
+def test_force_logout_revokes_records_clears_and_audits():
+    """All three steps must happen: revoking alone leaves the user's current
+    ID token working and their row sitting in Active Sessions."""
     with patch("firebase_admin.auth.revoke_refresh_tokens") as mock_revoke, patch(
+        "app.utils.firestore.record_token_revocation"
+    ) as mock_record, patch(
+        "app.utils.firestore.delete_user_sessions", return_value=2
+    ) as mock_clear, patch(
         "app.utils.firestore.admin_audit_log"
     ) as mock_audit:
         result = superadmin_service.force_logout("target-uid", "super-uid")
 
     mock_revoke.assert_called_once_with("target-uid")
+    mock_record.assert_called_once_with("target-uid")
+    mock_clear.assert_called_once_with("target-uid")
     mock_audit.assert_called_once()
     kwargs = mock_audit.call_args.kwargs
     assert kwargs["action"] == "force_logout"
     assert kwargs["target_uid"] == "target-uid"
     assert kwargs["actor_uid"] == "super-uid"
+    assert kwargs["details"]["sessions_cleared"] == 2
     assert result["uid"] == "target-uid"
+    assert result["sessions_cleared"] == 2
 
 
 def test_force_logout_revoke_failure_raises_500():
@@ -39,6 +49,31 @@ def test_force_logout_revoke_failure_raises_500():
         with pytest.raises(HTTPException) as exc_info:
             superadmin_service.force_logout("target-uid", "super-uid")
     assert exc_info.value.status_code == 500
+
+
+def test_force_logout_fails_loudly_when_revocation_cannot_be_recorded():
+    """Without the marker the middleware cannot refuse the live token, so the
+    logout would silently not take effect — that must surface as an error."""
+    with patch("firebase_admin.auth.revoke_refresh_tokens"), patch(
+        "app.utils.firestore.record_token_revocation",
+        side_effect=RuntimeError("firestore down"),
+    ), patch("app.utils.firestore.admin_audit_log"):
+        with pytest.raises(HTTPException) as exc_info:
+            superadmin_service.force_logout("target-uid", "super-uid")
+    assert exc_info.value.status_code == 500
+
+
+def test_force_logout_survives_session_cleanup_failure():
+    """Access is already cut once the marker is written — a tidy-up failure
+    must not report the logout as failed."""
+    with patch("firebase_admin.auth.revoke_refresh_tokens"), patch(
+        "app.utils.firestore.record_token_revocation"
+    ), patch("app.utils.firestore.delete_user_sessions", return_value=0), patch(
+        "app.utils.firestore.admin_audit_log"
+    ):
+        result = superadmin_service.force_logout("target-uid", "super-uid")
+
+    assert result["sessions_cleared"] == 0
 
 
 # ═══════════════════════════════════════════════════════════════════════════

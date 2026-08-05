@@ -165,6 +165,51 @@ def test_get_all_audit_logs_firestore_failure_raises_500():
     assert exc_info.value.status_code == 500
 
 
+def test_get_all_audit_logs_includes_actor_and_target_emails():
+    """The superadmin trail must name people the same way the admin one does —
+    both screens render the same AuditLog model."""
+    mock_query = MagicMock()
+    mock_query.stream.return_value = [
+        _mock_doc(
+            {
+                "actor_uid": "s1",
+                "actor_role": "superadmin",
+                "action": "delete_user",
+                "target_uid": "u1",
+            }
+        )
+    ]
+    mock_db = MagicMock()
+    mock_db.collection.return_value.order_by.return_value.limit.return_value = (
+        mock_query
+    )
+
+    def _document(uid):
+        ref = MagicMock()
+        ref.uid = uid
+        return ref
+
+    users = {
+        "s1": {"uid": "s1", "email": "root@x.com"},
+        "u1": {"uid": "u1", "email": "farmer@x.com"},
+    }
+
+    def _snapshot(uid):
+        snap = MagicMock()
+        snap.id = uid
+        snap.to_dict.return_value = users.get(uid)
+        return snap
+
+    mock_db.collection.return_value.document.side_effect = _document
+    mock_db.get_all.side_effect = lambda refs: [_snapshot(r.uid) for r in refs]
+
+    with patch("app.utils.firestore.get_db", return_value=mock_db):
+        result = superadmin_service.get_all_audit_logs(50)
+
+    assert result["logs"][0]["actor_email"] == "root@x.com"
+    assert result["logs"][0]["target_email"] == "farmer@x.com"
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # cleanup_old_sessions
 # ═══════════════════════════════════════════════════════════════════════════

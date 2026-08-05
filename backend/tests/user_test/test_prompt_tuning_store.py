@@ -460,3 +460,26 @@ def test_parse_iso_rejects_junk(value):
 def test_parse_iso_handles_z_suffix_and_naive_values():
     assert store.parse_iso("2026-07-14T10:00:00Z").tzinfo is not None
     assert store.parse_iso("2026-07-14T10:00:00").tzinfo == timezone.utc
+
+
+# ── known_ids ─────────────────────────────────────────────────────────────────
+#
+# Feeds the analyzer's already_active flag, so a proposal the admin applied is
+# not offered back as if it were a new finding.
+
+
+def test_known_ids_empty_on_a_fresh_store():
+    assert store.known_ids() == set()
+
+
+def test_known_ids_reports_applied_adjustments():
+    _apply()
+    assert store.known_ids() == {"language_complexity"}
+
+
+def test_known_ids_excludes_trashed_adjustments():
+    """Removing an adjustment is how an admin retires it — if the condition
+    starts triggering again that is a genuine new finding, not a repeat."""
+    _apply()
+    store.trash("language_complexity", "admin1", "manual_removal", "no longer needed")
+    assert store.known_ids() == set()

@@ -23,6 +23,14 @@ class SecurityPage extends StatefulWidget {
 }
 
 class _SecurityPageState extends State<SecurityPage> {
+  // Timeline rows rendered before truncating. Rows are bursts, not raw events,
+  // so this is a budget of distinct incidents.
+  static const _timelineRowLimit = 50;
+
+  // What the backend returns per event type (security_router's default limit).
+  // Quoted in the footer so the view does not read as the complete record.
+  static const _perTypeFetchLimit = 50;
+
   final _admin = AdminService();
   final _superadmin = SuperadminService();
 
@@ -95,8 +103,9 @@ class _SecurityPageState extends State<SecurityPage> {
       builder: (ctx) => AlertDialog(
         title: const Text('Force logout?'),
         content: Text(
-          'This revokes all refresh tokens for $who. Their current session '
-          'ends once the active token expires (within ~1 hour).',
+          'This signs $who out of every device and clears their active '
+          'sessions. Takes effect within a minute; they can sign in again '
+          'afterwards unless you also ban the account.',
         ),
         actions: [
           TextButton(
@@ -116,6 +125,9 @@ class _SecurityPageState extends State<SecurityPage> {
     setState(() => _busyUids.add(session.uid));
     try {
       await _superadmin.forceLogout(session.uid);
+      // The backend clears their session documents, so re-fetch rather than
+      // leaving a row that makes the button look like it did nothing.
+      await _fetchAll();
       _showSnack('Revoked sessions for $who');
     } catch (e) {
       _showSnack(adminErrorMessage(e), isError: true);
@@ -241,6 +253,43 @@ class _SecurityPageState extends State<SecurityPage> {
     );
   }
 
+  /// Identity cell for a security event. An event the backend could attribute
+  /// renders like every other admin table; an identity only *claimed* by a
+  /// rejected token is marked in warning colour and spelled out in the
+  /// tooltip, so it can never be mistaken for proof that account did anything.
+  Widget _eventIdentity(SecurityEvent e) {
+    if (e.identityVerified) return adminIdentityCell(e.email, e.uid);
+    final claimed = e.claimedEmail.isNotEmpty ? e.claimedEmail : e.claimedUid;
+    if (claimed.isEmpty) {
+      return Text(
+        e.actorLabel,
+        style: const TextStyle(color: AppTheme.textMuted),
+      );
+    }
+    return Tooltip(
+      message:
+          'Claimed by a token that failed signature verification — '
+          'not proof this account was involved.\n$claimed',
+      child: SizedBox(
+        width: 200,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.help_outline, size: 14, color: AppTheme.warning),
+            const SizedBox(width: 4),
+            Flexible(
+              child: Text(
+                claimed,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: AppTheme.warning),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildFailedLogins() {
     return _section(
       'Failed login attempts',
@@ -248,18 +297,15 @@ class _SecurityPageState extends State<SecurityPage> {
         emptyMessage: 'No failed logins recorded',
         columns: const [
           DataColumn(label: Text('Timestamp')),
-          DataColumn(label: Text('Email / UID')),
+          DataColumn(label: Text('User')),
           DataColumn(label: Text('IP Address')),
           DataColumn(label: Text('Reason')),
         ],
         rows: _failed.map((e) {
-          final who = e.email.isNotEmpty
-              ? e.email
-              : (e.uid.isNotEmpty ? adminTruncate(e.uid) : '—');
           return DataRow(
             cells: [
               DataCell(Text(adminFormatTimestamp(e.timestamp))),
-              DataCell(Text(who)),
+              DataCell(_eventIdentity(e)),
               DataCell(Text(e.ipAddress.isEmpty ? '—' : e.ipAddress)),
               DataCell(Text(e.details['reason']?.toString() ?? '—')),
             ],
@@ -276,7 +322,8 @@ class _SecurityPageState extends State<SecurityPage> {
         emptyMessage: 'No rate limit violations recorded',
         columns: const [
           DataColumn(label: Text('Timestamp')),
-          DataColumn(label: Text('UID')),
+          DataColumn(label: Text('User')),
+          DataColumn(label: Text('IP Address')),
           DataColumn(label: Text('Endpoint')),
           DataColumn(label: Text('Limit')),
         ],
@@ -284,12 +331,10 @@ class _SecurityPageState extends State<SecurityPage> {
           return DataRow(
             cells: [
               DataCell(Text(adminFormatTimestamp(e.timestamp))),
-              DataCell(
-                Tooltip(
-                  message: e.uid,
-                  child: Text(e.uid.isEmpty ? '—' : adminTruncate(e.uid)),
-                ),
-              ),
+              // Empty for the global limit, which is enforced before auth —
+              // there the IP beside it is the only identity there is.
+              DataCell(_eventIdentity(e)),
+              DataCell(Text(e.ipAddress.isEmpty ? '—' : e.ipAddress)),
               DataCell(Text(e.endpoint.isEmpty ? '—' : e.endpoint)),
               DataCell(Text(e.details['limit']?.toString() ?? '—')),
             ],
@@ -306,21 +351,16 @@ class _SecurityPageState extends State<SecurityPage> {
         emptyMessage: 'No banned access attempts recorded',
         columns: const [
           DataColumn(label: Text('Timestamp')),
-          DataColumn(label: Text('UID')),
-          DataColumn(label: Text('Email')),
+          DataColumn(label: Text('User')),
+          DataColumn(label: Text('IP Address')),
           DataColumn(label: Text('Endpoint')),
         ],
         rows: _banned.map((e) {
           return DataRow(
             cells: [
               DataCell(Text(adminFormatTimestamp(e.timestamp))),
-              DataCell(
-                Tooltip(
-                  message: e.uid,
-                  child: Text(e.uid.isEmpty ? '—' : adminTruncate(e.uid)),
-                ),
-              ),
-              DataCell(Text(e.email.isEmpty ? '—' : e.email)),
+              DataCell(_eventIdentity(e)),
+              DataCell(Text(e.ipAddress.isEmpty ? '—' : e.ipAddress)),
               DataCell(Text(e.endpoint.isEmpty ? '—' : e.endpoint)),
             ],
           );
@@ -382,6 +422,9 @@ class _SecurityPageState extends State<SecurityPage> {
     final filtered = _timelineType == null
         ? all
         : all.where((e) => e.type == _timelineType).toList();
+    // Collapse repeats before capping the rows, so the limit spends itself on
+    // distinct incidents instead of on one noisy attacker's identical lines.
+    final bursts = SecurityEventBurst.group(filtered);
 
     return AdminSectionCard(
       title: 'Security event timeline',
@@ -408,19 +451,62 @@ class _SecurityPageState extends State<SecurityPage> {
                 style: TextStyle(color: AppTheme.textMuted),
               ),
             )
-          else
-            ...filtered.take(50).map(_timelineRow),
+          else ...[
+            ...bursts.take(_timelineRowLimit).map(_timelineRow),
+            _timelineFooter(bursts, filtered.length),
+          ],
         ],
       ),
     );
   }
 
-  Widget _timelineRow(SecurityEvent e) {
+  /// Says what the rendered rows do and do not cover. The three event lists are
+  /// each capped server-side, so this view is a recent window, not the whole
+  /// record — an admin reading it as complete would draw wrong conclusions
+  /// about how much is going on.
+  Widget _timelineFooter(List<SecurityEventBurst> bursts, int eventCount) {
+    final shown = bursts.take(_timelineRowLimit).toList();
+    final shownEvents = shown.fold<int>(0, (sum, b) => sum + b.count);
+    final parts = <String>[];
+    if (bursts.length > _timelineRowLimit) {
+      parts.add('Showing $shownEvents of $eventCount events');
+    } else {
+      parts.add('$eventCount events');
+    }
+    final grouped = shown.where((b) => b.isBurst).length;
+    if (grouped > 0) {
+      parts.add('$grouped grouped into bursts');
+    }
+    parts.add('most recent $_perTypeFetchLimit per type');
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Text(
+        parts.join(' · '),
+        style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
+      ),
+    );
+  }
+
+  Widget _timelineRow(SecurityEventBurst burst) {
+    final e = burst.latest;
     final color = _eventColor(e.type);
-    final who = e.email.isNotEmpty
-        ? e.email
-        : (e.uid.isNotEmpty ? adminTruncate(e.uid) : 'unknown');
-    final where = e.endpoint.isNotEmpty ? ' · ${e.endpoint}' : '';
+    // actorLabel already spells out an unverified claim and distinguishes
+    // "no token at all" from "we could not attribute this".
+    final who = e.identityVerified && e.email.isEmpty
+        ? adminTruncate(e.uid)
+        : e.actorLabel;
+    final endpoint = burst.endpointLabel;
+    final where = endpoint.isNotEmpty
+        ? ' · $endpoint'
+        : (e.ipAddress.isNotEmpty ? ' · ${e.ipAddress}' : '');
+    // A burst spans time, so show where it started as well as when it last
+    // fired — "8 attempts over 4 minutes" reads very differently from
+    // "8 attempts over 8 hours".
+    final when = burst.isBurst
+        ? '${adminFormatTimestamp(burst.firstTimestamp)} → '
+              '${adminFormatTimestamp(e.timestamp)}'
+        : adminFormatTimestamp(e.timestamp);
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(
@@ -447,6 +533,10 @@ class _SecurityPageState extends State<SecurityPage> {
                         color: color,
                       ),
                     ),
+                    if (burst.isBurst) ...[
+                      const SizedBox(width: 6),
+                      _repeatBadge(burst.count, color),
+                    ],
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -461,7 +551,7 @@ class _SecurityPageState extends State<SecurityPage> {
                   ],
                 ),
                 Text(
-                  adminFormatTimestamp(e.timestamp),
+                  when,
                   style: const TextStyle(
                     fontSize: 11,
                     color: AppTheme.textMuted,
@@ -471,6 +561,26 @@ class _SecurityPageState extends State<SecurityPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Repeat count for a collapsed burst — the number is the whole point of the
+  /// grouping, so it carries the event's colour rather than blending in.
+  Widget _repeatBadge(int count, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(5),
+      ),
+      child: Text(
+        '×$count',
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
       ),
     );
   }

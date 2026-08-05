@@ -74,9 +74,7 @@ def _recent_by_type(event_type: str, limit: int) -> dict:
     events = query_recent_security_events(limit=fetch)
     filtered = [e for e in events if e.get("type") == event_type][:limit]
 
-    emails = emails_for_uids(
-        e.get("uid") or "" for e in filtered if not e.get("email")
-    )
+    emails = emails_for_uids(e.get("uid") or "" for e in filtered if not e.get("email"))
     for event in filtered:
         if not event.get("email"):
             event["email"] = emails.get(event.get("uid") or "", "")

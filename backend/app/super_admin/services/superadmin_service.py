@@ -83,9 +83,7 @@ def get_all_audit_logs(limit: int) -> dict:
             logs.append(data)
 
         emails = emails_for_uids(
-            uid
-            for log in logs
-            for uid in (log.get("actor_uid"), log.get("target_uid"))
+            uid for log in logs for uid in (log.get("actor_uid"), log.get("target_uid"))
         )
         for log in logs:
             log["actor_email"] = emails.get(log.get("actor_uid", ""), "")

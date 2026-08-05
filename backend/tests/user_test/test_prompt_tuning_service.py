@@ -182,9 +182,9 @@ def _triggering_metrics():
 
 
 def test_proposals_are_marked_when_already_applied():
-    with patch.object(pt, "_aggregate", return_value=_triggering_metrics()), patch.object(
-        store, "known_ids", return_value={"language_complexity"}
-    ):
+    with patch.object(
+        pt, "_aggregate", return_value=_triggering_metrics()
+    ), patch.object(store, "known_ids", return_value={"language_complexity"}):
         out = pt.analyze_and_generate_tuning(7)
 
     by_id = {a["id"]: a for a in out["adjustments"]}
@@ -195,18 +195,18 @@ def test_proposals_are_marked_when_already_applied():
 def test_applied_proposals_are_still_listed_not_dropped():
     """Hiding them would throw away the signal that the live adjustment has
     not fixed the condition yet."""
-    with patch.object(pt, "_aggregate", return_value=_triggering_metrics()), patch.object(
-        store, "known_ids", return_value={"language_complexity"}
-    ):
+    with patch.object(
+        pt, "_aggregate", return_value=_triggering_metrics()
+    ), patch.object(store, "known_ids", return_value={"language_complexity"}):
         out = pt.analyze_and_generate_tuning(7)
 
     assert "language_complexity" in {a["id"] for a in out["adjustments"]}
 
 
 def test_every_proposal_carries_the_flag_when_nothing_is_applied():
-    with patch.object(pt, "_aggregate", return_value=_triggering_metrics()), patch.object(
-        store, "known_ids", return_value=set()
-    ):
+    with patch.object(
+        pt, "_aggregate", return_value=_triggering_metrics()
+    ), patch.object(store, "known_ids", return_value=set()):
         out = pt.analyze_and_generate_tuning(7)
 
     assert out["adjustments"]
@@ -216,9 +216,9 @@ def test_every_proposal_carries_the_flag_when_nothing_is_applied():
 def test_unreadable_store_does_not_fail_the_analysis():
     """Best-effort: losing the marking is acceptable, losing the analysis is
     not."""
-    with patch.object(pt, "_aggregate", return_value=_triggering_metrics()), patch.object(
-        store, "known_ids", side_effect=RuntimeError("no file")
-    ):
+    with patch.object(
+        pt, "_aggregate", return_value=_triggering_metrics()
+    ), patch.object(store, "known_ids", side_effect=RuntimeError("no file")):
         out = pt.analyze_and_generate_tuning(7)
 
     assert out["adjustments"]

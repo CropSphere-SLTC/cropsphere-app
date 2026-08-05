@@ -577,10 +577,18 @@ def test_get_audit_logs_enrichment_batches_one_read_per_uid():
     """Two rows touching the same account must cost one lookup, not two."""
     mock_db = _logs_db(
         [
-            {"actor_uid": "a1", "actor_role": "admin", "action": "ban_user",
-             "target_uid": "u1"},
-            {"actor_uid": "a1", "actor_role": "admin", "action": "unban_user",
-             "target_uid": "u1"},
+            {
+                "actor_uid": "a1",
+                "actor_role": "admin",
+                "action": "ban_user",
+                "target_uid": "u1",
+            },
+            {
+                "actor_uid": "a1",
+                "actor_role": "admin",
+                "action": "unban_user",
+                "target_uid": "u1",
+            },
         ],
         users={
             "a1": {"uid": "a1", "email": "admin@x.com"},

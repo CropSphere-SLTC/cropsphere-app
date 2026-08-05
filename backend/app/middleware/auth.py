@@ -39,8 +39,38 @@ _MAX_CLAIM_CHARS = 254
 # consulted from memory, which costs one small read per worker per interval and
 # caps how long a revoked session survives at _REVOCATION_REFRESH_SECONDS.
 _REVOCATION_REFRESH_SECONDS = 60
-_revocations: dict = {}
-_revocations_loaded_at = 0.0
+
+
+class _RevocationCache:
+    """Force-logout markers, refreshed on a timer rather than per request.
+
+    The map and the time it was loaded are one piece of state that must change
+    together — holding them as a pair makes that explicit and keeps the reload
+    rule in one place instead of spread across a function's globals.
+    """
+
+    def __init__(self):
+        self.revocations: dict = {}
+        self.loaded_at = 0.0
+
+    def due(self, now: float) -> bool:
+        return now - self.loaded_at >= _REVOCATION_REFRESH_SECONDS
+
+    def store(self, revocations: dict, now: float) -> None:
+        self.revocations = revocations
+        self.loaded_at = now
+
+    def get(self, uid: str):
+        return self.revocations.get(uid)
+
+    def clear(self) -> None:
+        """Drop everything and force the next lookup to reload — used by tests
+        so cached state cannot leak between them."""
+        self.revocations = {}
+        self.loaded_at = 0.0
+
+
+_revocation_cache = _RevocationCache()
 
 
 class FirebaseAuthMiddleware(BaseHTTPMiddleware):
@@ -178,27 +208,25 @@ def _revoked_at(uid: str):
     every user out of the app because one auxiliary read failed would be a
     worse outcome than a revoked session lasting until its token expires.
     """
-    global _revocations, _revocations_loaded_at
-
     now = time.monotonic()
-    if now - _revocations_loaded_at >= _REVOCATION_REFRESH_SECONDS:
+    if _revocation_cache.due(now):
         try:
             from app.utils.firestore import list_token_revocations
 
-            _revocations = list_token_revocations()
+            revocations = list_token_revocations()
         except Exception as exc:
             logger.warning("token revocation list unavailable: %s", exc)
-            _revocations = {}
-        _revocations_loaded_at = now
+            revocations = {}
+        _revocation_cache.store(revocations, now)
         # Anyone revoked has no live session any more — drop them from the
         # session cache so their next successful login is recorded afresh in
         # the Active Sessions view. Every worker refreshes, so every worker
         # evicts, which an in-process call from the revoking worker could not
         # achieve on its own.
-        for revoked_uid in _revocations:
+        for revoked_uid in revocations:
             _session_cache.discard(revoked_uid)
 
-    return _revocations.get(uid)
+    return _revocation_cache.get(uid)
 
 
 def _session_revoked(uid: str, decoded: dict) -> bool:

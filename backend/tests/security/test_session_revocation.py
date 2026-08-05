@@ -17,12 +17,11 @@ from app.middleware import auth as auth_mw
 
 @pytest.fixture(autouse=True)
 def _clear_revocation_cache():
-    """The cache is module state — reset it around every test."""
-    auth_mw._revocations = {}
-    auth_mw._revocations_loaded_at = 0.0
+    """The cache outlives a single request by design — reset it around every
+    test so cached markers cannot leak between them."""
+    auth_mw._revocation_cache.clear()
     yield
-    auth_mw._revocations = {}
-    auth_mw._revocations_loaded_at = 0.0
+    auth_mw._revocation_cache.clear()
 
 
 NOW = datetime.now(timezone.utc)
@@ -134,7 +133,7 @@ def test_revocation_list_is_refreshed_after_the_interval():
     ) as mock_list:
         auth_mw._session_revoked("u1", _token_claims(NOW))
         # Pretend the last refresh happened a full interval ago.
-        auth_mw._revocations_loaded_at -= auth_mw._REVOCATION_REFRESH_SECONDS
+        auth_mw._revocation_cache.loaded_at -= auth_mw._REVOCATION_REFRESH_SECONDS
         auth_mw._session_revoked("u1", _token_claims(NOW))
 
     assert mock_list.call_count == 2

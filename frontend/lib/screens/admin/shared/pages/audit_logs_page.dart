@@ -196,14 +196,10 @@ class _AuditLogsPageState extends State<AuditLogsPage> {
                 return DataRow(
                   cells: [
                     DataCell(Text(adminFormatTimestamp(log.timestamp))),
-                    DataCell(
-                      adminIdentityCell(log.actorEmail, log.actorUid),
-                    ),
+                    DataCell(adminIdentityCell(log.actorEmail, log.actorUid)),
                     DataCell(adminRoleBadge(log.actorRole)),
                     DataCell(Text(log.action)),
-                    DataCell(
-                      adminIdentityCell(log.targetEmail, log.targetUid),
-                    ),
+                    DataCell(adminIdentityCell(log.targetEmail, log.targetUid)),
                     DataCell(
                       Tooltip(
                         message: detailsText,

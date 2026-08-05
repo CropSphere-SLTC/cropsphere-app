@@ -270,6 +270,93 @@ def create_session(uid: str, device_info: str) -> None:
         logger.error(f"create_session failed: {exc}")
 
 
+def delete_user_sessions(uid: str) -> int:
+    """Delete every session document for `uid`. Returns how many were removed.
+
+    Called when a superadmin force-logs-out an account, so the Active Sessions
+    view stops listing a session the admin has just ended. Failures are logged
+    and reported as 0 rather than raised — losing the tidy-up must not fail the
+    revocation itself, which is the part that actually cuts access.
+    """
+    try:
+        from google.cloud.firestore_v1.base_query import FieldFilter
+
+        db = get_db()
+        docs = list(
+            db.collection("sessions")
+            .where(filter=FieldFilter("uid", "==", uid))
+            .stream()
+        )
+        for doc in docs:
+            doc.reference.delete()
+        return len(docs)
+    except Exception as exc:
+        logger.error(f"delete_user_sessions failed for uid={uid}: {exc}")
+        return 0
+
+
+# ── Token revocation (force logout) ───────────────────────────────────────────
+#
+# revoke_refresh_tokens only stops a client renewing its session; the ID token
+# already in the user's browser stays cryptographically valid until it expires
+# (~1h). Recording the revocation here lets the auth middleware reject those
+# still-valid tokens, which is what makes "Force Logout" take effect now rather
+# than within the hour. Keyed by uid so the collection stays small: one
+# document per force-logged-out account, overwritten on repeat use.
+
+
+def record_token_revocation(uid: str) -> None:
+    """Mark every session issued to `uid` before now as no longer acceptable."""
+    db = get_db()
+    db.collection("token_revocations").document(uid).set(
+        {"uid": uid, "revoked_at": datetime.now(timezone.utc)}
+    )
+
+
+def list_token_revocations() -> Dict[str, datetime]:
+    """Return {uid: revoked_at} for every recorded revocation.
+
+    Read on a timer by the auth middleware (never per request), so the whole
+    collection in one pass is the cheapest shape. Returns {} on failure — see
+    the caller for why that is deliberately fail-open.
+    """
+    try:
+        db = get_db()
+        out: Dict[str, datetime] = {}
+        for doc in db.collection("token_revocations").stream():
+            data = doc.to_dict() or {}
+            revoked_at = data.get("revoked_at")
+            if hasattr(revoked_at, "timestamp"):
+                out[doc.id] = revoked_at
+        return out
+    except Exception as exc:
+        logger.error(f"list_token_revocations failed: {exc}")
+        return {}
+
+
+def prune_token_revocations(older_than_hours: int = 24) -> int:
+    """Delete revocation markers older than `older_than_hours`.
+
+    Safe once no token predating the marker can still be valid: Firebase ID
+    tokens live ~1h, so a 24h floor is a wide margin. Returns the count.
+    """
+    try:
+        db = get_db()
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=older_than_hours)
+        docs = [
+            doc
+            for doc in db.collection("token_revocations").stream()
+            if (doc.to_dict() or {}).get("revoked_at")
+            and (doc.to_dict() or {})["revoked_at"] < cutoff
+        ]
+        for doc in docs:
+            doc.reference.delete()
+        return len(docs)
+    except Exception as exc:
+        logger.error(f"prune_token_revocations failed: {exc}")
+        return 0
+
+
 # ── Chat conversation history ─────────────────────────────────────────────────
 
 MAX_MESSAGES_PER_CONVERSATION = 50

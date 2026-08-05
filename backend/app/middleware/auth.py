@@ -3,6 +3,7 @@
 import base64
 import json
 import logging
+import time
 from typing import Optional
 
 from fastapi.responses import JSONResponse
@@ -29,6 +30,17 @@ _PUBLIC_PATHS = {"/api/health", "/docs", "/openapi.json", "/redoc"}
 # unbounded string into Firestore.
 _MAX_TOKEN_BYTES = 4096
 _MAX_CLAIM_CHARS = 254
+
+# Force-logout enforcement. revoke_refresh_tokens stops a client renewing its
+# session but leaves the ID token in the user's browser valid for up to an
+# hour, so without this check "Force Logout" does not log anyone out until that
+# token happens to expire. Verifying with check_revoked=True would ask Firebase
+# on every single request; instead the revocation list is pulled on a timer and
+# consulted from memory, which costs one small read per worker per interval and
+# caps how long a revoked session survives at _REVOCATION_REFRESH_SECONDS.
+_REVOCATION_REFRESH_SECONDS = 60
+_revocations: dict = {}
+_revocations_loaded_at = 0.0
 
 
 class FirebaseAuthMiddleware(BaseHTTPMiddleware):
@@ -61,9 +73,16 @@ class FirebaseAuthMiddleware(BaseHTTPMiddleware):
         uid, failure = _verify(token)
         if uid is None:
             _record_failed_login(request, failure)
+            revoked = failure.get("reason") == "session_revoked_by_admin"
             return JSONResponse(
                 status_code=401,
-                content={"detail": "Token invalid or expired"},
+                content={
+                    "detail": (
+                        "Session ended by an administrator"
+                        if revoked
+                        else "Token invalid or expired"
+                    )
+                },
             )
 
         _track_session(uid, request)
@@ -150,6 +169,57 @@ def _track_session(uid: str, request: Request) -> None:
         logger.warning("Session tracking failed for uid=%s: %s", uid, exc)
 
 
+def _revoked_at(uid: str):
+    """Return when `uid` was force-logged-out, or None if it never was.
+
+    Refreshes the whole revocation list at most every
+    _REVOCATION_REFRESH_SECONDS. Fail-open on a Firestore error: the admin's
+    other lever (ban) is enforced per request against live data, and locking
+    every user out of the app because one auxiliary read failed would be a
+    worse outcome than a revoked session lasting until its token expires.
+    """
+    global _revocations, _revocations_loaded_at
+
+    now = time.monotonic()
+    if now - _revocations_loaded_at >= _REVOCATION_REFRESH_SECONDS:
+        try:
+            from app.utils.firestore import list_token_revocations
+
+            _revocations = list_token_revocations()
+        except Exception as exc:
+            logger.warning("token revocation list unavailable: %s", exc)
+            _revocations = {}
+        _revocations_loaded_at = now
+        # Anyone revoked has no live session any more — drop them from the
+        # session cache so their next successful login is recorded afresh in
+        # the Active Sessions view. Every worker refreshes, so every worker
+        # evicts, which an in-process call from the revoking worker could not
+        # achieve on its own.
+        for revoked_uid in _revocations:
+            _session_cache.discard(revoked_uid)
+
+    return _revocations.get(uid)
+
+
+def _session_revoked(uid: str, decoded: dict) -> bool:
+    """True when this token was issued before the account was force-logged-out.
+
+    Compares the token's auth_time — when the user actually authenticated,
+    which is what Firebase's own check_revoked uses — against the revocation
+    marker. A token with no usable auth_time is treated as revoked: an admin
+    explicitly ended this session, so anything we cannot prove postdates that
+    decision is refused rather than waved through.
+    """
+    revoked_at = _revoked_at(uid)
+    if revoked_at is None:
+        return False
+
+    auth_time = decoded.get("auth_time") or decoded.get("iat")
+    if not isinstance(auth_time, (int, float)):
+        return True
+    return auth_time < revoked_at.timestamp()
+
+
 def _unverified_claims(token: str) -> dict:
     """Decode a JWT payload WITHOUT verifying its signature.
 
@@ -216,6 +286,16 @@ def _verify(token: str) -> tuple:
         uid = decoded.get("uid")
         email = decoded.get("email", "")
         photo_url = decoded.get("picture", "")
+
+        # A superadmin ended this session; the token is cryptographically fine
+        # but must no longer be honoured. Identity is verified here, so it goes
+        # on the security event as fact.
+        if _session_revoked(uid, decoded):
+            return None, {
+                "reason": "session_revoked_by_admin",
+                "uid": uid,
+                "email": email,
+            }
         # Create user document in Firestore if first login. Only needs to
         # run once per uid per container lifetime — every request after
         # that would otherwise re-read (and potentially re-write) this

@@ -95,8 +95,9 @@ class _SecurityPageState extends State<SecurityPage> {
       builder: (ctx) => AlertDialog(
         title: const Text('Force logout?'),
         content: Text(
-          'This revokes all refresh tokens for $who. Their current session '
-          'ends once the active token expires (within ~1 hour).',
+          'This signs $who out of every device and clears their active '
+          'sessions. Takes effect within a minute; they can sign in again '
+          'afterwards unless you also ban the account.',
         ),
         actions: [
           TextButton(
@@ -116,6 +117,9 @@ class _SecurityPageState extends State<SecurityPage> {
     setState(() => _busyUids.add(session.uid));
     try {
       await _superadmin.forceLogout(session.uid);
+      // The backend clears their session documents, so re-fetch rather than
+      // leaving a row that makes the button look like it did nothing.
+      await _fetchAll();
       _showSnack('Revoked sessions for $who');
     } catch (e) {
       _showSnack(adminErrorMessage(e), isError: true);
@@ -263,11 +267,7 @@ class _SecurityPageState extends State<SecurityPage> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.help_outline,
-              size: 14,
-              color: AppTheme.warning,
-            ),
+            const Icon(Icons.help_outline, size: 14, color: AppTheme.warning),
             const SizedBox(width: 4),
             Flexible(
               child: Text(

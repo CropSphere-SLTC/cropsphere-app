@@ -76,6 +76,12 @@ class AuditLog {
   final String timestamp;
   final Map<String, dynamic> details;
 
+  // Resolved by the backend at read time from the users collection. Empty when
+  // the account has since been deleted — the UID is what the log actually
+  // stores, so callers fall back to it rather than showing a blank cell.
+  final String actorEmail;
+  final String targetEmail;
+
   AuditLog({
     required this.actorUid,
     required this.actorRole,
@@ -83,6 +89,8 @@ class AuditLog {
     required this.targetUid,
     required this.timestamp,
     required this.details,
+    this.actorEmail = '',
+    this.targetEmail = '',
   });
 
   factory AuditLog.fromJson(Map<String, dynamic> json) => AuditLog(
@@ -92,7 +100,15 @@ class AuditLog {
     targetUid: json['target_uid'] ?? '',
     timestamp: json['timestamp'] ?? '',
     details: Map<String, dynamic>.from(json['details'] ?? {}),
+    actorEmail: json['actor_email'] ?? '',
+    targetEmail: json['target_email'] ?? '',
   );
+
+  /// What to show for the actor: email when known, UID otherwise.
+  String get actorLabel => actorEmail.isNotEmpty ? actorEmail : actorUid;
+
+  /// What to show for the target: email when known, UID otherwise.
+  String get targetLabel => targetEmail.isNotEmpty ? targetEmail : targetUid;
 }
 
 class GapReport {
@@ -324,6 +340,108 @@ class SecurityEvent {
     details: Map<String, dynamic>.from(json['details'] ?? {}),
     timestamp: json['timestamp']?.toString() ?? '',
   );
+
+  // Identity a rejected token merely asserted. The backend keeps these out of
+  // uid/email precisely because its signature never verified — anyone can mint
+  // a JWT naming anyone, so this is a lead, not a fact.
+  String get claimedEmail => details['claimed_email']?.toString() ?? '';
+  String get claimedUid => details['claimed_uid']?.toString() ?? '';
+
+  /// Whether the identity on this event was established by the backend rather
+  /// than asserted by the rejected request.
+  bool get identityVerified => uid.isNotEmpty || email.isNotEmpty;
+
+  /// Who this event is about, for display. Never returns a claimed identity
+  /// without saying so — an admin must not read a forged token's email as
+  /// proof that account did anything.
+  String get actorLabel {
+    if (email.isNotEmpty) return email;
+    if (uid.isNotEmpty) return uid;
+    if (claimedEmail.isNotEmpty) return '$claimedEmail (unverified)';
+    if (claimedUid.isNotEmpty) return '$claimedUid (unverified)';
+    return details['reason'] == 'missing_or_malformed_authorization_header'
+        ? 'anonymous · no token'
+        : 'unidentified';
+  }
+}
+
+/// Consecutive security events that are really one incident.
+///
+/// A burst of identical events — the same actor failing login from the same IP
+/// eight times in a minute — is one thing that happened, but the raw timeline
+/// renders it as eight indistinguishable lines that push everything else off
+/// the page. Collapsing them makes the shape of an attack visible: a repeat
+/// count is the signal, and the rows it no longer crowds out are the context.
+class SecurityEventBurst {
+  /// Newest event in the burst; carries the type, identity and endpoint shown.
+  final SecurityEvent latest;
+
+  /// Every event in the burst, newest first (length 1 for an ordinary row).
+  final List<SecurityEvent> events;
+
+  const SecurityEventBurst(this.latest, this.events);
+
+  int get count => events.length;
+  bool get isBurst => events.length > 1;
+  String get type => latest.type;
+
+  /// Timestamp of the oldest event — the start of the burst.
+  String get firstTimestamp => events.last.timestamp;
+
+  /// Endpoint to display: the shared one, or how many were hit. A spray across
+  /// endpoints from one source is itself worth seeing.
+  String get endpointLabel {
+    final endpoints = events
+        .map((e) => e.endpoint)
+        .where((e) => e.isNotEmpty)
+        .toSet();
+    if (endpoints.isEmpty) return '';
+    if (endpoints.length == 1) return endpoints.first;
+    return '${endpoints.length} endpoints';
+  }
+
+  /// Longest gap tolerated between two events of the same burst. Beyond this
+  /// they are separate incidents, however alike they look — a failed login
+  /// today and an identical one last week are not one event.
+  static const Duration window = Duration(minutes: 10);
+
+  /// Collapse a newest-first event list into bursts, preserving order.
+  ///
+  /// Groups only *adjacent* events sharing type, actor and IP, so the timeline
+  /// stays strictly chronological — nothing is reordered or hoisted.
+  static List<SecurityEventBurst> group(List<SecurityEvent> events) {
+    final out = <SecurityEventBurst>[];
+    var current = <SecurityEvent>[];
+
+    bool joins(SecurityEvent e) {
+      if (current.isEmpty) return false;
+      final prev = current.last;
+      if (e.type != prev.type ||
+          e.ipAddress != prev.ipAddress ||
+          e.actorLabel != prev.actorLabel) {
+        return false;
+      }
+      final a = DateTime.tryParse(prev.timestamp);
+      final b = DateTime.tryParse(e.timestamp);
+      // Unparseable timestamps only group with an identical neighbour when we
+      // can measure the gap; otherwise keep them as their own row.
+      if (a == null || b == null) return false;
+      return a.difference(b).abs() <= window;
+    }
+
+    for (final e in events) {
+      if (joins(e)) {
+        current.add(e);
+      } else {
+        if (current.isNotEmpty) {
+          out.add(SecurityEventBurst(current.first, current));
+        }
+        current = [e];
+      }
+    }
+    if (current.isNotEmpty) out.add(SecurityEventBurst(current.first, current));
+    return out;
+  }
 }
 
 class ActiveSession {
@@ -385,6 +503,13 @@ class PromptTuningAdjustment {
   final bool needsAttention;
   final String? attentionReason;
 
+  // Proposals only: this adjustment is already applied. The analyzer re-derives
+  // proposals from live metrics with no memory of what was applied, so a
+  // condition that is still true keeps being proposed. Flagged rather than
+  // hidden — a still-triggering condition you already have an adjustment for
+  // means that adjustment is not working yet, which is worth seeing.
+  final bool alreadyActive;
+
   PromptTuningAdjustment({
     required this.id,
     required this.dimension,
@@ -401,6 +526,7 @@ class PromptTuningAdjustment {
     this.validatedAt,
     this.needsAttention = false,
     this.attentionReason,
+    this.alreadyActive = false,
   });
 
   /// True when auto-validation can actually judge this one. When false the
@@ -427,6 +553,7 @@ class PromptTuningAdjustment {
         validatedAt: json['validated_at'],
         needsAttention: json['needs_attention'] ?? false,
         attentionReason: json['attention_reason'],
+        alreadyActive: json['already_active'] ?? false,
       );
 }
 
@@ -723,6 +850,12 @@ class PromptTuningProposal {
     required this.periodDays,
     required this.sampleSize,
   });
+
+  /// How many proposals are conditions the admin has already applied for.
+  /// These are listed but not selectable, so the count explains the gap
+  /// between rows shown and rows ticked.
+  int get alreadyActiveCount =>
+      adjustments.where((a) => a.alreadyActive).length;
 
   factory PromptTuningProposal.fromJson(Map<String, dynamic> json) =>
       PromptTuningProposal(

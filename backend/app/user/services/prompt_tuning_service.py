@@ -89,10 +89,18 @@ def analyze_and_generate_tuning(days: int = _DEFAULT_DAYS) -> dict:
 
     Inputs: days (clamped 1..30 by the underlying fetch window).
     Outputs: {updated_at, period_days, sample_size, adjustments: [...]}, where
-    each adjustment is {id, dimension, trigger, instruction, recommended}. Only
-    dimensions that actually trigger are included; below _MIN_SAMPLE
-    interactions the list is empty. Never raises — returns an empty proposal on
-    any Firestore/aggregation failure.
+    each adjustment is {id, dimension, trigger, instruction, recommended,
+    already_active}. Only dimensions that actually trigger are included; below
+    _MIN_SAMPLE interactions the list is empty. Never raises — returns an empty
+    proposal on any Firestore/aggregation failure.
+
+    already_active flags a proposal the admin has already applied. These are
+    marked rather than dropped — unlike the pattern analyzer, which excludes
+    known phrases outright — because a proposal here means "this condition is
+    still true in the data". Seeing that next to an adjustment already in trial
+    is the signal that the adjustment is not working yet, which silently hiding
+    the row would throw away. The UI leaves them unticked; apply_adjustments
+    skips them regardless.
     Security: user-derived names are whitelisted before embedding; instruction
     text is always from a fixed template, never model or user free-text.
     """
@@ -117,12 +125,33 @@ def analyze_and_generate_tuning(days: int = _DEFAULT_DAYS) -> dict:
         adjustments.extend(_dim_conversation(metrics))
         adjustments.extend(_dim_earnings(metrics))
 
+    _mark_already_active(adjustments)
+
     return {
         "updated_at": now,
         "period_days": days,
         "sample_size": sample,
         "adjustments": adjustments,
     }
+
+
+def _mark_already_active(adjustments: list) -> None:
+    """Tag each proposal with whether it is already applied. Mutates in place.
+
+    Best-effort: if the store cannot be read, every proposal is marked not
+    active, which is the pre-existing behaviour — an unreadable store must not
+    turn an analysis into an error.
+    """
+    try:
+        from app.user.services import prompt_tuning_store as store_mod
+
+        known = store_mod.known_ids()
+    except Exception as exc:
+        logger.warning("prompt-tuning active-id lookup failed: %s", exc)
+        known = set()
+
+    for adjustment in adjustments:
+        adjustment["already_active"] = adjustment.get("id") in known
 
 
 def _aggregate(days: int) -> dict:

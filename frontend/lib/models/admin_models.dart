@@ -503,6 +503,13 @@ class PromptTuningAdjustment {
   final bool needsAttention;
   final String? attentionReason;
 
+  // Proposals only: this adjustment is already applied. The analyzer re-derives
+  // proposals from live metrics with no memory of what was applied, so a
+  // condition that is still true keeps being proposed. Flagged rather than
+  // hidden — a still-triggering condition you already have an adjustment for
+  // means that adjustment is not working yet, which is worth seeing.
+  final bool alreadyActive;
+
   PromptTuningAdjustment({
     required this.id,
     required this.dimension,
@@ -519,6 +526,7 @@ class PromptTuningAdjustment {
     this.validatedAt,
     this.needsAttention = false,
     this.attentionReason,
+    this.alreadyActive = false,
   });
 
   /// True when auto-validation can actually judge this one. When false the
@@ -545,6 +553,7 @@ class PromptTuningAdjustment {
         validatedAt: json['validated_at'],
         needsAttention: json['needs_attention'] ?? false,
         attentionReason: json['attention_reason'],
+        alreadyActive: json['already_active'] ?? false,
       );
 }
 
@@ -841,6 +850,12 @@ class PromptTuningProposal {
     required this.periodDays,
     required this.sampleSize,
   });
+
+  /// How many proposals are conditions the admin has already applied for.
+  /// These are listed but not selectable, so the count explains the gap
+  /// between rows shown and rows ticked.
+  int get alreadyActiveCount =>
+      adjustments.where((a) => a.alreadyActive).length;
 
   factory PromptTuningProposal.fromJson(Map<String, dynamic> json) =>
       PromptTuningProposal(

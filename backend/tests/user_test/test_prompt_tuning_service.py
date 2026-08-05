@@ -165,6 +165,66 @@ def test_analyze_graceful_on_aggregate_failure():
     assert out["adjustments"] == [] and out["sample_size"] == 0
 
 
+# ── already_active marking ───────────────────────────────────────────────────
+#
+# The analyzer re-derives proposals from live metrics with no memory of what
+# was applied, so a still-true condition keeps being proposed after an admin
+# applies it. Marking (rather than dropping) keeps that visible: a condition
+# still triggering while an adjustment for it is live means it is not working.
+
+
+def _triggering_metrics():
+    return _metrics(
+        sample_size=100,
+        knowledge={"beginner": 90, "intermediate": 5, "advanced": 5},
+        avg_session_length=1.2,
+    )
+
+
+def test_proposals_are_marked_when_already_applied():
+    with patch.object(pt, "_aggregate", return_value=_triggering_metrics()), patch.object(
+        store, "known_ids", return_value={"language_complexity"}
+    ):
+        out = pt.analyze_and_generate_tuning(7)
+
+    by_id = {a["id"]: a for a in out["adjustments"]}
+    assert by_id["language_complexity"]["already_active"] is True
+    assert by_id["engagement_short"]["already_active"] is False
+
+
+def test_applied_proposals_are_still_listed_not_dropped():
+    """Hiding them would throw away the signal that the live adjustment has
+    not fixed the condition yet."""
+    with patch.object(pt, "_aggregate", return_value=_triggering_metrics()), patch.object(
+        store, "known_ids", return_value={"language_complexity"}
+    ):
+        out = pt.analyze_and_generate_tuning(7)
+
+    assert "language_complexity" in {a["id"] for a in out["adjustments"]}
+
+
+def test_every_proposal_carries_the_flag_when_nothing_is_applied():
+    with patch.object(pt, "_aggregate", return_value=_triggering_metrics()), patch.object(
+        store, "known_ids", return_value=set()
+    ):
+        out = pt.analyze_and_generate_tuning(7)
+
+    assert out["adjustments"]
+    assert all(a["already_active"] is False for a in out["adjustments"])
+
+
+def test_unreadable_store_does_not_fail_the_analysis():
+    """Best-effort: losing the marking is acceptable, losing the analysis is
+    not."""
+    with patch.object(pt, "_aggregate", return_value=_triggering_metrics()), patch.object(
+        store, "known_ids", side_effect=RuntimeError("no file")
+    ):
+        out = pt.analyze_and_generate_tuning(7)
+
+    assert out["adjustments"]
+    assert all(a["already_active"] is False for a in out["adjustments"])
+
+
 # ── apply / load / clear (persistence delegates to prompt_tuning_store) ──────
 @pytest.fixture()
 def _tmp_tuning(tmp_path):

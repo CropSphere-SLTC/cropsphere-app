@@ -82,10 +82,15 @@ class _PromptTuningPageState extends State<PromptTuningPage> {
       setState(() {
         _proposal = proposal;
         // Pre-check the recommended adjustments (opt-in ones start unchecked).
+        // Never pre-check one that is already applied: re-analysis re-proposes
+        // conditions that are still true, and ticking those by default made
+        // every run look like there was new work to do.
         _selected
           ..clear()
           ..addAll(
-            proposal.adjustments.where((a) => a.recommended).map((a) => a.id),
+            proposal.adjustments
+                .where((a) => a.recommended && !a.alreadyActive)
+                .map((a) => a.id),
           );
       });
     } catch (e) {
@@ -354,8 +359,14 @@ class _PromptTuningPageState extends State<PromptTuningPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Proposed adjustments · ${p.sampleSize} interactions over '
-          '${p.periodDays} days',
+          [
+            'Proposed adjustments · ${p.sampleSize} interactions over '
+                '${p.periodDays} days',
+            // Says why fewer rows are ticked than listed, so a re-analysis
+            // does not read as a page full of new findings.
+            if (p.alreadyActiveCount > 0)
+              '${p.alreadyActiveCount} already active',
+          ].join(' · '),
           style: const TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w600,
@@ -409,23 +420,28 @@ class _PromptTuningPageState extends State<PromptTuningPage> {
         child: ExpansionTile(
           tilePadding: const EdgeInsets.symmetric(horizontal: 8),
           childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          // Already applied: the tick would be a no-op server-side, so disable
+          // it rather than let an admin believe they just did something.
           leading: Checkbox(
             value: checked,
             activeColor: AppTheme.primary,
-            onChanged: (v) => setState(() {
-              if (v == true) {
-                _selected.add(a.id);
-              } else {
-                _selected.remove(a.id);
-              }
-            }),
+            onChanged: a.alreadyActive
+                ? null
+                : (v) => setState(() {
+                    if (v == true) {
+                      _selected.add(a.id);
+                    } else {
+                      _selected.remove(a.id);
+                    }
+                  }),
           ),
           title: Wrap(
             spacing: 6,
             runSpacing: 4,
             children: [
               tuningDimensionChip(a.dimension),
-              if (!a.recommended) _optInChip(),
+              if (a.alreadyActive) _alreadyActiveChip(),
+              if (!a.recommended && !a.alreadyActive) _optInChip(),
               // Warn up front: this one will sit in trial until decided.
               if (!a.isMeasurable) tuningManualOnlyBadge(),
             ],
@@ -736,4 +752,10 @@ class _PromptTuningPageState extends State<PromptTuningPage> {
 
   Widget _optInChip() =>
       const TuningChip(label: 'opt-in', color: AppTheme.warning);
+
+  /// Marks a proposal that is already applied. It is still listed, because a
+  /// condition that keeps triggering while an adjustment for it is live means
+  /// that adjustment is not working yet — but it cannot be applied again.
+  Widget _alreadyActiveChip() =>
+      const TuningChip(label: 'already active', color: AppTheme.info);
 }

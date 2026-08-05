@@ -321,6 +321,19 @@ def live_adjustments(store: dict | None = None) -> list:
     return [a for a in store.get("active", []) if a.get("status") in LIVE_STATUSES]
 
 
+def known_ids(store: dict | None = None) -> set:
+    """Adjustment ids already active — the analyzer marks these so a proposal
+    the admin has already applied is not offered again as if it were new.
+
+    Mirrors pattern_override_store.known_phrases, which the pattern analyzer
+    uses for the same purpose. Trashed adjustments are deliberately excluded:
+    removing one is how an admin retires it, and a condition that starts
+    triggering again afterwards is a genuine new finding.
+    """
+    store = store if store is not None else load()
+    return {a.get("id") for a in store.get("active", []) if a.get("id")}
+
+
 def adjustment_history(store: dict, adjustment_id: str) -> list:
     """Every audit entry for one adjustment, oldest first."""
     return [

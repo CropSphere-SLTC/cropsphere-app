@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1 is removed — using default BuildKit
 
 # ──────────────────────────────────────────────────────────
 # STAGE 1 — Builder (gcc, build tools, pip cache — discarded after build)

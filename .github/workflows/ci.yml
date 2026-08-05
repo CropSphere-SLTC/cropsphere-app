@@ -14,6 +14,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege for GITHUB_TOKEN: read-only by default. Jobs that need more
+# (CodeQL analysis, SARIF upload) request the extra scope explicitly.
+permissions:
+  contents: read
+
 jobs:
   # ═══════════════════════════════════════════════════
   # STAGE 1 — Shared security (runs first, blocks all)
@@ -26,6 +31,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false   # don't leave the token in .git/config
 
       - name: Run TruffleHog
         uses: trufflesecurity/trufflehog@v3.94.3
@@ -47,6 +53,8 @@ jobs:
         language: [python]   # Dart CodeQL not yet supported — flutter analyze covers it
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
@@ -64,6 +72,8 @@ jobs:
     needs: secret-scan
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Build Docker image for scanning
         run: |
@@ -86,12 +96,17 @@ jobs:
     name: 🐍 FastAPI Backend
     runs-on: ubuntu-latest
     needs: [codeql, container-scan]
+    permissions:
+      contents: read
+      security-events: write   # required by upload-sarif (Snyk results)
     defaults:
       run:
         working-directory: backend
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -103,7 +118,7 @@ jobs:
         run: |
           # CPU-only torch first (matches Dockerfile pin) — pre-satisfying the
           # resolver stops requirements.txt deps from pulling multi-GB CUDA torch
-          pip install torch==2.12.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt
           pip install pytest pytest-cov pytest-asyncio httpx \
                       flake8 black bandit pip-audit
@@ -128,46 +143,42 @@ jobs:
         run: python -m pip install --upgrade pip==26.1.2
 
       - name: Dependency vulnerability scan (pip-audit)
-        run: |
-          python -m pip_audit \
-            --ignore-vuln PYSEC-2025-190 \
-            --ignore-vuln PYSEC-2025-191 \
-            --ignore-vuln PYSEC-2025-192 \
-            --ignore-vuln PYSEC-2025-193 \
-            --ignore-vuln PYSEC-2025-194 \
-            --ignore-vuln PYSEC-2025-195 \
-            --ignore-vuln PYSEC-2025-197 \
-            --ignore-vuln PYSEC-2025-210 \
-            --ignore-vuln PYSEC-2025-211 \
-            --ignore-vuln PYSEC-2025-212 \
-            --ignore-vuln PYSEC-2025-213 \
-            --ignore-vuln PYSEC-2025-214 \
-            --ignore-vuln PYSEC-2025-215 \
-            --ignore-vuln PYSEC-2025-216 \
-            --ignore-vuln PYSEC-2025-217 \
-            --ignore-vuln PYSEC-2025-218 \
-            --ignore-vuln PYSEC-2026-3447 \
-          # PYSEC-2025-* IDs have no fix version available in PyPI advisory DB.
-          # joblib/keras/pyjwt: unfixed upstream; torch+transformers: transitive
-          # deps via sentence-transformers with no patched release yet.
-          # PYSEC-2026-3447 (setuptools 81.0.0): fix is 83.0.0 but torch
-          # 2.12.1+cpu pins setuptools<82, so the patched version can't be
-          # installed (ResolutionImpossible). Every torch-compatible version
-          # is <83 = vulnerable; setuptools isn't used at container runtime,
-          # so exposure is low. Revisit when torch is upgraded past the <82 cap.
-          # Re-evaluate on each dependency upgrade.
+        # No --ignore-vuln suppressions: every advisory the old list muted is
+        # now fixed by an installed version, so the gate runs clean and fully
+        # armed. The chain that unblocked the last two:
+        #   torch 2.12.1 -> 2.13.0    fixes GHSA-rrmf-rvhw-rf47 (PYSEC-2025-194),
+        #                             and drops torch's `setuptools<82` cap,
+        #                             which in turn allows...
+        #   setuptools 81.0.0 -> 83.0.0  fixes PYSEC-2026-3447.
+        # The rest (torch <=2.10, transformers <5.0.0, joblib <=1.4.2) were
+        # stale — the pinned versions had already moved past them.
+        # If a new advisory lands, prefer upgrading; only suppress with the
+        # affected package, the reason, and a re-check date written down.
+        run: python -m pip_audit
 
       - name: Snyk SCA scan
-        uses: snyk/actions/python@master
+        # Pinned to a commit SHA — `@master` is a moving target on a
+        # third-party action, so a compromised push would run here unreviewed.
+        uses: snyk/actions/python@12140f4059e244892ae643824a95459a102120dd
         continue-on-error: true       # Non-blocking — report only
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
-          args: --severity-threshold=high --sarif-file-output=snyk.sarif
+          # `defaults.run.working-directory` does NOT apply to `uses:` steps —
+          # this action starts at the repo root, so the manifest needs the
+          # backend/ prefix or Snyk finds nothing to scan.
+          args: >-
+            --file=backend/requirements.txt
+            --package-manager=pip
+            --severity-threshold=high
+            --sarif-file-output=snyk.sarif
 
       - name: Upload Snyk results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
-        if: always() && hashFiles('backend/snyk.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v4
+        # Same reason: the SARIF lands at the repo root, not backend/. The old
+        # hashFiles('backend/snyk.sarif') never matched, so Snyk findings were
+        # silently never uploaded.
+        if: always() && hashFiles('snyk.sarif') != ''
         with:
           sarif_file: snyk.sarif
 
@@ -202,6 +213,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -212,7 +225,7 @@ jobs:
       - name: Install dependencies
         run: |
           # CPU-only torch first (matches Dockerfile pin) — see backend job
-          pip install torch==2.12.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt
           pip install pytest pytest-cov flake8 black bandit pip-audit \
                       great-expectations
@@ -230,25 +243,8 @@ jobs:
         run: python -m pip install --upgrade pip==26.1.2
 
       - name: Dependency vulnerability scan (pip-audit)
-        run: |
-          pip-audit -r requirements.txt \
-            --ignore-vuln PYSEC-2025-190 \
-            --ignore-vuln PYSEC-2025-191 \
-            --ignore-vuln PYSEC-2025-192 \
-            --ignore-vuln PYSEC-2025-193 \
-            --ignore-vuln PYSEC-2025-194 \
-            --ignore-vuln PYSEC-2025-195 \
-            --ignore-vuln PYSEC-2025-197 \
-            --ignore-vuln PYSEC-2025-210 \
-            --ignore-vuln PYSEC-2025-211 \
-            --ignore-vuln PYSEC-2025-212 \
-            --ignore-vuln PYSEC-2025-213 \
-            --ignore-vuln PYSEC-2025-214 \
-            --ignore-vuln PYSEC-2025-215 \
-            --ignore-vuln PYSEC-2025-216 \
-            --ignore-vuln PYSEC-2025-217 \
-            --ignore-vuln PYSEC-2025-218 \
-            --ignore-vuln PYSEC-2026-3447 \
+        # Suppression list retired — see the backend job for the full rationale.
+        run: pip-audit -r requirements.txt
 
       - name: Validate ML model tests
         # Scoped to the five ML model services (M1-M5) — this job validates the
@@ -295,6 +291,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2

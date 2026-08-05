@@ -14,6 +14,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true  # always true for feature branches, safe
 
+# Least privilege for GITHUB_TOKEN — nothing here writes back to the repo.
+permissions:
+  contents: read
+
 jobs:
   # ─────────────────────────────────────────────
   # JOB 1 — Secret Scanning (Gate)
@@ -27,9 +31,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false   # don't leave the token in .git/config
 
       - name: TruffleHog — Scan for leaked secrets
-        uses: trufflesecurity/trufflehog@main  # TruffleHog only publishes @main — no versioned tags available
+        # Pinned to a release tag (same as ci.yml). `@main` was a moving ref on
+        # a third-party action: any push to their default branch would execute
+        # here unreviewed, with the repo checked out. Versioned tags DO exist —
+        # v3.96.0 is the newest; v3.94.3 matches what ci.yml already runs.
+        uses: trufflesecurity/trufflehog@v3.94.3
         with:
           path: ./
           base: ${{ github.event.repository.default_branch }}
@@ -51,6 +60,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -64,7 +75,7 @@ jobs:
           python -m pip install --upgrade pip
           # CPU-only torch first (matches Dockerfile pin) — pre-satisfying the
           # resolver stops requirements.txt deps from pulling multi-GB CUDA torch
-          pip install torch==2.12.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
           pip install flake8 pip-audit pytest pytest-cov
           pip install -r requirements.txt
 
@@ -73,20 +84,15 @@ jobs:
           flake8 app/ tests/ --max-line-length=88
 
       - name: Dependency vulnerability scan with pip-audit
-        run: |
-          pip-audit -r requirements.txt \
-            --ignore-vuln PYSEC-2024-277 \
-            --ignore-vuln PYSEC-2025-217 \
-            --ignore-vuln PYSEC-2025-214 \
-            --ignore-vuln PYSEC-2025-218 \
-            --ignore-vuln PYSEC-2025-211 \
-            --ignore-vuln PYSEC-2025-212 \
-            --ignore-vuln PYSEC-2025-213 \
-            --ignore-vuln PYSEC-2025-215 \
-            --ignore-vuln PYSEC-2025-216 \
-            --ignore-vuln CVE-2026-1839 \
-            --ignore-vuln PYSEC-2026-139 \
-            --ignore-vuln PYSEC-2026-3447
+        # No --ignore-vuln suppressions — all of them are now resolved by the
+        # pinned versions, so the gate runs fully armed (matches ci.yml):
+        #   setuptools 83.0.0        fixes PYSEC-2026-3447
+        #   transformers 5.5.4       past CVE-2026-1839 + PYSEC-2025-211..218
+        #   torch 2.13.0             past PYSEC-2026-139
+        #   joblib 1.5.3             past PYSEC-2024-277
+        # Prefer an upgrade over a new suppression; if one is unavoidable,
+        # record the package, the reason, and a re-check date next to it.
+        run: pip-audit -r requirements.txt
 
       - name: Run tests with pytest
         run: |
@@ -114,6 +120,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -133,10 +141,20 @@ jobs:
         continue-on-error: true
 
       - name: Install OSV Scanner
+        # Pinned + checksum-verified. Previously this pulled `releases/latest`
+        # with no integrity check and wrote it straight to /usr/local/bin —
+        # whatever that URL served got executed. The hash below is the one
+        # published in osv-scanner_SHA256SUMS for v2.4.0; update both together.
+        env:
+          OSV_VERSION: v2.4.0
+          OSV_SHA256: 15314940c10d26af9c6649f150b8a47c1262e8fc7e17b1d1029b0e479e8ed8a0
         run: |
-          curl -L https://github.com/google/osv-scanner/releases/latest/download/osv-scanner_linux_amd64 \
-            -o /usr/local/bin/osv-scanner
-          chmod +x /usr/local/bin/osv-scanner
+          set -euo pipefail
+          curl -fsSL "https://github.com/google/osv-scanner/releases/download/${OSV_VERSION}/osv-scanner_linux_amd64" \
+            -o /tmp/osv-scanner
+          echo "${OSV_SHA256}  /tmp/osv-scanner" | sha256sum -c -
+          chmod +x /tmp/osv-scanner
+          mv /tmp/osv-scanner /usr/local/bin/osv-scanner   # runner user owns /usr/local/bin
 
       - name: OSV Scanner — dependency vulnerability scan
         run: |

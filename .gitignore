@@ -85,3 +85,7 @@ ADMIN_REDESIGN_PROMPT.md
 
 # Auto-generated per-directory description files — not source
 description.md
+
+# Docs
+docs/
+docs/database_design.md

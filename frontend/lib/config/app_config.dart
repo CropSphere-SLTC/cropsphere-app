@@ -18,7 +18,7 @@ class AppConfig {
     }
     if (Platform.isAndroid) return 'http://10.0.2.2:8000';
     return 'http://localhost:8000';
-}
+  }
 
   // Set to false when Shifan deploys — switches all services to real API
   static const bool useMockServices = false;

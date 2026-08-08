@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-RUN --mount=type=cache,target=/root/.cache/pip \
+RUN --mount=type=cache,id=pip-upgrade,target=/root/.cache/pip \
     pip install --upgrade pip==26.1.2
 
 # Force CPU-only torch across ALL pip layers below: the PyTorch CPU wheel
@@ -32,17 +32,17 @@ ENV PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu \
 ENV PYTHONPATH=/install/lib/python3.11/site-packages
 
 # Layer 1 — torch (CPU-only, cached across builds)
-RUN --mount=type=cache,target=/root/.cache/pip \
+RUN --mount=type=cache,id=pip-torch,target=/root/.cache/pip \
     pip install --timeout 600 --retries 10 --prefix=/install \
     torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
 
 # Layer 2 — tensorflow CPU-only (no CUDA bloat)
-RUN --mount=type=cache,target=/root/.cache/pip \
+RUN --mount=type=cache,id=pip-tensorflow,target=/root/.cache/pip \
     pip install --timeout 600 --retries 10 --prefix=/install \
     tensorflow-cpu==2.21.0
 
 # Layer 3 — heavy ML deps (cached across builds)
-RUN --mount=type=cache,target=/root/.cache/pip \
+RUN --mount=type=cache,id=pip-ml-deps,target=/root/.cache/pip \
     pip install --timeout 600 --retries 10 --prefix=/install \
     sentence-transformers==5.4.1 \
     scikit-learn==1.8.0 \
@@ -53,7 +53,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 # Layer 4 — remaining app dependencies
 COPY requirements.txt .
-RUN --mount=type=cache,target=/root/.cache/pip \
+RUN --mount=type=cache, id=pip-requirements, target=/root/.cache/pip \
     pip install --timeout 600 --retries 10 --prefix=/install -r requirements.txt
 
 # NOTE: the old "re-force CPU torch" step that lived here was the root cause

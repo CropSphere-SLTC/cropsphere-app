@@ -17,7 +17,7 @@ services:
       APP_ENV: development
       FIREBASE_CREDENTIALS_JSON: /app/firebase-credentials.json
       FIREBASE_PROJECT_ID: cropsphere-2e87c
-      ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:8080,https://cropsphere.web.app"
+      ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:8080,https://cropsphere.web.app,https://cropsphere-2e87c.web.app,https://cropsphere-2e87c.firebaseapp.com"
       MODEL_DIR: /app/models/files
       RATE_LIMIT_PER_MINUTE: "60"
       HF_HOME: /tmp/hf_cache

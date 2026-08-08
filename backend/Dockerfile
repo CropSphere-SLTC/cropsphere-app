@@ -53,7 +53,7 @@ RUN --mount=type=cache,id=pip-ml-deps,target=/root/.cache/pip \
 
 # Layer 4 — remaining app dependencies
 COPY requirements.txt .
-RUN --mount=type=cache, id=pip-requirements, target=/root/.cache/pip \
+RUN --mount=type=cache,id=pip-requirements,target=/root/.cache/pip \
     pip install --timeout 600 --retries 10 --prefix=/install -r requirements.txt
 
 # NOTE: the old "re-force CPU torch" step that lived here was the root cause

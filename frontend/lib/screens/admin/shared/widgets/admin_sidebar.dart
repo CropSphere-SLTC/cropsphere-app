@@ -171,31 +171,37 @@ class _AdminSidebarState extends State<AdminSidebar> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 250,
+    // A Material rather than a coloured Container: the sidebar is a surface,
+    // and ListTile paints its background and ink splash onto the nearest
+    // Material ancestor. With a ColoredBox in between, the white would cover
+    // the Logout row's splash — which is what Flutter 3.43+ asserts about.
+    return Material(
       color: Colors.white,
-      child: Column(
-        children: [
-          _buildHeader(),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              children: [
-                for (final section in _sections) ..._buildSection(section),
-                const Divider(height: 16, indent: 16, endIndent: 16),
-                ..._buildUserViewGroup(),
-              ],
+      child: SizedBox(
+        width: 250,
+        child: Column(
+          children: [
+            _buildHeader(),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                children: [
+                  for (final section in _sections) ..._buildSection(section),
+                  const Divider(height: 16, indent: 16, endIndent: 16),
+                  ..._buildUserViewGroup(),
+                ],
+              ),
             ),
-          ),
-          const Divider(height: 1),
-          _bottomItem(
-            Icons.logout,
-            'Logout',
-            widget.onLogout,
-            color: AppTheme.error,
-          ),
-          const SizedBox(height: 8),
-        ],
+            const Divider(height: 1),
+            _bottomItem(
+              Icons.logout,
+              'Logout',
+              widget.onLogout,
+              color: AppTheme.error,
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
       ),
     );
   }

@@ -11,6 +11,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Build into a virtualenv, NOT --prefix. pip treats sys.prefix (/usr/local) as
+# "the environment" and refuses to uninstall anything outside it — with
+# --prefix=/install it logged "Not uninstalling <pkg>, outside environment"
+# and wrote new files OVER the old ones. The stale .dist-info survived (its
+# name carries the version, so it never collides), leaving ~24 packages with
+# two metadata dirs each and a Frankenstein mix of files on disk. That is the
+# same corruption that killed RAG (see the torch note below), and it also
+# failed the Trivy gate on a keras version we never pinned. Inside a venv pip
+# owns the tree and uninstalls properly: exactly one version per package.
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
 RUN --mount=type=cache,id=pip-upgrade,target=/root/.cache/pip \
     pip install --upgrade pip==26.1.2
 
@@ -24,26 +36,23 @@ RUN echo "torch==2.13.0+cpu" > /tmp/pip-constraints.txt
 ENV PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu \
     PIP_CONSTRAINT=/tmp/pip-constraints.txt
 
-# --prefix=/install puts packages somewhere pip cannot see: that tree is not on
-# sys.path, so every later layer re-resolved and RE-DOWNLOADED everything the
-# earlier layers had already installed (numpy, pandas, scipy, sklearn, xgboost,
-# sentence-transformers...). Putting it on PYTHONPATH makes pip report those as
-# already satisfied and skip them.
-ENV PYTHONPATH=/install/lib/python3.11/site-packages
+# The venv is on PATH, so every layer below sees what the earlier layers
+# installed and reports them as already satisfied instead of re-downloading
+# (numpy, pandas, scipy, sklearn, xgboost, sentence-transformers...).
 
 # Layer 1 — torch (CPU-only, cached across builds)
 RUN --mount=type=cache,id=pip-torch,target=/root/.cache/pip \
-    pip install --timeout 600 --retries 10 --prefix=/install \
+    pip install --timeout 600 --retries 10 \
     torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
 
 # Layer 2 — tensorflow CPU-only (no CUDA bloat)
 RUN --mount=type=cache,id=pip-tensorflow,target=/root/.cache/pip \
-    pip install --timeout 600 --retries 10 --prefix=/install \
+    pip install --timeout 600 --retries 10 \
     tensorflow-cpu==2.21.0
 
 # Layer 3 — heavy ML deps (cached across builds)
 RUN --mount=type=cache,id=pip-ml-deps,target=/root/.cache/pip \
-    pip install --timeout 600 --retries 10 --prefix=/install \
+    pip install --timeout 600 --retries 10 \
     sentence-transformers==5.4.1 \
     scikit-learn==1.8.0 \
     xgboost==3.2.0 \
@@ -54,7 +63,7 @@ RUN --mount=type=cache,id=pip-ml-deps,target=/root/.cache/pip \
 # Layer 4 — remaining app dependencies
 COPY requirements.txt .
 RUN --mount=type=cache,id=pip-requirements,target=/root/.cache/pip \
-    pip install --timeout 600 --retries 10 --prefix=/install -r requirements.txt
+    pip install --timeout 600 --retries 10 -r requirements.txt
 
 # NOTE: the old "re-force CPU torch" step that lived here was the root cause
 # of a corrupted install (torch 2.1.0+cpu files under torch 2.12.1 metadata,
@@ -63,10 +72,25 @@ RUN --mount=type=cache,id=pip-requirements,target=/root/.cache/pip \
 
 # Verify torch is CPU-only AND the ML import chain is consistent — build fails
 # loudly here instead of RAG dying silently at runtime (shift-left)
-RUN PYTHONPATH=/install/lib/python3.11/site-packages python -c \
+RUN python -c \
     "import torch; assert '+cu' not in torch.__version__, f'CUDA torch detected: {torch.__version__}'; \
 import sentence_transformers, transformers, numpy; \
 print(f'OK: torch {torch.__version__}, transformers {transformers.__version__}, ST {sentence_transformers.__version__}, numpy {numpy.__version__}')"
+
+# Guard the invariant the venv buys us: exactly ONE .dist-info per package.
+# A duplicate means some layer installed over another again, which ships stale
+# metadata (Trivy then reports CVEs for a version we never pinned) and mixed
+# files on disk. Fail the build here rather than in the container scan.
+# Plain shell on purpose — no RUN heredoc, which needs a newer BuildKit
+# frontend than Railway is guaranteed to have (we ship no # syntax directive).
+RUN dupes=$(ls -d /opt/venv/lib/python3.11/site-packages/*.dist-info \
+      | sed 's|.*/||; s|\.dist-info$||; s|-[^-]*$||' \
+      | tr '[:upper:]' '[:lower:]' | tr '.' '_' | sort | uniq -d); \
+    if [ -n "$dupes" ]; then \
+      echo "DUPLICATE .dist-info — a pip layer installed over another:"; \
+      echo "$dupes"; exit 1; \
+    fi; \
+    echo "OK: no duplicate dist-info"
 
 # ──────────────────────────────────────────────────────────
 # STAGE 2 — Runtime (clean, no gcc, no build tools — smaller final image)
@@ -77,22 +101,23 @@ RUN groupadd -r cropsphere && useradd -r -g cropsphere cropsphere
 
 WORKDIR /app
 
-# Copy only the installed packages from builder — gcc/python3-dev never enter this image
-COPY --from=builder /install /usr/local
+# Copy the whole venv — gcc/python3-dev never enter this image. It lands at the
+# same path it was built at, so console-script shebangs (uvicorn) stay valid.
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
 # ── Security: strip stale, vulnerable build-tool copies ──────────────────
-# Merging the builder's /install onto python:3.11-slim's own /usr/local leaves
-# BOTH patched and older copies of pip build tools side-by-side (their
-# version-named .dist-info dirs don't overwrite each other). The running app
-# never imports these; remove the vulnerable duplicates so they don't ship —
-# the patched versions already present are kept:
-#   • wheel 0.45.1         → CVE-2026-24049  (patched wheel 0.46.x kept)
-#   • jaraco.context 5.3.0 → CVE-2026-23949  (patched jaraco_context 6.1.x kept)
-#     vendored inside setuptools
+# These live in the BASE image's own site-packages (python:3.11-slim ships
+# setuptools 79.0.1, whose _vendor tree carries older pins than the top-level
+# ones). The venv no longer merges into /usr/local, so there are no duplicate
+# app packages here any more — but the base's vendored copies still ship and
+# Trivy still scans them. The running app never imports these:
+#   • wheel 0.45.1         → CVE-2026-24049  (top-level wheel 0.46.3 kept)
+#   • jaraco.context 5.3.0 → CVE-2026-23949
+# Both are vendored inside setuptools.
 # Re-verify these paths if the base image bumps its build-tool versions.
 RUN cd /usr/local/lib/python3.11/site-packages \
-    && rm -rf wheel-0.45.1.dist-info \
-              setuptools/_vendor/wheel-0.45.1.dist-info \
+    && rm -rf setuptools/_vendor/wheel-0.45.1.dist-info \
               setuptools/_vendor/jaraco.context-5.3.0.dist-info
 
 # Bake the RAG sentence-encoder into the image so it NEVER downloads at

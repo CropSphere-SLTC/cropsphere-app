@@ -24,13 +24,6 @@ RUN echo "torch==2.13.0+cpu" > /tmp/pip-constraints.txt
 ENV PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu \
     PIP_CONSTRAINT=/tmp/pip-constraints.txt
 
-# --prefix=/install puts packages somewhere pip cannot see: that tree is not on
-# sys.path, so every later layer re-resolved and RE-DOWNLOADED everything the
-# earlier layers had already installed (numpy, pandas, scipy, sklearn, xgboost,
-# sentence-transformers...). Putting it on PYTHONPATH makes pip report those as
-# already satisfied and skip them.
-ENV PYTHONPATH=/install/lib/python3.11/site-packages
-
 # Layer 1 — torch (CPU-only, cached across builds)
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --timeout 600 --retries 10 --prefix=/install \
@@ -102,6 +95,23 @@ RUN cd /usr/local/lib/python3.11/site-packages \
 # uvicorn worker so every endpoint timed out. Download here at build time with
 # Xet disabled (plain HTTPS, reliable) and force offline below so the model
 # loads from local disk with no network in the request path.
+ENV SENTENCE_TRANSFORMERS_HOME=/app/hf_cache
+RUN HF_HUB_DISABLE_XET=1 python -c \
+    "from sentence_transformers import SentenceTransformer; \
+SentenceTransformer('all-MiniLM-L6-v2', cache_folder='/app/hf_cache')"
+
+# Runtime: never reach out to HuggingFace — load the baked model offline so a
+# missing/corrupt cache fails fast instead of hanging on a network fetch.
+ENV HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1
+
+# Bake the RAG sentence-encoder into the image so it NEVER downloads at
+# runtime. Previously the first chat request fetched all-MiniLM-L6-v2 from
+# HuggingFace Hub inside the request path, where the new Xet download backend
+# (hf_xet) failed with "Permission denied" under the non-root user — hanging
+# the single uvicorn worker so every endpoint timed out. We download here at
+# build time with Xet disabled (plain HTTPS, reliable) and force offline below
+# so the model loads from local disk with no network in the request path.
 ENV SENTENCE_TRANSFORMERS_HOME=/app/hf_cache
 RUN HF_HUB_DISABLE_XET=1 python -c \
     "from sentence_transformers import SentenceTransformer; \

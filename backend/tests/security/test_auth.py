@@ -38,6 +38,18 @@ def test_health_endpoint_is_public(client):
     assert resp.status_code == 200
 
 
+def test_health_endpoint_is_public_with_trailing_slash(client):
+    """A probe written as /api/health/ must not be turned away.
+
+    The middleware runs ahead of routing, so an exact-match allowlist rejects
+    the slashed form with 401 before redirect_slashes can normalise it —
+    a healthy server reported as an auth failure. Following the redirect is
+    what an uptime checker does, so the test does too.
+    """
+    resp = client.get(HEALTH_URL + "/", follow_redirects=True)
+    assert resp.status_code == 200
+
+
 def test_missing_token_returns_401(client, mock_expired_token):
     resp = client.post(YIELD_URL, json=MINIMAL_YIELD_PAYLOAD)
     assert resp.status_code == 401

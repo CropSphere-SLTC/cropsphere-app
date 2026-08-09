@@ -122,7 +122,18 @@ class FirebaseAuthMiddleware(BaseHTTPMiddleware):
 
 
 def _is_public(path: str) -> bool:
-    """Return True if path is exempt from authentication."""
+    """Return True if path is exempt from authentication.
+
+    The trailing slash is normalised away first. Middleware runs ahead of
+    routing, so a probe of /api/health/ is rejected here before FastAPI's
+    redirect_slashes can send it to the canonical path — an uptime check
+    written with the slash would see 401 from a perfectly healthy server.
+
+    Security: normalisation only decides whether a path matches the public
+    set, and matching stays exact afterwards, so no protected route can be
+    reached through it.
+    """
+    path = path.rstrip("/") or "/"
     return (
         path in _PUBLIC_PATHS or path.startswith("/docs") or path.startswith("/redoc")
     )

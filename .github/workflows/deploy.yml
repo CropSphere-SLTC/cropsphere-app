@@ -24,16 +24,20 @@ jobs:
           npm install -g @railway/cli
           cd backend
 
-          # Diagnostics for "Service not found". Two causes look identical
-          # from the failure alone:
-          #   • RAILWAY_TOKEN holds an ACCOUNT token, not a PROJECT token.
-          #     Account tokens carry no project scope (they belong in
-          #     RAILWAY_API_TOKEN), so every service name misses. `railway
-          #     status` then reports no linked project.
-          #   • The service simply is not named "cropsphere-backend".
-          #     `railway status` prints the project and the real names.
-          # Non-fatal so the deploy still reports its own error.
+          # Diagnostics, non-fatal so the deploy still reports its own error.
+          # If "Service not found" persists even with the id below, the cause
+          # is RAILWAY_TOKEN holding an ACCOUNT token rather than a PROJECT
+          # token: account tokens carry no project scope (they belong in
+          # RAILWAY_API_TOKEN), so nothing resolves. `railway status` then
+          # reports no linked project. Project tokens: Project > Settings >
+          # Tokens, scoped to one environment.
           railway whoami || true
           railway status || true
 
-          railway up --service cropsphere-backend
+          # Service ID, not name. The previous "cropsphere-backend" did not
+          # match — the service's private hostname is cropsphere-app.railway
+          # .internal, so the name had drifted. Ids do not drift on rename.
+          # project     deee9186-2910-4173-9395-d5db7bcdd628
+          # environment 8379eb46-f7ee-42d4-9344-0b105fdac0eb (implied by the
+          #             project token; pass -e only if that ever changes)
+          railway up --service 2ce5633d-e682-472f-86d7-3393212b702a

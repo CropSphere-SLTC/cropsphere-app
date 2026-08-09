@@ -23,8 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-RUN --mount=type=cache,id=pip-upgrade,target=/root/.cache/pip \
-    pip install --upgrade pip==26.1.2
+RUN pip install --upgrade pip==26.1.2
 
 # Force CPU-only torch across ALL pip layers below: the PyTorch CPU wheel
 # index is consulted on every install, and the constraint pins torch to the
@@ -39,20 +38,27 @@ ENV PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu \
 # The venv is on PATH, so every layer below sees what the earlier layers
 # installed and reports them as already satisfied instead of re-downloading
 # (numpy, pandas, scipy, sklearn, xgboost, sentence-transformers...).
+#
+# No --mount=type=cache here on purpose. Railway's builder rejects any cache
+# mount whose id lacks its service-scoped prefix ("s/<service-id>-<target>"),
+# and that prefix cannot be a build arg — BuildKit does no variable expansion
+# inside mount flags, so it would have to be a hardcoded Railway UUID in a
+# file that GitHub CI and local builds share too. The layer split below is
+# what actually buys the caching: torch and tensorflow are their own RUN
+# layers, so any builder's layer cache skips them entirely unless these exact
+# lines change. The pip cache only saved re-downloading the small app deps
+# when layer 4 was invalidated — not worth a provider-specific id.
 
-# Layer 1 — torch (CPU-only, cached across builds)
-RUN --mount=type=cache,id=pip-torch,target=/root/.cache/pip \
-    pip install --timeout 600 --retries 10 \
+# Layer 1 — torch (CPU-only; its own layer, so it is reused across builds)
+RUN pip install --timeout 600 --retries 10 \
     torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
 
 # Layer 2 — tensorflow CPU-only (no CUDA bloat)
-RUN --mount=type=cache,id=pip-tensorflow,target=/root/.cache/pip \
-    pip install --timeout 600 --retries 10 \
+RUN pip install --timeout 600 --retries 10 \
     tensorflow-cpu==2.21.0
 
-# Layer 3 — heavy ML deps (cached across builds)
-RUN --mount=type=cache,id=pip-ml-deps,target=/root/.cache/pip \
-    pip install --timeout 600 --retries 10 \
+# Layer 3 — heavy ML deps (its own layer, reused across builds)
+RUN pip install --timeout 600 --retries 10 \
     sentence-transformers==5.4.1 \
     scikit-learn==1.8.0 \
     xgboost==3.2.0 \
@@ -62,8 +68,7 @@ RUN --mount=type=cache,id=pip-ml-deps,target=/root/.cache/pip \
 
 # Layer 4 — remaining app dependencies
 COPY requirements.txt .
-RUN --mount=type=cache,id=pip-requirements,target=/root/.cache/pip \
-    pip install --timeout 600 --retries 10 -r requirements.txt
+RUN pip install --timeout 600 --retries 10 -r requirements.txt
 
 # NOTE: the old "re-force CPU torch" step that lived here was the root cause
 # of a corrupted install (torch 2.1.0+cpu files under torch 2.12.1 metadata,

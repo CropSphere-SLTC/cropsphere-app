@@ -74,6 +74,9 @@ frontend/.firebase/
 # into these; google-services.json (real credentials) stays ignored above.
 !frontend/web/manifest.json
 !frontend/ios/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json
+# Hosting config, not a secret — CI checks this out to deploy, and without it
+# action-hosting-deploy fails with "firebase.json file not found".
+!frontend/firebase.json
 frontend/windows/flutter/ephemeral/
 backend/bandit_report.txt
 frontend/build/*.dill

@@ -13,8 +13,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build Docker image
-        run: docker build -t cropsphere-backend:${{ github.sha }} backend/
+      # No docker build step here: `railway up` uploads the source and builds
+      # remotely, so a local image would be thrown away. ci.yml already builds
+      # and Trivy-scans the image on the way to main.
 
       - name: Deploy to Railway
         env:
@@ -22,4 +23,21 @@ jobs:
         run: |
           npm install -g @railway/cli
           cd backend
-          railway up --service cropsphere-backend
+
+          # Diagnostics, non-fatal so the deploy still reports its own error.
+          # If "Service not found" persists even with the id below, the cause
+          # is RAILWAY_TOKEN holding an ACCOUNT token rather than a PROJECT
+          # token: account tokens carry no project scope (they belong in
+          # RAILWAY_API_TOKEN), so nothing resolves. `railway status` then
+          # reports no linked project. Project tokens: Project > Settings >
+          # Tokens, scoped to one environment.
+          railway whoami || true
+          railway status || true
+
+          # Service ID, not name. The previous "cropsphere-backend" did not
+          # match — the service's private hostname is cropsphere-app.railway
+          # .internal, so the name had drifted. Ids do not drift on rename.
+          # project     deee9186-2910-4173-9395-d5db7bcdd628
+          # environment 8379eb46-f7ee-42d4-9344-0b105fdac0eb (implied by the
+          #             project token; pass -e only if that ever changes)
+          railway up --service 2ce5633d-e682-472f-86d7-3393212b702a

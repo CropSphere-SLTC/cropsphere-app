@@ -10,15 +10,12 @@ jobs:
     # Only runs after CI passes — enforce this via branch protection rules on main
 
     steps:
+      # No lfs: true needed — the model files are ordinary git blobs now, so a
+      # plain checkout carries them. The Dockerfile asserts on their byte total
+      # regardless, so a build that somehow lacks them fails instead of quietly
+      # deploying mock predictions.
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          # The 21 model files are LFS-tracked. Without this the runner gets
-          # 133-byte pointer stubs, `railway up` uploads those, and every model
-          # fails to load in the container — the API answers 200 with is_mock
-          # data instead of failing, so nothing surfaces it except
-          # /api/health reporting all 21 as false.
-          lfs: true
 
       # No docker build step here: `railway up` uploads the source and builds
       # remotely, so a local image would be thrown away. ci.yml already builds

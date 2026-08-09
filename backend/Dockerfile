@@ -153,14 +153,21 @@ ENV HF_HUB_OFFLINE=1 \
 # Copy application code, ML model files, and build-time scripts
 COPY app/ ./app/
 COPY models/ ./models/
-# TEMPORARY DIAGNOSTIC — remove once the LFS checkout is confirmed working.
-# A plain file count is not enough: an LFS pointer is still a file, so a
-# stub-only build counts 21 and looks healthy. The byte total is the signal —
-# real models are ~68 MB, pointers are ~133 bytes each.
-RUN ls -la /app/models/files/ \
-    && echo "MODEL COUNT: $(ls /app/models/files/ | wc -l)" \
-    && echo "MODEL BYTES: $(du -sb /app/models/files/ | cut -f1)" \
-    && echo "LFS POINTERS: $(grep -rl '^version https://git-lfs' /app/models/files/ 2>/dev/null | wc -l)"
+# Fail the build if the models did not really arrive. Permanent, not a
+# migration aid: a missing model is not a crash but a silent downgrade — the
+# loader catches the load error, marks the model unloaded, and the API keeps
+# answering 200 with is_mock data that looks like a real prediction. That
+# reached production once already, via Git LFS pointer stubs copied in place
+# of the models. A file count cannot see it (a stub is still a file); the byte
+# total can. Real models are ~68 MB, 22 stubs are ~2.9 KB, so 50 MB sits far
+# from both and tolerates models being retrained to different sizes.
+RUN total_bytes=$(du -sb /app/models/files/ | cut -f1) \
+    && if [ "$total_bytes" -lt 50000000 ]; then \
+         echo "ERROR: model files are ${total_bytes} bytes — expected ~68MB." \
+              "Likely LFS pointer stubs or an incomplete copy, not real models." >&2; \
+         exit 1; \
+       fi \
+    && echo "Model files verified: ${total_bytes} bytes"
 COPY scripts/ ./scripts/
 COPY data/ ./data/
 

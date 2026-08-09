@@ -137,23 +137,6 @@ SentenceTransformer('all-MiniLM-L6-v2', cache_folder='/app/hf_cache')"
 ENV HF_HUB_OFFLINE=1 \
     TRANSFORMERS_OFFLINE=1
 
-# Bake the RAG sentence-encoder into the image so it NEVER downloads at
-# runtime. Previously the first chat request fetched all-MiniLM-L6-v2 from
-# HuggingFace Hub inside the request path, where the new Xet download backend
-# (hf_xet) failed with "Permission denied" under the non-root user — hanging
-# the single uvicorn worker so every endpoint timed out. We download here at
-# build time with Xet disabled (plain HTTPS, reliable) and force offline below
-# so the model loads from local disk with no network in the request path.
-ENV SENTENCE_TRANSFORMERS_HOME=/app/hf_cache
-RUN HF_HUB_DISABLE_XET=1 python -c \
-    "from sentence_transformers import SentenceTransformer; \
-SentenceTransformer('all-MiniLM-L6-v2', cache_folder='/app/hf_cache')"
-
-# Runtime: never reach out to HuggingFace — load the baked model offline so a
-# missing/corrupt cache fails fast instead of hanging on a network fetch.
-ENV HF_HUB_OFFLINE=1 \
-    TRANSFORMERS_OFFLINE=1
-
 # Copy application code, ML model files, and build-time scripts
 COPY app/ ./app/
 COPY models/ ./models/

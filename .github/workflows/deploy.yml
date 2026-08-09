@@ -25,12 +25,12 @@ jobs:
           cd backend
 
           # Diagnostics, non-fatal so the deploy still reports its own error.
-          # If "Service not found" persists even with the id below, the cause
-          # is RAILWAY_TOKEN holding an ACCOUNT token rather than a PROJECT
-          # token: account tokens carry no project scope (they belong in
-          # RAILWAY_API_TOKEN), so nothing resolves. `railway status` then
-          # reports no linked project. Project tokens: Project > Settings >
-          # Tokens, scoped to one environment.
+          # `railway whoami` ALWAYS prints "Unauthorized ... check that your
+          # RAILWAY_TOKEN is valid" under a project token — project tokens
+          # carry no user identity, so there is no one to report. It is not a
+          # token problem; ignore it. `railway status` is the real check: if it
+          # prints the project, environment and service list, the token's scope
+          # is fine. Both did exactly that in run 31313954974.
           railway whoami || true
           railway status || true
 
@@ -40,4 +40,14 @@ jobs:
           # project     deee9186-2910-4173-9395-d5db7bcdd628
           # environment 8379eb46-f7ee-42d4-9344-0b105fdac0eb (implied by the
           #             project token; pass -e only if that ever changes)
+          #
+          # If this reports "Deploy failed" within seconds and streams no build
+          # output, the build did not fail — nothing here builds in under a
+          # minute. It means a second deployment raced this one and superseded
+          # it. Run 31313954974: `railway status` above showed the service
+          # already "Building (7s)" before this line ran, i.e. Railway's own
+          # GitHub integration had auto-deployed the same push. Only one deploy
+          # path should be live; this is it, so repo-triggered deploys stay off
+          # in Service > Settings > Source. Re-check there before debugging it
+          # as a build error.
           railway up --service 2ce5633d-e682-472f-86d7-3393212b702a

@@ -153,6 +153,14 @@ ENV HF_HUB_OFFLINE=1 \
 # Copy application code, ML model files, and build-time scripts
 COPY app/ ./app/
 COPY models/ ./models/
+# TEMPORARY DIAGNOSTIC — remove once the LFS checkout is confirmed working.
+# A plain file count is not enough: an LFS pointer is still a file, so a
+# stub-only build counts 21 and looks healthy. The byte total is the signal —
+# real models are ~68 MB, pointers are ~133 bytes each.
+RUN ls -la /app/models/files/ \
+    && echo "MODEL COUNT: $(ls /app/models/files/ | wc -l)" \
+    && echo "MODEL BYTES: $(du -sb /app/models/files/ | cut -f1)" \
+    && echo "LFS POINTERS: $(grep -rl '^version https://git-lfs' /app/models/files/ 2>/dev/null | wc -l)"
 COPY scripts/ ./scripts/
 COPY data/ ./data/
 

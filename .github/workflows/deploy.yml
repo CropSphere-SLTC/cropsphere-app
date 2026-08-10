@@ -10,6 +10,10 @@ jobs:
     # Only runs after CI passes — enforce this via branch protection rules on main
 
     steps:
+      # No lfs: true needed — the model files are ordinary git blobs now, so a
+      # plain checkout carries them. The Dockerfile asserts on their byte total
+      # regardless, so a build that somehow lacks them fails instead of quietly
+      # deploying mock predictions.
       - name: Checkout code
         uses: actions/checkout@v4
 

@@ -19,6 +19,8 @@ enum AdminPage {
   auditLogs,
   predictionLogs,
   security,
+  promptTuning,
+  patternManagement,
   systemConfig,
   maintenance,
   // User app views
@@ -62,6 +64,18 @@ const List<_NavSection> _sections = [
     _NavItem(AdminPage.security, Icons.shield_outlined, 'Security'),
   ]),
   _NavSection('Superadmin', [
+    _NavItem(
+      AdminPage.promptTuning,
+      Icons.tune,
+      'Prompt tuning',
+      superOnly: true,
+    ),
+    _NavItem(
+      AdminPage.patternManagement,
+      Icons.rule,
+      'Pattern management',
+      superOnly: true,
+    ),
     _NavItem(
       AdminPage.systemConfig,
       Icons.settings_outlined,

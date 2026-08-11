@@ -6,13 +6,22 @@
 
 import 'package:flutter/material.dart';
 import '../../../../models/admin_models.dart';
+import '../../../../models/conversation_models.dart';
+import '../../../../models/pattern_models.dart';
 import '../../../../services/admin_service.dart';
 import '../../../../widgets/app_theme.dart';
 import '../admin_ui.dart';
+import '../widgets/admin_sidebar.dart';
 import '../widgets/stat_card.dart';
 
 class GapReportPage extends StatefulWidget {
-  const GapReportPage({super.key});
+  // role + onNavigate are optional so the page still works standalone; the
+  // shell passes them so the superadmin-only "Prompt tuning" card can appear
+  // and navigate. Both roles see the gap report itself.
+  final String role;
+  final ValueChanged<AdminPage>? onNavigate;
+
+  const GapReportPage({super.key, this.role = 'admin', this.onNavigate});
 
   @override
   State<GapReportPage> createState() => _GapReportPageState();
@@ -24,11 +33,25 @@ class _GapReportPageState extends State<GapReportPage> {
   bool _loading = true;
   String? _error;
   GapReport? _report;
+  int? _tuningCount; // active prompt-tuning adjustments (superadmin only)
+
+  bool get _isSuper => widget.role == 'superadmin';
 
   @override
   void initState() {
     super.initState();
     _load();
+    if (_isSuper) _loadTuningCount();
+  }
+
+  // Best-effort badge for the prompt-tuning card — never blocks the report.
+  Future<void> _loadTuningCount() async {
+    try {
+      final active = await _admin.getActivePromptTuning();
+      if (mounted) setState(() => _tuningCount = active.count);
+    } catch (_) {
+      // Leave the badge off if this fails; the card still navigates.
+    }
   }
 
   Future<void> _load() async {
@@ -149,11 +172,105 @@ class _GapReportPageState extends State<GapReportPage> {
               _barList(report.knowledgeLevelDistribution, _levelColor),
             ),
             const SizedBox(height: 16),
+            _buildFeedbackCard(report.feedbackSummary),
+            const SizedBox(height: 16),
+            _buildFewshotCard(report.fewshot),
+            const SizedBox(height: 16),
+            _buildPatternHealthCard(report.patternHealth),
+            const SizedBox(height: 16),
+            _buildConversationHealthCard(report.conversationHealth),
+            if (_isSuper && widget.onNavigate != null) ...[
+              const SizedBox(height: 16),
+              _buildPromptTuningCard(),
+            ],
+            const SizedBox(height: 16),
             _buildSessionCard(report),
             const SizedBox(height: 24),
           ],
         ),
       ),
+    );
+  }
+
+  // Thumbs up/down summary from chat_feedback (Step 8).
+  Widget _buildFeedbackCard(FeedbackSummary fb) {
+    if (fb.totalFeedback == 0) {
+      return _sectionCard('Feedback', _emptyLine('No feedback yet.'));
+    }
+    return _sectionCard(
+      'Feedback',
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 20,
+            runSpacing: 12,
+            children: [
+              _feedbackStat(
+                '${(fb.satisfactionRate * 100).round()}%',
+                'satisfaction',
+                Icons.sentiment_satisfied_alt,
+                AppTheme.success,
+              ),
+              _feedbackStat(
+                '${fb.thumbsUp}',
+                'thumbs up',
+                Icons.thumb_up,
+                AppTheme.success,
+              ),
+              _feedbackStat(
+                '${fb.thumbsDown}',
+                'thumbs down',
+                Icons.thumb_down,
+                AppTheme.accent,
+              ),
+            ],
+          ),
+          if (fb.mostDownvotedQuestions.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            const Text(
+              'Most downvoted questions',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 6),
+            _refusedList(fb.mostDownvotedQuestions),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _feedbackStat(String value, String label, IconData icon, Color color) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 18, color: color),
+        const SizedBox(width: 6),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              value,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: AppTheme.textPrimary,
+              ),
+            ),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 11,
+                color: AppTheme.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -209,6 +326,424 @@ class _GapReportPageState extends State<GapReportPage> {
           ),
         ),
       ],
+    );
+  }
+
+  // Few-shot examples file status (Step 6): total, per-type counts, updated_at.
+  Widget _buildFewshotCard(FewshotInfo fs) {
+    if (!fs.fileExists) {
+      return _sectionCard(
+        'Few-shot examples',
+        _emptyLine(
+          'No examples file yet — run "Rebuild few-shot" to create it.',
+        ),
+      );
+    }
+    final types = ['yield', 'price', 'season', 'earnings', 'general'];
+    return _sectionCard(
+      'Few-shot examples',
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                '${fs.total}',
+                style: const TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.textPrimary,
+                ),
+              ),
+              const SizedBox(width: 6),
+              const Text(
+                'examples loaded',
+                style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final t in types)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppTheme.background,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '$t: ${fs.counts[t] ?? 0}',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+            ],
+          ),
+          if (fs.updatedAt != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Updated: ${fs.updatedAt}',
+              style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // Pattern Health: how the admin-approved routing overrides are performing.
+  // Visible to admins too (the underlying reads are admin-readable), but only a
+  // superadmin gets the tap-through, since managing them is superadmin-only.
+  // Conversation Health (Step 10) — how conversations actually go: how long
+  // they run, where farmers abandon them, the flows they follow, and whether
+  // follow-up chips are still being tapped. Taps through to the Chip Manager.
+  Widget _buildConversationHealthCard(ConversationHealth health) {
+    if (health.totalConversations == 0) {
+      return _sectionCard(
+        'Conversation health',
+        _emptyLine('No conversations reconstructed in this window.'),
+      );
+    }
+    final trend = health.chipTapTrend;
+    final trendColor = trend.change > 0.01
+        ? AppTheme.success
+        : trend.change < -0.01
+        ? AppTheme.error
+        : AppTheme.textSecondary;
+
+    return _sectionCard(
+      'Conversation health',
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _healthStat(
+                'Avg length',
+                '${health.avgConversationLength}',
+                'messages',
+              ),
+              _healthStat(
+                'Single-turn',
+                '${(health.singleTurnRate * 100).toStringAsFixed(0)}%',
+                'asked once, left',
+              ),
+              _healthStat(
+                'Chip taps',
+                '${(trend.thisWeek * 100).toStringAsFixed(0)}%',
+                trend.change == 0
+                    ? 'flat vs last week'
+                    : '${trend.change > 0 ? '+' : ''}'
+                          '${(trend.change * 100).toStringAsFixed(0)} pts '
+                          'vs last week',
+                color: trendColor,
+              ),
+            ],
+          ),
+          const Divider(height: 24),
+          const Text(
+            'Drop-off by response type',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              color: AppTheme.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 6),
+          _DropOffList(dropOff: health.dropOffByResponse),
+          if (health.topFlows.isNotEmpty) ...[
+            const Divider(height: 24),
+            const Text(
+              'Most common flows',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: AppTheme.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 6),
+            for (final flow in health.topFlows)
+              _flowRow(flow, AppTheme.textSecondary),
+          ],
+          if (health.problemFlows.isNotEmpty) ...[
+            const Divider(height: 24),
+            const Text(
+              'Problem flows (ended on a refusal)',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: AppTheme.error,
+              ),
+            ),
+            const SizedBox(height: 6),
+            for (final flow in health.problemFlows)
+              _flowRow(flow, AppTheme.error),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _healthStat(
+    String label,
+    String value,
+    String hint, {
+    Color color = AppTheme.primary,
+  }) {
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.textPrimary,
+            ),
+          ),
+          Text(
+            hint,
+            style: const TextStyle(fontSize: 10, color: AppTheme.textMuted),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _flowRow(ConversationFlow flow, Color color) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              flow.flow,
+              style: TextStyle(fontSize: 12, color: color),
+            ),
+          ),
+          Text(
+            '${flow.count}',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPatternHealthCard(PatternHealth health) {
+    final canManage = _isSuper && widget.onNavigate != null;
+    final needsReview = health.needsReviewCount;
+    final body = Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppTheme.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.rule, color: AppTheme.primary),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Pattern health',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.textPrimary,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Admin-approved phrases supplementing the routing rules',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (needsReview > 0) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppTheme.warning.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    '$needsReview need review',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.warning,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+              if (canManage)
+                const Icon(Icons.chevron_right, color: AppTheme.textMuted),
+            ],
+          ),
+          const SizedBox(height: 14),
+          if (health.activeCount == 0)
+            _emptyLine(
+              'No pattern overrides yet — the chatbot is running on its '
+              'built-in routing rules alone.',
+            )
+          else
+            Wrap(
+              spacing: 24,
+              runSpacing: 12,
+              children: [
+                _patternStat('Active', '${health.activeCount}'),
+                _patternStat('Matches this period', '${health.hitsThisPeriod}'),
+                _patternStat('Matches all time', '${health.totalHits}'),
+                _patternStat(
+                  'Avg. satisfaction',
+                  health.avgSatisfaction == 0
+                      ? '—'
+                      : '${(health.avgSatisfaction * 100).toStringAsFixed(0)}%',
+                ),
+                _patternStat('Revoked', '${health.revokedCount}'),
+              ],
+            ),
+          const SizedBox(height: 10),
+          Text(
+            health.lastAnalysisAt == null
+                ? 'Never analysed'
+                : 'Last analysed ${adminTimeAgo(health.lastAnalysisAt)}',
+            style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
+          ),
+        ],
+      ),
+    );
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: canManage
+          ? InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => widget.onNavigate?.call(AdminPage.patternManagement),
+              child: body,
+            )
+          : body,
+    );
+  }
+
+  Widget _patternStat(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: AppTheme.textPrimary,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Step 7: superadmin shortcut into the Prompt Tuning screen, with a live
+  // badge of how many adjustments are currently active.
+  Widget _buildPromptTuningCard() {
+    final count = _tuningCount;
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => widget.onNavigate?.call(AdminPage.promptTuning),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppTheme.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.tune, color: AppTheme.primary),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Prompt tuning',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.textPrimary,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Adjust the chatbot prompt from usage patterns',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (count != null && count > 0) ...[
+                _countBadge(count),
+                const SizedBox(width: 4),
+                const Text(
+                  'active',
+                  style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+                ),
+                const SizedBox(width: 8),
+              ],
+              const Icon(Icons.chevron_right, color: AppTheme.textMuted),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -481,5 +1016,85 @@ class _GapReportPageState extends State<GapReportPage> {
       default:
         return AppTheme.textMuted;
     }
+  }
+}
+
+/// Drop-off rates per response state, as a stacked leave/continue bar. Lived in
+/// the deleted chip_ui.dart; the gap report is its only consumer now.
+class _DropOffList extends StatelessWidget {
+  final ConversationDropOff dropOff;
+
+  const _DropOffList({required this.dropOff});
+
+  @override
+  Widget build(BuildContext context) {
+    final buckets = dropOff.all;
+    if (buckets.values.every((b) => b.sampleSize == 0)) {
+      return const Text(
+        'No refusals, low-confidence answers or clarifications in this window.',
+        style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final entry in buckets.entries)
+          if (entry.value.sampleSize > 0) _row(entry.key, entry.value),
+      ],
+    );
+  }
+
+  Widget _row(String label, ConversationDropOffBucket bucket) {
+    final leaveColor = bucket.leaveRate >= 0.6
+        ? AppTheme.error
+        : bucket.leaveRate >= 0.35
+        ? AppTheme.warning
+        : AppTheme.success;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.textPrimary,
+                  ),
+                ),
+              ),
+              Text(
+                '${(bucket.leaveRate * 100).toStringAsFixed(0)}% leave  ·  '
+                '${(bucket.secondaryRate * 100).toStringAsFixed(0)}% '
+                '${bucket.secondaryLabel}',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: leaveColor,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 3),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: bucket.leaveRate.clamp(0.0, 1.0),
+              minHeight: 5,
+              backgroundColor: AppTheme.success.withValues(alpha: 0.18),
+              valueColor: AlwaysStoppedAnimation(leaveColor),
+            ),
+          ),
+          Text(
+            '${bucket.sampleSize} turn${bucket.sampleSize == 1 ? '' : 's'}',
+            style: const TextStyle(fontSize: 10, color: AppTheme.textMuted),
+          ),
+        ],
+      ),
+    );
   }
 }

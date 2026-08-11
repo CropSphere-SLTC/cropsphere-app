@@ -9,6 +9,7 @@ import '../../../../services/admin_service.dart';
 import '../../../../widgets/app_theme.dart';
 import '../admin_ui.dart';
 import '../widgets/admin_sidebar.dart';
+import '../widgets/email_alerts_card.dart';
 import '../widgets/model_status.dart';
 import '../widgets/stat_card.dart';
 
@@ -103,6 +104,8 @@ class _DashboardPageState extends State<DashboardPage> {
           _buildSecurityAlerts(),
           const SizedBox(height: 16),
           _buildRecentActivity(),
+          const SizedBox(height: 16),
+          const EmailAlertsCard(),
         ],
       ),
     );

@@ -60,4 +60,9 @@ class ServiceFactory {
           feedback: feedback,
           messageText: messageText,
         );
+
+  Future<Map<int, String>> getConversationFeedback(String conversationId) =>
+      _useMock
+      ? _mock.getConversationFeedback(conversationId)
+      : _real.getConversationFeedback(conversationId);
 }

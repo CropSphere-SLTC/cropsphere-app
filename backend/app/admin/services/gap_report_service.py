@@ -68,8 +68,10 @@ def get_gap_report(days: int = _DEFAULT_DAYS) -> dict:
 def _build_report(days: int) -> dict:
     """Fetch the window's documents and aggregate them in Python."""
     from app.user.services.chatbot_service import _dataset_capabilities
+    from app.utils.firestore import get_db
 
-    docs = _fetch_documents(days)
+    db = get_db()
+    docs = _fetch_documents(db, days)
     caps = _dataset_capabilities()
     covered_crops = set(caps["crops"])
     covered_districts = set(caps["districts"])
@@ -125,7 +127,9 @@ def _build_report(days: int) -> dict:
         if d.get("followup_chip_tapped") is True:
             chip_taps += 1
 
-    return {
+    feedback_summary = _aggregate_feedback(_fetch_feedback(db, days))
+
+    report = {
         "period": f"last_{days}_days",
         "total_interactions": total,
         "response_breakdown": response_breakdown,
@@ -145,7 +149,98 @@ def _build_report(days: int) -> dict:
         "avg_response_time_ms": round(rtime_sum / rtime_n) if rtime_n else 0,
         "chip_tap_rate": round(chip_taps / total, 2) if total else 0.0,
         "avg_session_length": round(slen_sum / slen_n, 1) if slen_n else 0.0,
+        "feedback_summary": feedback_summary,
+        "fewshot": _fewshot_info(),
+        "pattern_health": _pattern_health(days),
+        "conversation_health": _conversation_health(docs),
     }
+
+    # Raise admin alerts (high refusal / low satisfaction / milestone) from the
+    # data we just aggregated — no extra Firestore scan. Best-effort and fully
+    # isolated: an alert failure must never break the gap report. It self-dedups
+    # to once per 24h per alert type, so the 5-min report cache is fine.
+    _maybe_alert(report)
+    return report
+
+
+def _maybe_alert(report: dict) -> None:
+    """Fire analytics-alert notifications from a built report. Swallows all
+    errors — the report is the caller's product, alerts are a side effect."""
+    try:
+        from app.admin.services.notification_service import check_analytics_alerts
+
+        check_analytics_alerts(report)
+    except Exception as exc:
+        logger.debug("analytics alert check skipped: %s", exc)
+
+
+def _pattern_health(days: int) -> dict:
+    """Pattern Health block: how the admin-approved routing overrides are doing
+    (Step 9). Reads the overrides file only — no extra Firestore scan. Never
+    raises; a failure yields a zeroed block so the report still renders."""
+    try:
+        from app.admin.services.pattern_analyzer_service import get_pattern_health
+
+        return get_pattern_health(days)
+    except Exception as exc:
+        logger.debug("pattern health skipped: %s", exc)
+        return {
+            "active_count": 0,
+            "revoked_count": 0,
+            "total_hits": 0,
+            "hits_this_period": 0,
+            "avg_satisfaction": 0.0,
+            "needs_review_count": 0,
+            "last_analysis_at": None,
+        }
+
+
+def _conversation_health(docs: list) -> dict:
+    """Conversation Health block (Step 10): drop-off rates, common flows and
+    the chip tap trend.
+
+    Reuses the documents this report ALREADY fetched, so the block costs no
+    extra Firestore reads. Never raises — a failure yields a zeroed block so
+    the rest of the report still renders.
+    """
+    try:
+        from app.admin.services.conversation_miner_service import conversation_health
+
+        return conversation_health(docs)
+    except Exception as exc:
+        logger.debug("conversation health skipped: %s", exc)
+        return {
+            "total_conversations": 0,
+            "avg_conversation_length": 0.0,
+            "single_turn_rate": 0.0,
+            "drop_off_by_response": {},
+            "drop_off_by_question_type": [],
+            "top_flows": [],
+            "problem_flows": [],
+            "chip_tap_trend": {"this_week": 0.0, "last_week": 0.0, "change": 0.0},
+        }
+
+
+def _fewshot_info() -> dict:
+    """Few-shot file status for the gap report: existence, updated_at, per-type
+    counts, and total. Never raises."""
+    from app.user.services.fewshot_service import FEWSHOT_PATH
+
+    if not FEWSHOT_PATH.exists():
+        return {"file_exists": False, "updated_at": None, "counts": {}, "total": 0}
+    try:
+        import json
+
+        data = json.loads(FEWSHOT_PATH.read_text())
+        counts = {k: len(v) for k, v in data.get("examples", {}).items()}
+        return {
+            "file_exists": True,
+            "updated_at": data.get("updated_at"),
+            "counts": counts,
+            "total": sum(counts.values()),
+        }
+    except Exception:
+        return {"file_exists": True, "updated_at": None, "counts": {}, "total": 0}
 
 
 def _normalize_confidence(conf):
@@ -158,7 +253,7 @@ def _normalize_confidence(conf):
     return conf
 
 
-def _fetch_documents(days: int) -> list:
+def _fetch_documents(db, days: int) -> list:
     """Fetch all chat_analytics docs with timestamp >= now-days in one query.
 
     A single-field inequality needs no composite index. Raises on Firestore
@@ -166,13 +261,52 @@ def _fetch_documents(days: int) -> list:
     """
     from google.cloud.firestore_v1.base_query import FieldFilter
 
-    from app.utils.firestore import get_db
-
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    db = get_db()
     docs = (
         db.collection("chat_analytics")
         .where(filter=FieldFilter("timestamp", ">=", cutoff))
         .stream()
     )
     return [doc.to_dict() for doc in docs]
+
+
+def _fetch_feedback(db, days: int) -> list:
+    """Fetch chat_feedback docs with timestamp >= now-days (same window)."""
+    from google.cloud.firestore_v1.base_query import FieldFilter
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    docs = (
+        db.collection("chat_feedback")
+        .where(filter=FieldFilter("timestamp", ">=", cutoff))
+        .stream()
+    )
+    return [doc.to_dict() for doc in docs]
+
+
+def _aggregate_feedback(docs: list) -> dict:
+    """Aggregate thumbs up/down votes into the feedback_summary block.
+
+    most_downvoted_questions groups downvotes by the stored question text
+    (the user message that produced the answer), top _TOP_N by count.
+    """
+    up = down = 0
+    downvoted: Counter = Counter()
+    for f in docs:
+        vote = f.get("feedback")
+        if vote == "up":
+            up += 1
+        elif vote == "down":
+            down += 1
+            q = (f.get("message_text") or "").strip()
+            if q:
+                downvoted[q] += 1
+    total = up + down
+    return {
+        "total_feedback": total,
+        "thumbs_up": up,
+        "thumbs_down": down,
+        "satisfaction_rate": round(up / total, 2) if total else 0.0,
+        "most_downvoted_questions": [
+            {"question": q, "count": c} for q, c in downvoted.most_common(_TOP_N)
+        ],
+    }

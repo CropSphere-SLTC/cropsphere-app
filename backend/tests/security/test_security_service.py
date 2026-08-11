@@ -125,6 +125,54 @@ def test_failed_logins_firestore_failure_raises_500():
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# Email enrichment — the dashboard has to name who triggered an event
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_events_with_a_uid_get_the_account_email_filled_in():
+    events = [{"type": "banned_access_attempt", "uid": "banned-1"}]
+    with patch(
+        "app.utils.firestore.query_recent_security_events", return_value=events
+    ), patch(
+        "app.utils.firestore.emails_for_uids",
+        return_value={"banned-1": "banned@x.com"},
+    ):
+        result = security_service.get_banned_attempts(limit=50)
+
+    assert result["events"][0]["email"] == "banned@x.com"
+
+
+def test_stored_email_wins_over_the_current_account_email():
+    """For a rejected token the stored email is the identity that was actually
+    presented — a later account rename must not rewrite the record."""
+    events = [{"type": "failed_login", "uid": "u1", "email": "old@x.com"}]
+    with patch(
+        "app.utils.firestore.query_recent_security_events", return_value=events
+    ), patch(
+        "app.utils.firestore.emails_for_uids", return_value={"u1": "new@x.com"}
+    ) as mock_lookup:
+        result = security_service.get_failed_logins(limit=50)
+
+    assert result["events"][0]["email"] == "old@x.com"
+    # Already-named events are not even looked up.
+    assert list(mock_lookup.call_args.args[0]) == []
+
+
+def test_events_without_a_uid_stay_unattributed():
+    """A pre-auth rate-limit hit has no identity beyond its IP — the row must
+    still come back rather than being dropped or faked."""
+    events = [{"type": "rate_limit_violation", "ip_address": "1.2.3.4"}]
+    with patch(
+        "app.utils.firestore.query_recent_security_events", return_value=events
+    ), patch("app.utils.firestore.emails_for_uids", return_value={}):
+        result = security_service.get_rate_violations(limit=50)
+
+    assert result["total"] == 1
+    assert result["events"][0]["email"] == ""
+    assert result["events"][0]["ip_address"] == "1.2.3.4"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # get_active_sessions
 # ═══════════════════════════════════════════════════════════════════════════
 

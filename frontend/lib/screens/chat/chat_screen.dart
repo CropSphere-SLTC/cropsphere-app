@@ -8,6 +8,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../config/app_config.dart';
 import '../../services/service_factory.dart';
 import '../../services/chat_history_service.dart';
+import '../../services/profile_service.dart';
 import '../../models/api_models.dart';
 import '../../models/chat_history_models.dart';
 import '../../widgets/app_theme.dart';
@@ -64,6 +65,11 @@ class _ChatScreenState extends State<ChatScreen> {
   String? _selectedCrop;
   String _selectedModel = 'accurate';
 
+  // Saved profile context — used only to personalize the empty state (starter
+  // cards + welcome subtitle). The backend applies saved context to answers.
+  String? _savedDistrict;
+  String? _savedCrop;
+
   final List<String> _districts = [
     'Nuwara Eliya',
     'Badulla',
@@ -86,7 +92,25 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
-    if (!AppConfig.useMockServices) _loadConversations();
+    if (!AppConfig.useMockServices) {
+      _loadConversations();
+      _loadSavedPreferences();
+    }
+  }
+
+  // Load the farmer's saved area/crop to personalize the empty state. Silent
+  // best-effort — a failure just means generic starter cards.
+  Future<void> _loadSavedPreferences() async {
+    try {
+      final prefs = await ProfileService().getPreferences();
+      if (!mounted) return;
+      setState(() {
+        _savedDistrict = prefs.preferredDistrict;
+        _savedCrop = prefs.preferredCrop;
+      });
+    } catch (_) {
+      /* personalization is optional */
+    }
   }
 
   Future<void> _loadConversations() async {
@@ -126,12 +150,34 @@ class _ChatScreenState extends State<ChatScreen> {
         _suggestedFollowups = [];
       });
       _scrollToBottom();
+      // Restore this user's thumbs votes so feedback survives a reload.
+      _restoreFeedback(detail.id);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Failed to load conversation')),
         );
       }
+    }
+  }
+
+  // Best-effort: pull the saved votes for this conversation and paint them
+  // onto the matching bubbles. Failure is silent — the chat still works.
+  Future<void> _restoreFeedback(String conversationId) async {
+    if (AppConfig.useMockServices) return;
+    try {
+      final votes = await ServiceFactory.getService().getConversationFeedback(
+        conversationId,
+      );
+      if (!mounted || votes.isEmpty) return;
+      setState(() {
+        for (var i = 0; i < _displayMessages.length; i++) {
+          final vote = votes[i];
+          if (vote != null) _displayMessages[i]['feedback'] = vote;
+        }
+      });
+    } catch (_) {
+      /* best-effort — reloaded chat still works without restored votes */
     }
   }
 
@@ -374,6 +420,15 @@ class _ChatScreenState extends State<ChatScreen> {
             setState(() {
               bubble['confidence'] = event['confidence'] as String? ?? '';
               bubble['sources'] = List<String>.from(event['sources'] ?? []);
+              // The model appends its follow-up suggestions as "FOLLOWUP:"
+              // lines at the very end of the answer, so they stream into the
+              // bubble as ordinary text before the server can strip them.
+              // Metadata arrives once the stream is complete — replace the
+              // bubble with the clean text here. The server already strips
+              // them from what it persists, so this only fixes the live view.
+              bubble['content'] = _stripFollowupMarkers(
+                bubble['content'] as String? ?? '',
+              );
               _suggestedFollowups = List<String>.from(
                 event['suggested_followups'] ?? [],
               );
@@ -381,6 +436,12 @@ class _ChatScreenState extends State<ChatScreen> {
           case 'error':
             setState(() {
               bubble['errorCode'] = event['code'] as String? ?? 'server_error';
+              // A failed stream never reaches metadata, so clean the partial
+              // text here too — the farmer must never be left looking at a
+              // raw "FOLLOWUP:" line.
+              bubble['content'] = _stripFollowupMarkers(
+                bubble['content'] as String? ?? '',
+              );
             });
           case 'done':
             completed = true;
@@ -425,6 +486,22 @@ class _ChatScreenState extends State<ChatScreen> {
     if (retryFor == null) return;
     setState(() => _displayMessages.remove(bubble));
     await _sendMessageStreaming(retryFor, isRetry: true);
+  }
+
+  /// Removes the model's "FOLLOWUP:" suggestion lines from streamed text.
+  ///
+  /// The suggestions are an internal protocol between the prompt and the
+  /// backend parser (see chatbot_service._parse_followups_from_response) — they
+  /// arrive at the tail of the stream and become the chips in the metadata
+  /// event. They must never remain visible as answer text. The backend already
+  /// strips them from the persisted copy; this cleans the live bubble.
+  String _stripFollowupMarkers(String text) {
+    if (!text.contains('FOLLOWUP:')) return text;
+    return text
+        .split('\n')
+        .where((line) => !line.trimLeft().startsWith('FOLLOWUP:'))
+        .join('\n')
+        .trimRight();
   }
 
   void _scrollToBottom() {
@@ -857,6 +934,18 @@ class _ChatScreenState extends State<ChatScreen> {
   /// and welcome bubble. Tapping a starter card sends it exactly like a
   /// followup chip tap; the bottom chip row stays hidden the whole time
   /// since _suggestedFollowups is empty until a real response arrives.
+  // Starter prompts, personalized to the saved area/crop when we have them.
+  List<String> get _starterPrompts {
+    final d = _savedDistrict;
+    if (d == null || d.isEmpty) return _onboardingFollowups;
+    final c = _savedCrop ?? 'Carrot';
+    return [
+      '$c yield in $d',
+      'Best season for $c in $d',
+      'What crops do you cover?',
+    ];
+  }
+
   Widget _buildEmptyState() {
     return Center(
       child: ConstrainedBox(
@@ -887,11 +976,22 @@ class _ChatScreenState extends State<ChatScreen> {
                   style: TextStyle(fontSize: 14, color: Colors.grey[600]),
                 ),
               ),
+              if (_savedDistrict != null && _savedDistrict!.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'Welcome back! Your area: ${_savedDistrict!}',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.primary,
+                  ),
+                ),
+              ],
               const SizedBox(height: 24),
-              for (var i = 0; i < _onboardingFollowups.length; i++) ...[
-                _buildStarterCard(_starterIcons[i], _onboardingFollowups[i]),
-                if (i < _onboardingFollowups.length - 1)
-                  const SizedBox(height: 9),
+              for (var i = 0; i < _starterPrompts.length; i++) ...[
+                _buildStarterCard(_starterIcons[i], _starterPrompts[i]),
+                if (i < _starterPrompts.length - 1) const SizedBox(height: 9),
               ],
             ],
           ),
@@ -1103,15 +1203,15 @@ class _ChatScreenState extends State<ChatScreen> {
                         ),
                       ),
                     ),
-                  // Feedback (thumbs) — only on real, completed Groq answers.
-                  // Those carry retrieval sources; refusals, clarifications,
-                  // capability/context-ack replies, the welcome view and
-                  // reloaded-history bubbles all have empty sources, so this
-                  // gate hides thumbs on exactly the responses Step 7 lists.
+                  // Feedback (thumbs) — on real, completed Groq answers (which
+                  // carry retrieval sources), OR on any bubble that already has
+                  // a restored vote after a reload (history bubbles have no
+                  // sources). Refusals/clarifications/capability/context-ack and
+                  // the welcome view have neither, so they stay thumb-less.
                   if (isBot &&
                       !isStreamingMsg &&
                       errorCode == null &&
-                      sources.isNotEmpty)
+                      (sources.isNotEmpty || msg['feedback'] != null))
                     _buildFeedbackRow(msg, index),
                 ],
               ),

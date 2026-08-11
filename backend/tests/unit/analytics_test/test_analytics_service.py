@@ -68,6 +68,73 @@ def test_detect_if_chip_tapped():
     assert cb._detect_if_chip_tapped("anything", []) is False
 
 
+def test_tapped_chip_reports_text_and_source():
+    """Analytics records WHICH chip was tapped and how it was produced."""
+    meta = {"source": "llm_generated", "generated": 3, "validated_count": 3}
+    tapped = cb._tapped_chip(
+        "Prevention methods for carrot pests",
+        (["Prevention methods for carrot pests"], meta),
+    )
+    assert tapped["template"] == "Prevention methods for carrot pests"
+    assert tapped["source"] == "llm_generated"
+
+
+def test_tapped_chip_returns_none_for_a_typed_question():
+    meta = {"source": "llm_generated"}
+    assert cb._tapped_chip("something else entirely", (["Carrot price"], meta)) is None
+
+
+def test_tapped_chip_without_meta_defaults_to_template_fallback():
+    tapped = cb._tapped_chip("Carrot price in Jaffna", (["Carrot price in Jaffna"], {}))
+    assert tapped["template"] == "Carrot price in Jaffna"
+    assert tapped["source"] == "template_fallback"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Shown-chip memory — how a tap is detected now that chips are generated
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _req(crop="Carrot", district="Jaffna"):
+    from app.models.schemas import ChatRequest
+
+    return ChatRequest(
+        message="carrot yield in jaffna", user_id="u1", crop=crop, district=district
+    )
+
+
+def test_shown_chips_round_trip():
+    req = _req()
+    cb._remember_shown_chips(req, ["A", "B"], {"source": "llm_generated"})
+    chips, meta = cb._recall_shown_chips(req)
+    assert chips == ["A", "B"]
+    assert meta["source"] == "llm_generated"
+
+
+def test_shown_chips_miss_returns_empty():
+    from app.models.schemas import ChatRequest
+
+    other = ChatRequest(message="hi", user_id="nobody-else", conversation_id="zzz")
+    assert cb._recall_shown_chips(other) == ([], {})
+
+
+def test_shown_chips_cache_is_bounded():
+    """A runaway cache would be a slow memory leak in a long-lived process."""
+    from app.models.schemas import ChatRequest
+
+    for i in range(cb._SHOWN_CHIPS_CAP + 50):
+        cb._remember_shown_chips(
+            ChatRequest(message="m", user_id=f"u{i}", conversation_id=f"c{i}"),
+            ["x"],
+            {},
+        )
+    assert len(cb._shown_chips) <= cb._SHOWN_CHIPS_CAP
+
+
+def test_season_for_now_returns_a_valid_season():
+    assert cb._season_for_now() in ("Maha", "Yala", "Inter")
+
+
 def test_anonymize_uid_is_deterministic_and_hides_raw_uid():
     hashed = cb._anonymize_uid("firebase-uid-123")
     assert hashed == cb._anonymize_uid("firebase-uid-123")  # stable

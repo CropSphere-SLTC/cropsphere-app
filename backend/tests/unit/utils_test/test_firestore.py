@@ -363,6 +363,29 @@ def test_update_user_preferences_calls_update():
     mock_ref.update.assert_called_once_with({"preferences": {"language": "ta"}})
 
 
+def test_update_user_context_merges_via_field_paths():
+    mock_ref = MagicMock()
+    mock_db = MagicMock()
+    mock_db.collection.return_value.document.return_value = mock_ref
+    with patch("app.utils.firestore.get_db", return_value=mock_db):
+        fs.update_user_context("u1", preferred_district="Jaffna")
+    payload = mock_ref.update.call_args[0][0]
+    # Dotted paths only — language/notifications siblings are never touched.
+    assert payload["preferences.preferred_district"] == "Jaffna"
+    assert "preferences.preferred_crop" not in payload
+    assert "preferences.context_updated_at" in payload
+    assert "preferences" not in payload  # never a whole-map replace
+
+
+def test_update_user_context_noop_when_nothing_given():
+    mock_ref = MagicMock()
+    mock_db = MagicMock()
+    mock_db.collection.return_value.document.return_value = mock_ref
+    with patch("app.utils.firestore.get_db", return_value=mock_db):
+        fs.update_user_context("u1")
+    mock_ref.update.assert_not_called()
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # update_last_login
 # ═══════════════════════════════════════════════════════════════════════════

@@ -4,6 +4,7 @@
 
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'session_recovery.dart';
 import '../config/app_config.dart';
 import '../models/admin_models.dart';
 
@@ -45,8 +46,12 @@ class SuperadminService {
                 opts.headers['Authorization'] = 'Bearer $newToken';
                 final response = await _dio.fetch(opts);
                 return handler.resolve(response);
-              } catch (_) {
-                // Retry failed — fall through to original error.
+              } catch (e) {
+                // Refresh failed. If that means the session is gone — a
+                // force-logout revoked the refresh token — sign out so the
+                // auth gate routes to login rather than stranding the user
+                // in an app where every request 401s.
+                await endSessionIfRevoked(e);
               }
             }
           }
@@ -77,6 +82,67 @@ class SuperadminService {
       },
     );
     return SuperadminConfig.fromJson(response.data);
+  }
+
+  // ── Prompt tuning lifecycle (superadmin only) ────────────────────────────
+
+  Future<PromptTuningConfig> getPromptTuningConfig() async {
+    final response = await _dio.get('/api/superadmin/prompt-tuning-config');
+    return PromptTuningConfig.fromJson(response.data);
+  }
+
+  // PATCH semantics — only the fields passed here are changed server-side.
+  Future<PromptTuningConfig> updatePromptTuningConfig({
+    int? minSampleSize,
+    int? trialPeriodDays,
+    int? trialExtensionDays,
+    int? trashRetentionDays,
+  }) async {
+    final response = await _dio.patch(
+      '/api/superadmin/prompt-tuning-config',
+      data: {
+        'min_sample_size': ?minSampleSize,
+        'trial_period_days': ?trialPeriodDays,
+        'trial_extension_days': ?trialExtensionDays,
+        'trash_retention_days': ?trashRetentionDays,
+      },
+    );
+    return PromptTuningConfig.fromJson(response.data);
+  }
+
+  // Before/after comparison for one adjustment. Works for trashed adjustments
+  // too — their measurement window freezes at the time they were removed.
+  Future<AdjustmentAnalytics> getAdjustmentAnalytics(
+    String adjustmentId,
+  ) async {
+    final response = await _dio.get(
+      '/api/superadmin/adjustment-analytics/$adjustmentId',
+    );
+    return AdjustmentAnalytics.fromJson(response.data);
+  }
+
+  // Skips auto-validation and locks the adjustment in. 409 if already permanent.
+  Future<void> forcePermanent(String adjustmentId) async {
+    await _dio.post('/api/superadmin/force-permanent/$adjustmentId');
+  }
+
+  // Moves an adjustment to the trash. The comment is mandatory server-side
+  // (3–500 chars) — a shorter one is rejected with 422.
+  Future<void> removeAdjustment(String adjustmentId, String comment) async {
+    await _dio.post(
+      '/api/superadmin/remove-adjustment/$adjustmentId',
+      data: {'comment': comment},
+    );
+  }
+
+  // Deletes trash past its retention deadline; `allItems` empties it outright.
+  // Returns how many were permanently deleted.
+  Future<int> clearTrash({bool allItems = false}) async {
+    final response = await _dio.delete(
+      '/api/superadmin/clear-trash',
+      queryParameters: {'all_items': allItems},
+    );
+    return response.data['deleted_count'] ?? 0;
   }
 
   Future<List<AuditLog>> getFullAuditLogs() async {

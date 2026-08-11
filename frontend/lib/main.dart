@@ -106,10 +106,10 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   late final List<Widget> _screens = [
     DashboardScreen(onNavigate: _navigateTo), // 0
     YieldScreen(onNavigate: _navigateTo), // 1
-    const PriceScreen(), // 2
-    const WeatherScreen(), // 3
-    const RecommendScreen(), // 4
-    const DemandScreen(), // 5
+    PriceScreen(onNavigate: _navigateTo), // 2
+    WeatherScreen(onNavigate: _navigateTo), // 3
+    RecommendScreen(onNavigate: _navigateTo), // 4
+    DemandScreen(onNavigate: _navigateTo), // 5
     const ChatScreen(), // 6
   ];
 

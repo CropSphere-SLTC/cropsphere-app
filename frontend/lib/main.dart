@@ -8,6 +8,7 @@
 //   4. Language chosen on LoginScreen is automatically used everywhere
 // ─────────────────────────────────────────────────────────────────────────────
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -35,6 +36,26 @@ import 'widgets/profile_avatar_button.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // Web auth state defaults to IndexedDB, which is what throws "Database is
+  // closing" when the browser restricts or tears down that store — incognito,
+  // storage pressure, or a partitioned third-party context. Persistence.LOCAL
+  // maps to browserLocalPersistence (localStorage), avoiding IndexedDB
+  // entirely while still surviving a closed tab.
+  //
+  // Guarded: this targets environments where browser storage is unreliable, so
+  // it is precisely where it might throw. An uncaught throw here happens before
+  // runApp and would show a blank page instead of a login screen — a worse
+  // failure than the one being fixed. Sign-in still works without it; only
+  // persistence across reloads is lost.
+  if (kIsWeb) {
+    try {
+      await FirebaseAuth.instance.setPersistence(Persistence.LOCAL);
+    } catch (e) {
+      debugPrint('AUTH PERSISTENCE: could not set LOCAL — $e');
+    }
+  }
+
   runApp(const CropSphereApp());
 }
 

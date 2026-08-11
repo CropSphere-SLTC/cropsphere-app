@@ -13,6 +13,31 @@ from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 
+# How many of the most recent audit_logs documents the per-endpoint breakdown
+# in get_system_stats is computed from. Bounded because audit_logs grows
+# without limit (one document per prediction and per chat turn) — an unbounded
+# scan there is what made /api/admin/stats time out. The all-time total is
+# still exact; it comes from a count() aggregation, not from this sample.
+_ENDPOINT_SAMPLE_SIZE = 1000
+
+
+def _count_documents(collection) -> int | None:
+    """Exact document count via Firestore's server-side count() aggregation.
+
+    Inputs: a Firestore CollectionReference.
+    Outputs: the count, or None when the aggregation is unavailable (older
+    client, emulator without aggregation support, or a mock in tests) so the
+    caller can fall back instead of failing the whole stats call.
+    Security assumption: reads only aggregate metadata, no document contents.
+    """
+    try:
+        result = collection.count().get()
+        # Shape: [[AggregationResult(value=N)]]
+        return int(result[0][0].value)
+    except Exception as exc:
+        logger.warning("audit_logs count() aggregation unavailable: %s", exc)
+        return None
+
 
 # ── User management ───────────────────────────────────────────────────────────
 
@@ -191,16 +216,36 @@ def get_system_stats() -> dict:
             ]
         }
 
-        # Request counts from audit logs
+        # Request counts from audit logs. audit_logs grows by one document per
+        # prediction AND per chat turn, without bound — streaming the whole
+        # collection to count it got slower every day and eventually timed out
+        # the client (30s), which is what took this endpoint down.
         db = get_db()
-        logs = db.collection("audit_logs").stream()
-        total_requests = 0
+        collection = db.collection("audit_logs")
+        # Exact total via the server-side count() aggregation: one RPC, no
+        # documents transferred, cost independent of collection size.
+        total_requests = _count_documents(collection)
+        # The per-endpoint breakdown genuinely has to read documents to group
+        # them, so it is bounded to the most recent _ENDPOINT_SAMPLE_SIZE. The
+        # sample size is returned alongside it so the UI can say what the
+        # breakdown actually covers instead of implying it is all-time.
         endpoint_counts: Dict[str, int] = {}
-        for log in logs:
-            data = log.to_dict()
-            total_requests += 1
+        sampled = 0
+        recent = (
+            collection.order_by("timestamp", direction="DESCENDING")
+            .limit(_ENDPOINT_SAMPLE_SIZE)
+            .stream()
+        )
+        for log in recent:
+            data = log.to_dict() or {}
+            sampled += 1
             ep = data.get("endpoint", "unknown")
             endpoint_counts[ep] = endpoint_counts.get(ep, 0) + 1
+
+        # count() unavailable (older emulator, permission shape) — the sample
+        # is the only number we actually have, so report it rather than 0.
+        if total_requests is None:
+            total_requests = sampled
 
         return {
             "cpu_percent": cpu_percent,
@@ -210,6 +255,9 @@ def get_system_stats() -> dict:
             "models_loaded": models_loaded,
             "total_requests": total_requests,
             "requests_by_endpoint": endpoint_counts,
+            # How many documents the breakdown above was computed from, so the
+            # client can label it honestly ("last 1,000 requests").
+            "requests_sampled": sampled,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception as exc:
@@ -224,9 +272,13 @@ def get_audit_logs(limit: int, actor: dict) -> dict:
     """Return admin audit logs.
     Admin sees only admin-level actions (not superadmin actions).
     Superadmin sees all actions.
+
+    Each row carries actor_email/target_email alongside the UIDs so the admin
+    UI can name who acted on whom; the UID stays authoritative and the email is
+    empty string for rows whose account no longer exists.
     """
     try:
-        from app.utils.firestore import get_db
+        from app.utils.firestore import emails_for_uids, get_db
 
         db = get_db()
         query = (
@@ -244,6 +296,14 @@ def get_audit_logs(limit: int, actor: dict) -> dict:
             if "timestamp" in data:
                 data["timestamp"] = data["timestamp"].isoformat()
             logs.append(data)
+
+        emails = emails_for_uids(
+            uid for log in logs for uid in (log.get("actor_uid"), log.get("target_uid"))
+        )
+        for log in logs:
+            log["actor_email"] = emails.get(log.get("actor_uid", ""), "")
+            log["target_email"] = emails.get(log.get("target_uid", ""), "")
+
         return {"logs": logs, "total": len(logs)}
     except Exception as exc:
         logger.error(f"get_audit_logs failed: {exc}")
@@ -251,9 +311,14 @@ def get_audit_logs(limit: int, actor: dict) -> dict:
 
 
 def get_prediction_logs(limit: int) -> dict:
-    """Return prediction audit logs from audit_logs collection."""
+    """Return prediction audit logs from audit_logs collection.
+
+    Each row carries user_email alongside user_id so the admin UI can name the
+    caller; it is empty string when the account no longer exists. The stored
+    document itself stays UID-only — see emails_for_uids.
+    """
     try:
-        from app.utils.firestore import get_db
+        from app.utils.firestore import emails_for_uids, get_db
 
         db = get_db()
         query = (
@@ -267,6 +332,11 @@ def get_prediction_logs(limit: int) -> dict:
             if "timestamp" in data:
                 data["timestamp"] = data["timestamp"].isoformat()
             logs.append(data)
+
+        emails = emails_for_uids(log.get("user_id", "") for log in logs)
+        for log in logs:
+            log["user_email"] = emails.get(log.get("user_id", ""), "")
+
         return {"logs": logs, "total": len(logs)}
     except Exception as exc:
         logger.error(f"get_prediction_logs failed: {exc}")

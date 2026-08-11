@@ -9,9 +9,13 @@ from fastapi.responses import StreamingResponse
 from app.config import get_settings
 from app.dependencies import get_user_id
 from app.middleware.rate_limit import limiter
-from app.models.schemas import ChatRequest, ChatResponse
+from app.models.schemas import ChatFeedbackRequest, ChatRequest, ChatResponse
 from app.user.services.chat_history_service import persist_chat_turn
 from app.user.services.chatbot_service import chat, chat_stream
+from app.user.services.feedback_service import (
+    get_conversation_feedback,
+    log_feedback,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -86,3 +90,39 @@ async def chat_stream_endpoint(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.post("/feedback")
+@limiter.limit("30/minute")
+async def chat_feedback_endpoint(
+    request: Request,
+    body: ChatFeedbackRequest,
+    user_id: str = Depends(get_user_id),
+) -> dict:
+    """Record a thumbs up/down on a bot reply for quality analytics.
+
+    Fire-and-forget from the client; the write is best-effort and never
+    affects chat. Requires a valid Firebase JWT. Rate limited: 30 req/min.
+    """
+    log_feedback(
+        user_id,
+        body.conversation_id,
+        body.message_index,
+        body.feedback,
+        body.message_text,
+    )
+    return {"status": "ok"}
+
+
+@router.get("/feedback/{conversation_id}")
+@limiter.limit("30/minute")
+async def get_feedback_endpoint(
+    request: Request,
+    conversation_id: str,
+    user_id: str = Depends(get_user_id),
+) -> dict:
+    """Return the caller's thumbs votes for a conversation as
+    {message_index: "up"|"down"} so the client can restore feedback state
+    after a page reload. JWT-gated, best-effort, rate limited: 30 req/min.
+    """
+    return {"votes": get_conversation_feedback(user_id, conversation_id)}

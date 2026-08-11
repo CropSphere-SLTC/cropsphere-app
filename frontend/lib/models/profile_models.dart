@@ -67,8 +67,18 @@ class NotificationPreferences {
 class UserPreferences {
   final String language;
   final NotificationPreferences notifications;
+  // Saved chat context — the farmer's area/crop, persisted server-side from
+  // "I'm from Jaffna" statements. Read-only here; toJson intentionally omits
+  // them so a preferences save never clobbers the context the backend owns.
+  final String? preferredDistrict;
+  final String? preferredCrop;
 
-  UserPreferences({required this.language, required this.notifications});
+  UserPreferences({
+    required this.language,
+    required this.notifications,
+    this.preferredDistrict,
+    this.preferredCrop,
+  });
 
   factory UserPreferences.fromJson(Map<String, dynamic> json) =>
       UserPreferences(
@@ -76,6 +86,8 @@ class UserPreferences {
         notifications: NotificationPreferences.fromJson(
           json['notifications'] ?? {},
         ),
+        preferredDistrict: json['preferred_district'],
+        preferredCrop: json['preferred_crop'],
       );
 
   Map<String, dynamic> toJson() => {

@@ -562,6 +562,7 @@ class _LoginScreenState extends State<LoginScreen>
         await FirebaseAuth.instance.signInWithCredential(credential);
       }
     } on FirebaseAuthException catch (e) {
+      debugPrint('GOOGLE SIGNIN ERROR: code=${e.code} message=${e.message}');
       _setError(switch (e.code) {
         'popup-closed-by-user' => _s.errPopupClosed,
         'popup-blocked' => _s.errPopupBlocked,

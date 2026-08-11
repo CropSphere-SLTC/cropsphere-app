@@ -38,10 +38,33 @@ class Settings(BaseSettings):
     # ML model files directory (mounted in Docker)
     MODEL_DIR: str = "/app/models/files"
 
+    # ── Email alerts (admin notifications) ──────────────────────────────────
+    # OFF by default — emails only go out once SMTP is configured, so dev and
+    # test never send real mail. Gmail SMTP (App Password) is the intended
+    # setup; see email_service. Password is a secret — env only, never in code.
+    EMAIL_ENABLED: bool = False
+    EMAIL_FROM: str = ""
+    EMAIL_SMTP_HOST: str = "smtp.gmail.com"
+    EMAIL_SMTP_PORT: int = 587
+    EMAIL_SMTP_USER: str = ""
+    EMAIL_SMTP_PASSWORD: str = ""
+    # Absolute URL the "View in Dashboard" button links to. Falls back to the
+    # first allowed origin when unset.
+    DASHBOARD_URL: str = ""
+
     @property
     def allowed_origins_list(self) -> List[str]:
         """Split ALLOWED_ORIGINS into a list."""
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]
+
+    @property
+    def dashboard_url(self) -> str:
+        """The admin dashboard URL for email links — DASHBOARD_URL, else the
+        first configured origin."""
+        if self.DASHBOARD_URL:
+            return self.DASHBOARD_URL.rstrip("/")
+        origins = self.allowed_origins_list
+        return origins[0].rstrip("/") if origins and origins[0] else ""
 
 
 @lru_cache()

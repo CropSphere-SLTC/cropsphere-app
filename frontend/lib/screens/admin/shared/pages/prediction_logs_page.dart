@@ -98,7 +98,11 @@ class _PredictionLogsPageState extends State<PredictionLogsPage> {
     if (_query.isNotEmpty) {
       final q = _query.toLowerCase();
       list = list
-          .where((l) => _s(l, 'user_id').toLowerCase().contains(q))
+          .where(
+            (l) =>
+                _s(l, 'user_id').toLowerCase().contains(q) ||
+                _s(l, 'user_email').toLowerCase().contains(q),
+          )
           .toList();
     }
     return list;
@@ -160,7 +164,7 @@ class _PredictionLogsPageState extends State<PredictionLogsPage> {
               emptyMessage: 'No prediction logs match the current filters',
               columns: const [
                 DataColumn(label: Text('Timestamp')),
-                DataColumn(label: Text('User ID')),
+                DataColumn(label: Text('User')),
                 DataColumn(label: Text('Endpoint')),
                 DataColumn(label: Text('Input Hash')),
               ],
@@ -169,7 +173,12 @@ class _PredictionLogsPageState extends State<PredictionLogsPage> {
                 return DataRow(
                   cells: [
                     DataCell(Text(adminFormatTimestamp(_s(log, 'timestamp')))),
-                    DataCell(Text(_s(log, 'user_id'))),
+                    DataCell(
+                      adminIdentityCell(
+                        _s(log, 'user_email'),
+                        _s(log, 'user_id'),
+                      ),
+                    ),
                     DataCell(Text(_s(log, 'endpoint'))),
                     DataCell(
                       Tooltip(
@@ -197,7 +206,7 @@ class _PredictionLogsPageState extends State<PredictionLogsPage> {
     return AdminSectionCard(
       child: SearchFilterBar(
         controller: _searchController,
-        hintText: 'Search by user ID…',
+        hintText: 'Search by user email / ID…',
         onSearchChanged: (v) => setState(() {
           _query = v;
           _resetPage();

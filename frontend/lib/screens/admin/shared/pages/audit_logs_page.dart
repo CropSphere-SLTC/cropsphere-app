@@ -120,7 +120,9 @@ class _AuditLogsPageState extends State<AuditLogsPage> {
           .where(
             (l) =>
                 l.actorUid.toLowerCase().contains(q) ||
-                l.targetUid.toLowerCase().contains(q),
+                l.targetUid.toLowerCase().contains(q) ||
+                l.actorEmail.toLowerCase().contains(q) ||
+                l.targetEmail.toLowerCase().contains(q),
           )
           .toList();
     }
@@ -183,10 +185,10 @@ class _AuditLogsPageState extends State<AuditLogsPage> {
               emptyMessage: 'No audit logs match the current filters',
               columns: const [
                 DataColumn(label: Text('Timestamp')),
-                DataColumn(label: Text('Actor UID')),
+                DataColumn(label: Text('Actor')),
                 DataColumn(label: Text('Actor Role')),
                 DataColumn(label: Text('Action')),
-                DataColumn(label: Text('Target UID')),
+                DataColumn(label: Text('Target')),
                 DataColumn(label: Text('Details')),
               ],
               rows: pageItems.map((log) {
@@ -194,24 +196,10 @@ class _AuditLogsPageState extends State<AuditLogsPage> {
                 return DataRow(
                   cells: [
                     DataCell(Text(adminFormatTimestamp(log.timestamp))),
-                    DataCell(
-                      Tooltip(
-                        message: log.actorUid,
-                        child: Text(adminTruncate(log.actorUid)),
-                      ),
-                    ),
+                    DataCell(adminIdentityCell(log.actorEmail, log.actorUid)),
                     DataCell(adminRoleBadge(log.actorRole)),
                     DataCell(Text(log.action)),
-                    DataCell(
-                      Tooltip(
-                        message: log.targetUid,
-                        child: Text(
-                          log.targetUid.isEmpty
-                              ? '—'
-                              : adminTruncate(log.targetUid),
-                        ),
-                      ),
-                    ),
+                    DataCell(adminIdentityCell(log.targetEmail, log.targetUid)),
                     DataCell(
                       Tooltip(
                         message: detailsText,
@@ -244,7 +232,7 @@ class _AuditLogsPageState extends State<AuditLogsPage> {
     return AdminSectionCard(
       child: SearchFilterBar(
         controller: _searchController,
-        hintText: 'Search by actor or target UID…',
+        hintText: 'Search by actor or target email / UID…',
         onSearchChanged: (v) => setState(() {
           _query = v;
           _resetPage();

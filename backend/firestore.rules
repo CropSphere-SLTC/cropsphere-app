@@ -1,0 +1,11 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /audit_logs/{log} {
+      allow read, write: if false;  // backend service account only
+    }
+    match /{document=**} {
+      allow read, write: if false;  // deny everything else by default
+    }
+  }
+}

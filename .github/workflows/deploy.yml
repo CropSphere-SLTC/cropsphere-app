@@ -10,11 +10,16 @@ jobs:
     # Only runs after CI passes — enforce this via branch protection rules on main
 
     steps:
+      # No lfs: true needed — the model files are ordinary git blobs now, so a
+      # plain checkout carries them. The Dockerfile asserts on their byte total
+      # regardless, so a build that somehow lacks them fails instead of quietly
+      # deploying mock predictions.
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build Docker image
-        run: docker build -t cropsphere-backend:${{ github.sha }} backend/
+      # No docker build step here: `railway up` uploads the source and builds
+      # remotely, so a local image would be thrown away. ci.yml already builds
+      # and Trivy-scans the image on the way to main.
 
       - name: Deploy to Railway
         env:
@@ -22,4 +27,31 @@ jobs:
         run: |
           npm install -g @railway/cli
           cd backend
-          railway up --service cropsphere-backend
+
+          # Diagnostics, non-fatal so the deploy still reports its own error.
+          # `railway whoami` ALWAYS prints "Unauthorized ... check that your
+          # RAILWAY_TOKEN is valid" under a project token — project tokens
+          # carry no user identity, so there is no one to report. It is not a
+          # token problem; ignore it. `railway status` is the real check: if it
+          # prints the project, environment and service list, the token's scope
+          # is fine. Both did exactly that in run 31313954974.
+          railway whoami || true
+          railway status || true
+
+          # Service ID, not name. The previous "cropsphere-backend" did not
+          # match — the service's private hostname is cropsphere-app.railway
+          # .internal, so the name had drifted. Ids do not drift on rename.
+          # project     deee9186-2910-4173-9395-d5db7bcdd628
+          # environment 8379eb46-f7ee-42d4-9344-0b105fdac0eb (implied by the
+          #             project token; pass -e only if that ever changes)
+          #
+          # If this reports "Deploy failed" within seconds and streams no build
+          # output, the build did not fail — nothing here builds in under a
+          # minute. It means a second deployment raced this one and superseded
+          # it. Run 31313954974: `railway status` above showed the service
+          # already "Building (7s)" before this line ran, i.e. Railway's own
+          # GitHub integration had auto-deployed the same push. Only one deploy
+          # path should be live; this is it, so repo-triggered deploys stay off
+          # in Service > Settings > Source. Re-check there before debugging it
+          # as a build error.
+          railway up --service 2ce5633d-e682-472f-86d7-3393212b702a

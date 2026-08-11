@@ -960,3 +960,837 @@ def test_build_messages_injects_level_instruction():
     context = {"chunks": [], "sources": [], "score": 0.0}
     msgs = cs._build_messages("system", context, req, "what is yield?")
     assert any(m["content"] == cs._LEVEL_INSTRUCTIONS["beginner"] for m in msgs)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Saved-context confirmation
+# ═══════════════════════════════════════════════════════════════════════════
+
+_CTX_CAPS = {
+    "crops": ["Carrot", "Maize", "Green gram", "Cowpea", "Finger millet", "Groundnut"],
+    "districts": [
+        "Nuwara Eliya",
+        "Badulla",
+        "Anuradhapura",
+        "Monaragala",
+        "Ampara",
+        "Hambantota",
+        "Batticaloa",
+        "Jaffna",
+    ],
+    "crop_districts": {},
+    "district_crops": {},
+}
+
+
+def test_extract_context_terms_finds_covered():
+    with patch.object(cs, "_dataset_capabilities", return_value=_CTX_CAPS):
+        assert cs._extract_context_terms("i grow carrot in badulla") == (
+            "Carrot",
+            "Badulla",
+        )
+        assert cs._extract_context_terms("hello there") == (None, None)
+
+
+def test_confirm_when_message_crop_and_saved_district():
+    req = _make_request(message="i want to plant carrot", conversation_history=[])
+    with patch.object(cs, "_dataset_capabilities", return_value=_CTX_CAPS):
+        assert (
+            cs._should_confirm_saved_context(
+                req, "i want to plant carrot", None, "Jaffna"
+            )
+            is True
+        )
+        reply, chips = cs._build_context_confirmation(
+            req, "i want to plant carrot", None, "Jaffna"
+        )
+    assert "Carrot in Jaffna" in reply
+    assert chips[0] == "Carrot in Jaffna"
+
+
+def test_no_confirm_when_fully_specified():
+    req = _make_request(message="carrot yield in badulla", conversation_history=[])
+    with patch.object(cs, "_dataset_capabilities", return_value=_CTX_CAPS):
+        # Message names both crop and district — nothing for saved context to fill.
+        assert (
+            cs._should_confirm_saved_context(
+                req, "carrot yield in badulla", "Maize", "Jaffna"
+            )
+            is False
+        )
+
+
+def test_no_confirm_without_saved_context():
+    req = _make_request(message="i want to plant carrot", conversation_history=[])
+    with patch.object(cs, "_dataset_capabilities", return_value=_CTX_CAPS):
+        assert (
+            cs._should_confirm_saved_context(req, "i want to plant carrot", None, None)
+            is False
+        )
+
+
+def test_dropdown_district_wins_over_saved():
+    req = _make_request(
+        message="i want to plant carrot",
+        district=DistrictEnum("Badulla"),
+        conversation_history=[],
+    )
+    with patch.object(cs, "_dataset_capabilities", return_value=_CTX_CAPS):
+        # Dropdown already supplies the district → saved district must not fill it.
+        assert (
+            cs._should_confirm_saved_context(
+                req, "i want to plant carrot", None, "Jaffna"
+            )
+            is False
+        )
+
+
+def test_no_confirm_on_non_agricultural_message():
+    req = _make_request(message="hello", conversation_history=[])
+    with patch.object(cs, "_dataset_capabilities", return_value=_CTX_CAPS):
+        assert (
+            cs._should_confirm_saved_context(req, "hello", "Carrot", "Jaffna") is False
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# few-shot examples (loader + injection)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_load_fewshot_examples_missing_file_returns_empty(tmp_path):
+    cs._fewshot_examples = None
+    with patch(
+        "app.user.services.fewshot_service.FEWSHOT_PATH", tmp_path / "nope.json"
+    ):
+        assert cs._load_fewshot_examples() == {}
+    cs._fewshot_examples = None
+
+
+def test_load_fewshot_examples_reads_and_caches(tmp_path):
+    f = tmp_path / "fewshot.json"
+    f.write_text('{"examples": {"yield": [{"question": "q", "answer": "a"}]}}')
+    cs._fewshot_examples = None
+    with patch("app.user.services.fewshot_service.FEWSHOT_PATH", f):
+        out = cs._load_fewshot_examples()
+    assert out["examples"]["yield"][0]["question"] == "q"
+    cs._fewshot_examples = None
+
+
+def test_build_messages_injects_matching_fewshot():
+    req = _make_request(message="carrot yield in Badulla", conversation_history=[])
+    context = {"chunks": [], "sources": [], "score": 0.0}
+    fake = {
+        "examples": {
+            "yield": [
+                {
+                    "question": "carrot yield in Badulla",
+                    "answer": "harvest is 19,517 kg/ha",
+                }
+            ]
+        }
+    }
+    with patch.object(cs, "_load_fewshot_examples", return_value=fake):
+        msgs = cs._build_messages("sys", context, req, "carrot yield in Badulla")
+    injected = [
+        m["content"] for m in msgs if m["content"].startswith("Here are examples")
+    ]
+    assert injected and "harvest is 19,517 kg/ha" in injected[0]
+
+
+def test_build_messages_no_fewshot_when_type_absent():
+    req = _make_request(message="what soil is best?", conversation_history=[])
+    context = {"chunks": [], "sources": [], "score": 0.0}
+    # examples only for 'yield'; a 'general' question gets nothing injected.
+    fake = {"examples": {"yield": [{"question": "q", "answer": "a"}]}}
+    with patch.object(cs, "_load_fewshot_examples", return_value=fake):
+        msgs = cs._build_messages("sys", context, req, "what soil is best?")
+    assert not any(m["content"].startswith("Here are examples") for m in msgs)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# reformulation detection ("simplify" family)
+# ═══════════════════════════════════════════════════════════════════════════
+@pytest.mark.parametrize(
+    "message",
+    [
+        "simply explain",
+        "simplify the answer",
+        "simply",
+        "explain simply",
+        "tell me simply",
+        "say simply",
+        "put it simply",
+        "say it simpler",
+        "explain it simply",
+    ],
+)
+def test_is_reformulation_request_detects_simplify_family(message):
+    assert cs._is_reformulation_request(message) is True
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        # "simply" as an adverb inside a real question — must reach retrieval.
+        "which crop simply grows best in Badulla",
+        "what is the yield for carrots in Badulla",
+        "best season for carrot in Nuwara Eliya",
+        "how much can I earn from 2 acres",
+    ],
+)
+def test_is_reformulation_request_ignores_real_questions(message):
+    assert cs._is_reformulation_request(message) is False
+
+
+def test_bare_simply_guarded_by_message_length():
+    """Bare "simply" only counts in a message short enough to be nothing but
+    the request — the length guard is what keeps the adverb usage out."""
+    assert cs._is_reformulation_request("simply") is True
+    assert len("simply") < cs._BARE_SIMPLY_MAX_LEN
+    long_msg = "simply " + "x" * cs._BARE_SIMPLY_MAX_LEN
+    assert cs._is_reformulation_request(long_msg) is False
+
+
+def test_simplify_family_classified_as_simplify_not_math():
+    for m in ("simply", "simply explain", "put it simply"):
+        assert cs._reformulation_type(m) == "simplify"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# reformulation message assembly (instruction vs. formatting-rule ordering)
+# ═══════════════════════════════════════════════════════════════════════════
+def _reform_msgs(rtype):
+    req = _make_request(message="simply", conversation_history=[])
+    return cs._build_reformulation_messages("SYS", "PREV", req, "simply", rtype)
+
+
+def test_simplify_instruction_comes_after_formatting_rules():
+    """Simplify must contradict Part B (three sections, all units, earnings
+    offer), so it has to be the LAST system message to win."""
+    msgs = _reform_msgs("simplify")
+    systems = [m["content"] for m in msgs if m["role"] == "system"]
+    assert systems[-1].startswith("The user wants a much simpler")
+    rules_at = next(
+        i for i, s in enumerate(systems) if s.startswith("FORMATTING RULES")
+    )
+    assert rules_at < len(systems) - 1
+
+
+@pytest.mark.parametrize("rtype", ["math", "formal_math"])
+def test_math_instructions_keep_original_ordering(rtype):
+    """Math rules don't conflict with Part B — their position is unchanged."""
+    msgs = _reform_msgs(rtype)
+    systems = [m["content"] for m in msgs if m["role"] == "system"]
+    assert systems[-1].startswith("FORMATTING RULES")
+
+
+def test_simplify_instruction_names_the_rules_it_overrides():
+    systems = [m["content"] for m in _reform_msgs("simplify") if m["role"] == "system"]
+    instruction = systems[-1]
+    assert "OVERRIDE" in instruction
+    for dropped in ("three-section", "show-all-three-units", "earnings offer"):
+        assert dropped in instruction
+    assert "always use acres" in instruction
+    assert "PREV" in instruction  # previous answer is carried in
+
+
+def test_simplify_instruction_offers_varied_styles():
+    """A single example acts as a template — the model copies its shape.
+    Four styles plus an anti-default nudge is what breaks the flat pattern."""
+    systems = [m["content"] for m in _reform_msgs("simplify") if m["role"] == "system"]
+    instruction = systems[-1]
+    for style in ("Style 1", "Style 2", "Style 3", "Style 4"):
+        assert style in instruction
+    assert "Do not default to Style 1" in instruction
+    # the old single flat example must not come back
+    assert "Yala season is the best time to plant" not in instruction
+    # "Before:" stays — it shows what to strip out
+    assert "Before:" in instruction
+
+
+def test_simplify_instruction_guards_against_false_encouragement():
+    systems = [m["content"] for m in _reform_msgs("simplify") if m["role"] == "system"]
+    assert "never call a poor yield good news" in systems[-1]
+
+
+def test_simplify_instruction_states_sentence_cap_once():
+    """Two copies of the limit would make the model over-weight it."""
+    systems = [m["content"] for m in _reform_msgs("simplify") if m["role"] == "system"]
+    assert systems[-1].count("2-3") == 1
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# prompt tuning injection into _build_messages
+# ═══════════════════════════════════════════════════════════════════════════
+def test_prompt_tuning_injected_after_fewshot_before_history():
+    req = _make_request(message="carrot yield in Badulla", conversation_history=[])
+    context = {"chunks": [], "sources": [], "score": 0.0}
+    tuning = {
+        "active": [
+            {
+                "id": "language_complexity",
+                "instruction": "Keep it simple.",
+                "status": "trial",
+            },
+            {
+                "id": "chip_high",
+                "instruction": "Lead into the suggestions.",
+                "status": "permanent",
+            },
+        ]
+    }
+    with patch.object(cs, "_load_fewshot_examples", return_value={}), patch.object(
+        cs, "_load_prompt_tuning", return_value=tuning
+    ):
+        msgs = cs._build_messages("sys", context, req, "carrot yield in Badulla")
+    tuned = [
+        m["content"] for m in msgs if m["content"].startswith("SYSTEM ADJUSTMENTS")
+    ]
+    assert tuned, "tuning message not injected"
+    assert "- Keep it simple." in tuned[0]
+    assert "- Lead into the suggestions." in tuned[0]
+    # must sit before the current user message (i.e. among the system messages)
+    assert msgs[-1]["role"] == "user"
+    assert msgs.index({"role": "system", "content": tuned[0]}) < len(msgs) - 1
+
+
+def test_no_prompt_tuning_message_when_empty():
+    req = _make_request(message="carrot yield in Badulla", conversation_history=[])
+    context = {"chunks": [], "sources": [], "score": 0.0}
+    with patch.object(cs, "_load_fewshot_examples", return_value={}), patch.object(
+        cs, "_load_prompt_tuning", return_value={"active": []}
+    ):
+        msgs = cs._build_messages("sys", context, req, "carrot yield in Badulla")
+    assert not any(m["content"].startswith("SYSTEM ADJUSTMENTS") for m in msgs)
+
+
+def test_format_prompt_tuning_injection_skips_malformed():
+    tuning = {
+        "active": [
+            {"id": "ok", "instruction": "Good one.", "status": "trial"},
+            {"id": "bad", "status": "trial"},  # no instruction
+            "not-a-dict",  # wrong type
+            {"id": "bad2", "instruction": 123, "status": "trial"},  # non-string
+        ]
+    }
+    with patch.object(cs, "_load_prompt_tuning", return_value=tuning):
+        out = cs._format_prompt_tuning_injection()
+    assert out == "SYSTEM ADJUSTMENTS (based on recent usage patterns):\n- Good one."
+
+
+def test_format_prompt_tuning_injection_skips_non_live_statuses():
+    """Only trial + permanent reach the prompt — anything auto-removed or
+    otherwise not live must be invisible to the chatbot."""
+    tuning = {
+        "active": [
+            {"id": "live", "instruction": "Live one.", "status": "permanent"},
+            {"id": "gone", "instruction": "Removed one.", "status": "auto_removed"},
+            {"id": "nostatus", "instruction": "No status."},
+        ]
+    }
+    with patch.object(cs, "_load_prompt_tuning", return_value=tuning):
+        out = cs._format_prompt_tuning_injection()
+    assert "Live one." in out
+    assert "Removed one." not in out
+    assert "No status." not in out
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Follow-up continuation — _looks_like_followup / _is_followup /
+# _followup_context / _reformulate_query / _retrieval_query
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.fixture
+def _caps(monkeypatch):
+    """Pin the dataset capabilities so follow-up detection doesn't depend on
+    whether rag_artifacts is loaded in this environment."""
+    monkeypatch.setattr(cs, "_capabilities_cache", _enum_caps())
+    return _enum_caps()
+
+
+REFUSAL_REPLY = cs._OUT_OF_SCOPE_REPLY
+ANSWER_REPLY = (
+    "Reasoning: CropSphere data for Carrot in Badulla, Inter season.\n\n"
+    "You can expect around 20,169 kg from one hectare."
+)
+
+
+def _turns(*pairs):
+    return [ConversationTurn(role=r, content=c) for r, c in pairs]
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "yes",
+        "Yes!",
+        "yes explain",
+        "sure",
+        "ok",
+        "tell me more",
+        "go on",
+        "continue",
+        "yes please",
+        "explain that",
+        "show me",
+        "what about that?",
+        "how does it work?",
+        "why is that?",
+        "can you explain it?",
+        "why?",
+        "and the price?",
+        "what about weather?",
+        "for Maize?",
+    ],
+)
+def test_looks_like_followup_true(_caps, message):
+    assert cs._looks_like_followup(message) is True
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "What is the best planting season for Maize in Jaffna?",
+        "Cowpea price in Ampara",
+        "how much can I earn from 2 acres of groundnut",
+        "what crops do you cover?",
+        "Compare carrot yield in Badulla with Nuwara Eliya for the Maha season",
+        "",
+    ],
+)
+def test_looks_like_followup_false(_caps, message):
+    assert cs._looks_like_followup(message) is False
+
+
+def test_is_followup_needs_a_previous_assistant_turn(_caps):
+    """A follow-up shape on the conversation's first turn is just a vague
+    question — there is nothing to continue."""
+    assert cs._is_followup("yes explain", []) is False
+    assert cs._is_followup("yes explain", _turns(("user", "how to test soil"))) is False
+    history = _turns(("user", "how to test soil"), ("assistant", ANSWER_REPLY))
+    assert cs._is_followup("yes explain", history) is True
+
+
+def test_followup_context_reads_topic_from_last_exchange(_caps):
+    history = _turns(("user", "how to test soil"), ("assistant", ANSWER_REPLY))
+    question, crop, district = cs._followup_context(history)
+    assert question == "how to test soil"
+    assert (crop, district) == ("Carrot", "Badulla")
+
+
+def test_followup_context_skips_refused_turn_and_reaches_back(_caps):
+    """The repeated-out-of-scope case: the refused turn must not become the
+    topic, so the walk continues to the question that actually worked."""
+    history = _turns(
+        ("user", "carrot yield in Badulla"),
+        ("assistant", ANSWER_REPLY),
+        ("user", "what about the moon"),
+        ("assistant", REFUSAL_REPLY),
+    )
+    question, crop, district = cs._followup_context(history)
+    assert question == "carrot yield in Badulla"
+    assert (crop, district) == ("Carrot", "Badulla")
+
+
+def test_followup_context_skips_earlier_followups(_caps):
+    """ "yes explain" is not a topic — the walk keeps going past it."""
+    history = _turns(
+        ("user", "how to test soil"),
+        ("assistant", ANSWER_REPLY),
+        ("user", "yes explain"),
+        ("assistant", "Reasoning: more soil detail.\n\nUse a pH kit."),
+    )
+    assert cs._followup_context(history)[0] == "how to test soil"
+
+
+def test_followup_context_newest_topic_wins(_caps):
+    """A mid-conversation topic switch must not be overridden by the older
+    question underneath it."""
+    history = _turns(
+        ("user", "Maize in Jaffna"),
+        ("assistant", "Reasoning: CropSphere data for Maize in Jaffna."),
+        ("user", "and Cowpea?"),
+        ("assistant", "Reasoning: CropSphere data for Cowpea in Jaffna."),
+    )
+    _question, crop, district = cs._followup_context(history)
+    assert (crop, district) == ("Cowpea", "Jaffna")
+
+
+def test_followup_context_empty_history(_caps):
+    assert cs._followup_context([]) == ("", None, None)
+
+
+def test_reformulate_query_prepends_topic(_caps):
+    """The bug: "yes explain" alone matches no chunk. It must carry the
+    previous question and its crop/district into retrieval."""
+    history = _turns(("user", "how to test soil"), ("assistant", ANSWER_REPLY))
+    query = cs._reformulate_query("yes explain", history)
+    assert query.startswith("how to test soil")
+    assert "Carrot" in query and "Badulla" in query
+    assert query.endswith("yes explain")
+
+
+def test_reformulate_query_partial_followup_keeps_previous_topic(_caps):
+    history = _turns(
+        ("user", "best crop for Nuwara Eliya"),
+        ("assistant", "Reasoning: CropSphere data for Carrot in Nuwara Eliya."),
+    )
+    query = cs._reformulate_query("what about price?", history)
+    assert "Nuwara Eliya" in query
+    assert "Carrot" in query
+    assert query.endswith("what about price?")
+
+
+def test_reformulate_query_own_crop_replaces_inherited_one(_caps):
+    """ "and Cowpea?" after a Maize answer must retrieve Cowpea — the inherited
+    crop is dropped from the carried-over question, not stacked on top of it."""
+    history = _turns(
+        ("user", "tell me about Maize"),
+        ("assistant", "Reasoning: CropSphere data for Maize in Anuradhapura."),
+    )
+    query = cs._reformulate_query("and Cowpea?", history)
+    assert "Maize" not in query
+    assert "Cowpea" in query
+    assert "Anuradhapura" in query
+
+
+def test_reformulate_query_leaves_real_questions_alone(_caps):
+    history = _turns(("user", "how to test soil"), ("assistant", ANSWER_REPLY))
+    msg = "What is the best planting season for Maize in Jaffna?"
+    assert cs._reformulate_query(msg, history) == msg
+
+
+def test_reformulate_query_without_topic_returns_message(_caps):
+    """Nothing topical in history (only a refusal) — leave the query alone
+    rather than prepending noise."""
+    history = _turns(("user", "weather on Mars"), ("assistant", REFUSAL_REPLY))
+    assert cs._reformulate_query("yes explain", history) == "yes explain"
+
+
+def test_reformulate_query_caps_the_inherited_topic(_caps):
+    """A long previous question must not swamp the follow-up's own wording in
+    the blended embedding."""
+    long_question = ("carrot yield in Badulla " * 20)[:480]
+    history = _turns(("user", long_question), ("assistant", ANSWER_REPLY))
+    query = cs._reformulate_query("yes explain", history)
+    assert len(query) <= cs._MAX_LEN
+    assert len(query) < len(long_question)
+    assert query.endswith("yes explain")
+
+
+def test_retrieval_query_unit_reply_still_wins(_caps):
+    """A bare land-unit reply keeps its own (more specific) expansion — the
+    follow-up rebuild must not shadow _expand_clarifying_reply."""
+    history = _turns(
+        ("user", "carrot yield in Badulla"),
+        (
+            "assistant",
+            "Would you like me to work out how much you could earn? "
+            "Just tell me your land size in acres or perches.",
+        ),
+    )
+    assert cs._retrieval_query("2 acres", history) == "carrot yield in Badulla 2 acres"
+
+
+def test_retrieval_query_falls_through_to_followup_rebuild(_caps):
+    history = _turns(("user", "how to test soil"), ("assistant", ANSWER_REPLY))
+    assert cs._retrieval_query("yes explain", history) != "yes explain"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Repeated "Out of scope" loop
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_should_retry_after_refusal_only_after_a_refusal(_caps):
+    answered = _turns(("user", "carrot yield in Badulla"), ("assistant", ANSWER_REPLY))
+    refused = _turns(("user", "weather on Mars"), ("assistant", REFUSAL_REPLY))
+    assert cs._should_retry_after_refusal("yes explain", answered) is False
+    assert cs._should_retry_after_refusal("yes explain", refused) is True
+
+
+def test_should_retry_after_refusal_covers_agricultural_rephrase(_caps):
+    """Not only follow-up shapes — a farming question asked again in different
+    words must not hit the same refusal twice. "Farming" here is
+    _has_agricultural_intent's existing definition, unchanged by this path."""
+    refused = _turns(("user", "what should I plant"), ("assistant", REFUSAL_REPLY))
+    assert cs._should_retry_after_refusal("which crop grows best?", refused) is True
+
+
+def test_should_retry_after_refusal_ignores_unrelated_questions(_caps):
+    """Junk still gets refused, twice if asked twice — the grounding guard is
+    the primary defence and must not be talked out of it."""
+    refused = _turns(("user", "weather on Mars"), ("assistant", REFUSAL_REPLY))
+    assert cs._should_retry_after_refusal("tell me a joke", refused) is False
+
+
+def test_chat_does_not_repeat_out_of_scope_for_followup(_caps):
+    """End to end: after a refusal, another short follow-up that still
+    retrieves nothing gets a clarifying question, not a second refusal."""
+    history = _turns(
+        ("user", "carrot yield in Badulla"),
+        ("assistant", ANSWER_REPLY),
+        ("user", "what about the moon"),
+        ("assistant", REFUSAL_REPLY),
+    )
+    req = _make_request(message="yes explain", conversation_history=history)
+    with patch("app.user.services.chatbot_service._safe_audit"), patch(
+        "app.user.services.chatbot_service._explicit_miss", return_value=None
+    ), patch(
+        "app.user.services.chatbot_service._rag_context",
+        return_value={"chunks": [], "sources": [], "score": 0.0},
+    ):
+        resp = cs.chat(req, SETTINGS)
+    assert resp.confidence != "Out of scope"
+    assert cs._OUT_OF_SCOPE_MARKER not in resp.reply
+    assert cs._CLARIFICATION_MARKER in resp.reply
+
+
+def test_chat_still_refuses_unrelated_question_after_refusal(_caps):
+    history = _turns(
+        ("user", "weather on Mars"),
+        ("assistant", REFUSAL_REPLY),
+    )
+    req = _make_request(message="tell me a joke", conversation_history=history)
+    with patch("app.user.services.chatbot_service._safe_audit"), patch(
+        "app.user.services.chatbot_service._explicit_miss", return_value=None
+    ), patch(
+        "app.user.services.chatbot_service._rag_context",
+        return_value={"chunks": [], "sources": [], "score": 0.0},
+    ):
+        resp = cs.chat(req, SETTINGS)
+    assert resp.confidence == "Out of scope"
+
+
+def test_chat_retrieves_with_the_reformulated_query(_caps):
+    """The rebuilt query goes to retrieval; the ORIGINAL message is what
+    reaches Groq."""
+    history = _turns(("user", "how to test soil"), ("assistant", ANSWER_REPLY))
+    req = _make_request(message="yes explain", conversation_history=history)
+    context = {
+        "chunks": [{"text": "soil data", "source": "src", "score": 0.9}],
+        "sources": ["src"],
+        "score": 0.9,
+    }
+    groq = _groq_reply("Reasoning: used src.\n\nHere is more on soil testing.")
+    with patch("app.user.services.chatbot_service._safe_audit"), patch(
+        "app.user.services.chatbot_service._explicit_miss", return_value=None
+    ), patch(
+        "app.user.services.chatbot_service._rag_context", return_value=context
+    ) as mock_rag, patch(
+        "groq.Groq", return_value=groq
+    ):
+        resp = cs.chat(req, SETTINGS)
+    assert "how to test soil" in mock_rag.call_args.args[0]
+    sent = groq.chat.completions.create.call_args.kwargs["messages"]
+    assert sent[-1] == {"role": "user", "content": "yes explain"}
+    assert resp.confidence == "High confidence"
+
+
+def test_chat_stream_does_not_repeat_out_of_scope_for_followup(_caps):
+    history = _turns(
+        ("user", "carrot yield in Badulla"),
+        ("assistant", ANSWER_REPLY),
+        ("user", "what about the moon"),
+        ("assistant", REFUSAL_REPLY),
+    )
+    req = _make_request(message="yes explain", conversation_history=history)
+    with patch("app.user.services.chatbot_service._safe_audit"), patch(
+        "app.user.services.chatbot_service._explicit_miss", return_value=None
+    ), patch(
+        "app.user.services.chatbot_service._rag_context",
+        return_value={"chunks": [], "sources": [], "score": 0.0},
+    ), patch(
+        "app.user.services.chat_history_service.persist_chat_turn",
+        return_value="conv-1",
+    ):
+        events = list(cs.chat_stream(req, SETTINGS, "uid-1"))
+    text = "".join(e["content"] for e in events if e["type"] == "text")
+    meta = next(e for e in events if e["type"] == "metadata")
+    assert cs._OUT_OF_SCOPE_MARKER not in text
+    assert meta["confidence"] == "Moderate confidence"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Follow-ups are not "vague" or "ambiguous" — the topic is already known
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_vague_query_check_skips_resolved_followup(_caps):
+    """ "what about price?" names no crop or district, but the previous turn
+    did — asking the farmer to repeat it would be a worse answer."""
+    history = _turns(("user", "carrot yield in Badulla"), ("assistant", ANSWER_REPLY))
+    context = {"chunks": [], "sources": [], "score": 0.4}
+    assert (
+        cs._is_vague_agricultural_query("what about price?", context, history) is False
+    )
+    assert cs._is_vague_agricultural_query("what about price?", context, []) is True
+
+
+def test_ambiguous_query_check_skips_resolved_followup(_caps):
+    history = _turns(("user", "carrot yield in Badulla"), ("assistant", ANSWER_REPLY))
+    context = {
+        "chunks": [
+            {"crop": "Carrot", "district": "Badulla"},
+            {"crop": "Maize", "district": "Jaffna"},
+        ],
+        "sources": [],
+        "score": 0.4,
+    }
+    assert cs._is_ambiguous_query("what about price?", context, history) is False
+    assert cs._is_ambiguous_query("what about price?", context, []) is True
+
+
+def test_system_prompt_tells_llama_to_continue_followups():
+    prompt = cs._system_prompt(_make_request())
+    assert "short follow-up" in prompt
+    assert "continue explaining the topic from your previous response" in prompt
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LLM-generated follow-up chips
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_parse_followups_strips_marker_lines_from_the_reply():
+    raw = (
+        "Reasoning: CropSphere data.\n\nYou can expect 20,169 kg.\n\n"
+        "FOLLOWUP: Prevention methods for carrot pests\n"
+        "FOLLOWUP: How do these pests spread\n"
+        "FOLLOWUP: More about carrot diseases"
+    )
+    clean, followups = cs._parse_followups_from_response(raw)
+    assert "FOLLOWUP" not in clean
+    assert clean.endswith("20,169 kg.")
+    assert followups == [
+        "Prevention methods for carrot pests",
+        "How do these pests spread",
+        "More about carrot diseases",
+    ]
+
+
+def test_parse_followups_returns_reply_unchanged_when_none_present():
+    reply = "Just an answer with no suggestions."
+    assert cs._parse_followups_from_response(reply) == (reply, [])
+
+
+def test_parse_followups_caps_at_three_but_still_strips_extras():
+    raw = "Answer.\n" + "\n".join(f"FOLLOWUP: q{i}" for i in range(6))
+    clean, followups = cs._parse_followups_from_response(raw)
+    assert len(followups) == 3
+    assert "FOLLOWUP" not in clean  # surplus lines never reach the farmer
+
+
+def test_parse_followups_drops_blank_and_overlong_suggestions():
+    raw = "Answer.\nFOLLOWUP:   \nFOLLOWUP: " + ("x" * 200) + "\nFOLLOWUP: fine one"
+    clean, followups = cs._parse_followups_from_response(raw)
+    assert followups == ["fine one"]
+    assert "FOLLOWUP" not in clean
+
+
+def test_parse_followups_handles_empty_reply():
+    assert cs._parse_followups_from_response("") == ("", [])
+
+
+# ── Bot-question detection ────────────────────────────────────────────────────
+
+
+def test_earnings_offer_is_not_treated_as_a_bot_question():
+    """The earnings offer is a soft suggestion — contextual chips must win."""
+    reply = (
+        "You can expect around 20,169 kg per hectare.\n\n"
+        "Would you like me to work out how much you could earn? "
+        "Just tell me your land size in acres or perches."
+    )
+    assert cs._extract_bot_question_options(reply) is None
+
+
+def test_unit_clarification_yields_every_option():
+    reply = "Thanks!\n\nIs that 3 acres, 3 hectares, or 3 perches?"
+    assert cs._extract_bot_question_options(reply) == [
+        "3 acres",
+        "3 hectares",
+        "3 perches",
+    ]
+
+
+def test_crop_selection_question_drops_the_lead_in():
+    reply = (
+        "Happy to help.\n\nWhich crop are you asking about — Carrot, Maize, or Cowpea?"
+    )
+    assert cs._extract_bot_question_options(reply) == ["Carrot", "Maize", "Cowpea"]
+
+
+def test_bulleted_options_become_chips():
+    reply = (
+        "I can cover these:\n\n- Carrot\n- Maize\n- Cowpea\n\nWhich one shall I use?"
+    )
+    assert cs._extract_bot_question_options(reply) == ["Carrot", "Maize", "Cowpea"]
+
+
+def test_genuine_yes_no_question_gets_yes_no_chips():
+    reply = "Prices move weekly.\n\nShall I compare Badulla with Jaffna?"
+    assert cs._extract_bot_question_options(reply) == ["Yes please", "No thanks"]
+
+
+def test_plain_answer_has_no_bot_question():
+    assert (
+        cs._extract_bot_question_options("Carrots yield 20,169 kg in Badulla.") is None
+    )
+
+
+# ── Priority resolution ───────────────────────────────────────────────────────
+
+
+def _req():
+    from app.models.schemas import ChatRequest
+
+    return ChatRequest(message="carrot yield in jaffna", user_id="u1")
+
+
+def test_bot_question_beats_llm_suggestions():
+    reply = "Sure.\n\nIs that 3 acres, 3 hectares, or 3 perches?"
+    chips, meta = cs._resolve_followup_chips(
+        reply, ["something else"], {"chunks": []}, "3", _req()
+    )
+    assert meta["source"] == "bot_question"
+    assert chips[0] == "3 acres"
+
+
+def test_validated_llm_suggestions_are_used(monkeypatch):
+    monkeypatch.setattr(cs, "_validate_followup_chips", lambda f: f)
+    chips, meta = cs._resolve_followup_chips(
+        "An answer.", ["a", "b"], {"chunks": []}, "q", _req()
+    )
+    assert chips == ["a", "b"]
+    assert meta["source"] == "llm_generated"
+    assert meta["generated"] == 2 and meta["validated_count"] == 2
+
+
+def test_falls_back_to_templates_when_every_suggestion_fails_validation(monkeypatch):
+    monkeypatch.setattr(cs, "_validate_followup_chips", lambda f: [])
+    chips, meta = cs._resolve_followup_chips(
+        "An answer.", ["ungrounded"], {"chunks": []}, "q", _req()
+    )
+    assert meta["source"] == "template_fallback"
+    assert chips  # the safety net always produces something
+
+
+def test_falls_back_to_templates_when_model_suggested_nothing():
+    chips, meta = cs._resolve_followup_chips(
+        "An answer.", [], {"chunks": []}, "q", _req()
+    )
+    assert meta["source"] == "template_fallback"
+    assert meta["generated"] == 0
+
+
+def test_validation_fails_open_without_rag(monkeypatch):
+    """Losing every chip to a missing model is worse than an imperfect chip."""
+    monkeypatch.setattr(cs.model_loader, "get_model", lambda name: None)
+    assert cs._validate_followup_chips(["a", "b"]) == ["a", "b"]
+
+
+def test_validation_of_empty_list_is_empty():
+    assert cs._validate_followup_chips([]) == []

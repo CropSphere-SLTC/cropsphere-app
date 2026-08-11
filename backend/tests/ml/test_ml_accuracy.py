@@ -23,6 +23,8 @@ File paths (inside Docker container):
 
 import os
 import warnings
+from pathlib import Path
+
 import joblib
 import numpy as np
 import pandas as pd
@@ -33,7 +35,22 @@ warnings.filterwarnings("ignore")
 # ─────────────────────────────────────────────
 # Paths
 # ─────────────────────────────────────────────
-MODEL_DIR = "/app/models/files"
+# Resolved, not hardcoded. /app/models/files exists only inside the container,
+# so on a GitHub runner every path check below missed and all 31 tests skipped
+# — the suite reported green while validating nothing. The repo checkout is
+# tried first so CI exercises the models it is about to ship; the container
+# path stays as a fallback for `docker exec ... pytest`.
+_CANDIDATES = [
+    os.environ.get("MODEL_FILES_DIR"),
+    Path(__file__).resolve().parents[2] / "models" / "files",
+    Path("/app/models/files"),
+]
+MODEL_DIR = str(
+    next(
+        (Path(c) for c in _CANDIDATES if c and Path(c).is_dir()),
+        Path("/app/models/files"),
+    )
+)
 SYNTHETIC_CSV = os.path.join(MODEL_DIR, "CropSphere_SL_Synthetic_Weekly.csv")
 REAL_CSV = os.path.join(MODEL_DIR, "Cropsphere_Real_Test_Dataset.csv")
 

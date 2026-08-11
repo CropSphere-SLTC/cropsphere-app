@@ -187,6 +187,30 @@ def update_user_preferences(uid: str, preferences: Dict[str, Any]) -> None:
     db.collection("users").document(uid).update({"preferences": preferences})
 
 
+def update_user_context(
+    uid: str, preferred_crop: str = None, preferred_district: str = None
+) -> None:
+    """Merge saved chat context into the user's preferences WITHOUT touching
+    siblings (language/notifications).
+
+    Uses dotted field paths so only the given keys change, creating the nested
+    preferences map if absent. A context_updated_at server timestamp is set
+    whenever anything is written. No-op if neither crop nor district is given.
+    Security assumption: uid is JWT-verified; caller runs this fire-and-forget.
+    """
+    from firebase_admin import firestore
+
+    payload: Dict[str, Any] = {}
+    if preferred_crop:
+        payload["preferences.preferred_crop"] = preferred_crop
+    if preferred_district:
+        payload["preferences.preferred_district"] = preferred_district
+    if not payload:
+        return
+    payload["preferences.context_updated_at"] = firestore.SERVER_TIMESTAMP
+    get_db().collection("users").document(uid).update(payload)
+
+
 def update_last_login(uid: str) -> None:
     """Update last_login timestamp on a user's Firestore document.
 
@@ -244,6 +268,93 @@ def create_session(uid: str, device_info: str) -> None:
         )
     except Exception as exc:
         logger.error(f"create_session failed: {exc}")
+
+
+def delete_user_sessions(uid: str) -> int:
+    """Delete every session document for `uid`. Returns how many were removed.
+
+    Called when a superadmin force-logs-out an account, so the Active Sessions
+    view stops listing a session the admin has just ended. Failures are logged
+    and reported as 0 rather than raised — losing the tidy-up must not fail the
+    revocation itself, which is the part that actually cuts access.
+    """
+    try:
+        from google.cloud.firestore_v1.base_query import FieldFilter
+
+        db = get_db()
+        docs = list(
+            db.collection("sessions")
+            .where(filter=FieldFilter("uid", "==", uid))
+            .stream()
+        )
+        for doc in docs:
+            doc.reference.delete()
+        return len(docs)
+    except Exception as exc:
+        logger.error(f"delete_user_sessions failed for uid={uid}: {exc}")
+        return 0
+
+
+# ── Token revocation (force logout) ───────────────────────────────────────────
+#
+# revoke_refresh_tokens only stops a client renewing its session; the ID token
+# already in the user's browser stays cryptographically valid until it expires
+# (~1h). Recording the revocation here lets the auth middleware reject those
+# still-valid tokens, which is what makes "Force Logout" take effect now rather
+# than within the hour. Keyed by uid so the collection stays small: one
+# document per force-logged-out account, overwritten on repeat use.
+
+
+def record_token_revocation(uid: str) -> None:
+    """Mark every session issued to `uid` before now as no longer acceptable."""
+    db = get_db()
+    db.collection("token_revocations").document(uid).set(
+        {"uid": uid, "revoked_at": datetime.now(timezone.utc)}
+    )
+
+
+def list_token_revocations() -> Dict[str, datetime]:
+    """Return {uid: revoked_at} for every recorded revocation.
+
+    Read on a timer by the auth middleware (never per request), so the whole
+    collection in one pass is the cheapest shape. Returns {} on failure — see
+    the caller for why that is deliberately fail-open.
+    """
+    try:
+        db = get_db()
+        out: Dict[str, datetime] = {}
+        for doc in db.collection("token_revocations").stream():
+            data = doc.to_dict() or {}
+            revoked_at = data.get("revoked_at")
+            if hasattr(revoked_at, "timestamp"):
+                out[doc.id] = revoked_at
+        return out
+    except Exception as exc:
+        logger.error(f"list_token_revocations failed: {exc}")
+        return {}
+
+
+def prune_token_revocations(older_than_hours: int = 24) -> int:
+    """Delete revocation markers older than `older_than_hours`.
+
+    Safe once no token predating the marker can still be valid: Firebase ID
+    tokens live ~1h, so a 24h floor is a wide margin. Returns the count.
+    """
+    try:
+        db = get_db()
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=older_than_hours)
+        docs = [
+            doc
+            for doc in db.collection("token_revocations").stream()
+            if (doc.to_dict() or {}).get("revoked_at")
+            and (doc.to_dict() or {})["revoked_at"] < cutoff
+        ]
+        for doc in docs:
+            doc.reference.delete()
+        return len(docs)
+    except Exception as exc:
+        logger.error(f"prune_token_revocations failed: {exc}")
+        return 0
 
 
 # ── Chat conversation history ─────────────────────────────────────────────────
@@ -527,6 +638,41 @@ def count_active_sessions(hours: int = 24) -> int:
         .stream()
     )
     return sum(1 for _ in docs)
+
+
+def emails_for_uids(uids) -> Dict[str, str]:
+    """Map each UID to that account's current email — used to put a human name
+    on log rows that only store a UID.
+
+    Inputs: an iterable of UIDs (duplicates fine).
+    Outputs: {uid: email}. UIDs with no user document or no email on it are
+    absent from the map, so callers must fall back to displaying the UID.
+
+    Resolved at read time rather than copied onto the log document: the audit
+    collections are deliberately PII-minimal (prediction inputs are hashed,
+    never stored raw), and a stored email would go stale the moment the user
+    changes it. Batched through get_all so one page of logs costs one round
+    trip instead of one read per row. Best-effort by design — a failure logs a
+    warning and returns {} rather than taking down the audit trail itself,
+    which is the part the admin actually needs.
+    """
+    unique = {uid for uid in uids if uid}
+    if not unique:
+        return {}
+    try:
+        db = get_db()
+        refs = [db.collection("users").document(uid) for uid in unique]
+        emails: Dict[str, str] = {}
+        for snap in db.get_all(refs):
+            data = snap.to_dict() or {}
+            uid = getattr(snap, "id", "") or data.get("uid", "")
+            email = data.get("email") or ""
+            if uid and email:
+                emails[uid] = email
+        return emails
+    except Exception as exc:
+        logger.warning("UID→email enrichment unavailable: %s", exc)
+        return {}
 
 
 def list_active_sessions(hours: int = 24, limit: int = 100) -> list:

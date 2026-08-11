@@ -1,2 +1,5 @@
-*.pkl filter=lfs diff=lfs merge=lfs -text
-*.keras filter=lfs diff=lfs merge=lfs -text
+# Model artifacts are stored as ordinary git blobs, not Git LFS — see the
+# root .gitattributes for why. `binary` (= -diff -merge -text) keeps them out
+# of EOL normalisation, which the old `-text` flag was doing.
+*.pkl binary
+*.keras binary

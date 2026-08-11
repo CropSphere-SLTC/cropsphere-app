@@ -1,3 +1,7 @@
 .env
 firebase-credentials.json
 frontend/build/
+
+# Runtime artifacts — flock sidecars for the JSON stores (not data)
+data/prompt_tuning.lock
+data/pattern_overrides.lock

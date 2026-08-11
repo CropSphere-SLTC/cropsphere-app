@@ -1,0 +1,15 @@
+{
+  "projects": {
+    "default": "cropsphere-2e87c"
+  },
+  "targets": {
+    "cropsphere-2e87c": {
+      "hosting": {
+        "default": [
+          "cropsphere-2e87c"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

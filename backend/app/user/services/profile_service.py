@@ -60,6 +60,8 @@ def get_preferences(uid: str) -> UserPreferencesResponse:
         return UserPreferencesResponse(
             language=data.get("language", "en"),
             notifications=NotificationPreferences(**data.get("notifications", {})),
+            preferred_district=data.get("preferred_district"),
+            preferred_crop=data.get("preferred_crop"),
         )
     except Exception as exc:
         logger.error(f"get_preferences failed uid={uid}: {exc}")

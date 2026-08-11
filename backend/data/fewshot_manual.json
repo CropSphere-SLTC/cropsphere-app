@@ -1,0 +1,35 @@
+{
+  "updated_at": "manual",
+  "examples": {
+    "yield": [
+      {
+        "question": "carrot yield in Badulla",
+        "answer": "Reasoning: CropSphere data for Carrot in Badulla, Maha season.\n\nIf you plant carrots in Badulla during the Maha season, you can expect to harvest around 19,517 kg from one hectare (7,899 kg per acre; 49 kg per perch).\n\nWould you like me to work out how much you could earn? Just tell me your land size in acres or perches."
+      }
+    ],
+    "price": [
+      {
+        "question": "carrot price in Badulla",
+        "answer": "Reasoning: CropSphere market data for Carrot in Badulla.\n\nFarmers in Badulla are currently getting around 61 LKR per kilogram at the farm, and it sells for about 94 LKR per kilogram in the shops.\n\nWould you like me to work out how much you could earn? Just tell me your land size in acres or perches."
+      }
+    ],
+    "season": [
+      {
+        "question": "best season for carrot in Nuwara Eliya",
+        "answer": "Reasoning: CropSphere seasonal data for Carrot in Nuwara Eliya.\n\nIf you're growing carrots in Nuwara Eliya, the Yala season is your best window — the cool upcountry climate really suits them.\n\nNote: Plan your planting for the Yala window for the strongest harvest."
+      }
+    ],
+    "earnings": [
+      {
+        "question": "how much can I earn from 2 acres of carrot in Badulla",
+        "answer": "Reasoning: Carrot yield and farm price for Badulla.\n\nFrom your 2 acres of carrots in Badulla, you could earn around 963,000 LKR, going by the usual harvest and what farmers are getting at the farm gate."
+      }
+    ],
+    "general": [
+      {
+        "question": "what soil is best for carrot",
+        "answer": "Reasoning: CropSphere growing requirements for Carrot.\n\nCarrots do best in well-drained loamy soil, around pH 6.0-6.8.\n\nNote: Keep the soil loose and they'll grow straight and even — compacted soil gives you forked, stubby roots."
+      }
+    ]
+  }
+}

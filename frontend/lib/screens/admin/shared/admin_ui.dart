@@ -66,6 +66,29 @@ Widget adminStatusBadge(bool banned) {
   );
 }
 
+/// Table cell naming a person in the log tables: their email, which is what an
+/// admin actually recognises, with the UID kept in the tooltip because that is
+/// what the log document stores and what every other admin action takes.
+/// Falls back to the truncated UID when the email is unknown — a log row
+/// outlives the account it refers to, and a deleted user must still render.
+Widget adminIdentityCell(String email, String uid) {
+  if (email.isEmpty && uid.isEmpty) return const Text('—');
+  final unknownUser = email.isEmpty;
+  return Tooltip(
+    message: unknownUser ? uid : '$email\n$uid',
+    child: SizedBox(
+      width: 180,
+      child: Text(
+        unknownUser ? adminTruncate(uid) : email,
+        overflow: TextOverflow.ellipsis,
+        style: unknownUser
+            ? const TextStyle(color: AppTheme.textSecondary)
+            : null,
+      ),
+    ),
+  );
+}
+
 // ── Formatters ────────────────────────────────────────────────────────────────
 
 String adminTruncate(String id) =>
@@ -86,6 +109,27 @@ String adminFormatTimestamp(String iso) {
   String two(int n) => n.toString().padLeft(2, '0');
   return '${local.year}-${two(local.month)}-${two(local.day)} '
       '${two(local.hour)}:${two(local.minute)}';
+}
+
+/// Relative time for notification cards ("just now", "2 hours ago",
+/// "yesterday"). Falls back to the absolute date beyond a week.
+String adminTimeAgo(String? iso) {
+  if (iso == null || iso.isEmpty) return '';
+  final dt = DateTime.tryParse(iso);
+  if (dt == null) return '';
+  final diff = DateTime.now().difference(dt.toLocal());
+  if (diff.isNegative || diff.inSeconds < 60) return 'just now';
+  if (diff.inMinutes < 60) {
+    final m = diff.inMinutes;
+    return '$m minute${m == 1 ? '' : 's'} ago';
+  }
+  if (diff.inHours < 24) {
+    final h = diff.inHours;
+    return '$h hour${h == 1 ? '' : 's'} ago';
+  }
+  if (diff.inDays == 1) return 'yesterday';
+  if (diff.inDays < 7) return '${diff.inDays} days ago';
+  return adminFormatTimestamp(iso);
 }
 
 /// Maps a thrown error to a user-facing message, matching the existing

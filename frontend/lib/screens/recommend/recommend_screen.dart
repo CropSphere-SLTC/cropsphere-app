@@ -1307,7 +1307,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
               const SizedBox(width: 8),
               Expanded(
                 child: _readonlyChip(
-                  '${_t({'en': 'Moisture', 'si': 'ආර්ද්‍රතාව', 'ta': 'ஈரம்'})}',
+                  _t({'en': 'Moisture', 'si': 'ආර්ද්‍රතாව', 'ta': 'ஈரம்'}),
                   '${_soilMoisture.toStringAsFixed(0)}%',
                   Colors.cyan,
                 ),

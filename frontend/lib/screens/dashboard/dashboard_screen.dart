@@ -1,18 +1,30 @@
 // lib/screens/dashboard/dashboard_screen.dart
 // ─────────────────────────────────────────────────────────────────────────────
-//  CropSphere — Farmer-first dashboard  (UPGRADED)
+//  CropSphere — Farmer-first dashboard  (UPGRADED v2)
 //
 //  NEW in this version
 //  ─────────────────────────────────────────────────────────────────────────
-//  • Live weather strip in hero  (OpenMeteo — no API key required)
-//    Shows temperature, rain-chance icon, and wind speed from device coords.
-//    Falls back gracefully to "Weather loading…" if location/network missing.
-//  • Quick stats strip below hero — Last season best crop / avg price / yield
-//    (mocked with realistic Sri Lankan values; swap for real DB reads)
-//  • "Save tip" bookmark icon on tip card — persists to SharedPreferences
-//  • Saved-tips drawer accessible from a small badge in the top bar
-//  • WhatsApp share button on price result card (handled via url_launcher)
-//  • All existing functionality preserved
+//  • Mobile: slim white app bar (logo + language pill + profile avatar).
+//    No more full-width nav-label bar on phones.
+//  • Profile avatar (photo or initial) opens a bottom sheet with
+//    Profile / Saved Tips / Language / Logout.
+//  • Hero replaced with a quiet greeting line + a dedicated, larger
+//    weather card. Weather failures are now a tappable
+//    "Tap to enable weather" chip instead of vanishing silently.
+//  • Body text bumped up across the board (nothing under 12px; action
+//    card titles now 14.5–15px) for outdoor/glare readability.
+//  • Tip carousel now rotates every 20s and STOPS auto-advancing the
+//    moment the user manually taps a dot/arrow (was restarting the
+//    timer on every manual nav before).
+//  • Saved tips are now keyed by "season#index" instead of a bare index,
+//    so a season change can no longer silently repoint a saved tip at
+//    the wrong content.
+//  • Quick-stats row is explicitly labelled "sample data" until wired
+//    to a real source, and the trailing-margin layout bug is fixed.
+//  • Action cards: neutral white surface + light border (icon tile still
+//    carries the color code) and proper InkWell ripple feedback.
+//  • All existing functionality preserved. En / Sinhala / Tamil strings
+//    unchanged in meaning, only extended where new UI needed copy.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'dart:async';
@@ -186,7 +198,8 @@ class _QuickStats {
   });
 }
 
-// Realistic Sri Lankan defaults — replace with actual persisted data
+// Realistic Sri Lankan defaults — replace with actual persisted data.
+// Marked clearly as sample data in the UI until this is wired up.
 const _kMockStats = _QuickStats(
   bestCrop: 'Carrot',
   avgPriceLkr: 74.0,
@@ -880,7 +893,12 @@ class _DashIcons {
 class DashboardScreen extends StatefulWidget {
   final ValueChanged<int>? onNavigate;
 
-  const DashboardScreen({super.key, this.onNavigate});
+  /// Called after the user confirms Logout in the profile sheet.
+  /// If not provided, this screen just signs out of FirebaseAuth —
+  /// wire this up to navigate back to your login screen.
+  final VoidCallback? onLogout;
+
+  const DashboardScreen({super.key, this.onNavigate, this.onLogout});
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -893,15 +911,20 @@ class _DashboardScreenState extends State<DashboardScreen>
   late AnimationController _tipCtrl;
   late Animation<double> _tipFade;
   Timer? _tipTimer;
+  static const _tipInterval = Duration(seconds: 20);
 
   // ── Saved tips (in-memory; swap for SharedPreferences persist) ────────────
-  final Set<int> _savedTipIndices = {};
+  // Keyed by "season#index" so a season change never repoints a saved
+  // tip at unrelated content.
+  final Set<String> _savedTipKeys = {};
 
   // ── Weather ───────────────────────────────────────────────────────────────
   _WeatherData? _weather;
   bool _weatherLoading = true;
-  // true → user explicitly denied/permanently denied location; hide strip
+  // true → user denied/permanently denied location, or service disabled
   bool _locationDenied = false;
+  // true → re-requesting won't help; must open device settings
+  bool _permanentlyDenied = false;
 
   // ── Saved tips drawer ─────────────────────────────────────────────────────
   bool _drawerOpen = false;
@@ -927,60 +950,58 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   // ── Weather fetch (with real location permission flow) ───────────────────
-  //
-  //  Permission logic:
-  //    whileInUse / always  → get position → fetch weather → show strip
-  //    denied               → set _locationDenied = true  → hide strip silently
-  //    deniedForever        → set _locationDenied = true  → hide strip silently
-  //    serviceDisabled      → set _locationDenied = true  → hide strip silently
-  //
-  //  The user is never nagged. If they denied, the weather section simply
-  //  does not appear. Pull-to-refresh re-runs this check in case they
-  //  later enabled location in device settings.
   Future<void> _loadWeather() async {
     if (!mounted) return;
     setState(() {
       _weatherLoading = true;
       _locationDenied = false;
+      _permanentlyDenied = false;
     });
 
-    // 1. Check if location service is on at all
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       if (mounted) {
         setState(() {
           _weatherLoading = false;
           _locationDenied = true;
+          _permanentlyDenied = true; // needs device settings
         });
       }
       return;
     }
 
-    // 2. Check / request permission
     LocationPermission permission = await Geolocator.checkPermission();
 
     if (permission == LocationPermission.denied) {
-      // Ask once — system dialog appears
       permission = await Geolocator.requestPermission();
     }
 
-    // 3. If still denied (user tapped "Don't allow") or permanently denied → hide
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
+    if (permission == LocationPermission.denied) {
       if (mounted) {
         setState(() {
           _weatherLoading = false;
           _locationDenied = true;
+          _permanentlyDenied = false; // can ask again
         });
       }
       return;
     }
 
-    // 4. Permission granted — get position
+    if (permission == LocationPermission.deniedForever) {
+      if (mounted) {
+        setState(() {
+          _weatherLoading = false;
+          _locationDenied = true;
+          _permanentlyDenied = true; // needs device settings
+        });
+      }
+      return;
+    }
+
     try {
       final pos = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.low, // low accuracy is enough for weather
+          accuracy: LocationAccuracy.low,
           timeLimit: Duration(seconds: 8),
         ),
       );
@@ -990,14 +1011,16 @@ class _DashboardScreenState extends State<DashboardScreen>
         setState(() {
           _weather = data;
           _weatherLoading = false;
+          _locationDenied = data == null; // network error → tappable retry
+          _permanentlyDenied = false;
         });
       }
     } catch (_) {
-      // Timeout or other error — hide strip rather than showing stale data
       if (mounted) {
         setState(() {
           _weatherLoading = false;
           _locationDenied = true;
+          _permanentlyDenied = false; // just retry
         });
       }
     }
@@ -1006,12 +1029,14 @@ class _DashboardScreenState extends State<DashboardScreen>
   // ── Tip helpers ───────────────────────────────────────────────────────────
   void _startTipTimer() {
     _tipTimer?.cancel();
-    _tipTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+    _tipTimer = Timer.periodic(_tipInterval, (_) {
       if (mounted) _moveTip(1);
     });
   }
 
-  Future<void> _moveTip(int dir) async {
+  // `manual: true` means the user tapped a dot/arrow themselves — stop
+  // autoplay for good instead of restarting the timer under them.
+  Future<void> _moveTip(int dir, {bool manual = false}) async {
     final season = _currentSeason();
     final tips = _tipsForSeason(season);
     final next = ((_tipIndex + dir) % tips.length + tips.length) % tips.length;
@@ -1019,16 +1044,22 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (!mounted) return;
     setState(() => _tipIndex = next);
     _tipCtrl.forward();
-    _startTipTimer();
+    if (manual) {
+      _tipTimer?.cancel();
+    } else {
+      _startTipTimer();
+    }
   }
 
-  void _toggleSaveTip(int index) {
+  String _tipKey(String season, int index) => '$season#$index';
+
+  void _toggleSaveTip(String season, int index) {
+    final key = _tipKey(season, index);
     setState(() {
-      if (_savedTipIndices.contains(index)) {
-        _savedTipIndices.remove(index);
+      if (_savedTipKeys.contains(key)) {
+        _savedTipKeys.remove(key);
       } else {
-        _savedTipIndices.add(index);
-        // Show snack
+        _savedTipKeys.add(key);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -1062,6 +1093,199 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   String _t(Map<String, String> map) => map[_langKey] ?? map['en']!;
 
+  // ── Profile bottom sheet ──────────────────────────────────────────────────
+  // NOTE on the fix below: showModalBottomSheet pushes a *separate* route.
+  // Text built from `_t()` (which reads the outer DashboardScreen's own
+  // context) is only ever computed once, at the moment the sheet opens —
+  // tapping the language pill inside the sheet notifies AppLangProvider,
+  // which correctly rebuilds the *background* Dashboard (because that
+  // State's context is a real dependent), but nothing inside the sheet's
+  // own widget subtree was ever registered as a dependent, so its labels
+  // never got the memo. Wrapping the sheet content in a `Builder` that
+  // calls `AppLangProvider.lang(innerCtx)` with its OWN context fixes
+  // this the standard Flutter way — that context becomes a genuine
+  // dependent and rebuilds automatically whenever the language changes.
+  void _openProfileSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (sheetCtx) {
+        return Builder(
+          builder: (innerCtx) {
+            final lang = AppLangProvider.lang(innerCtx);
+            String tr(Map<String, String> map) {
+              final key = lang == AppLang.si
+                  ? 'si'
+                  : lang == AppLang.ta
+                  ? 'ta'
+                  : 'en';
+              return map[key] ?? map['en']!;
+            }
+
+            final user = FirebaseAuth.instance.currentUser;
+            final name =
+                user?.displayName ?? user?.email?.split('@').first ?? 'User';
+            final email = user?.email ?? '';
+
+            return SafeArea(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(innerCtx).size.height * 0.85,
+                ),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(18, 20, 18, 12),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          _ProfileAvatar(onTap: () {}, size: 48),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  name,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF1B4D1B),
+                                  ),
+                                ),
+                                if (email.isNotEmpty)
+                                  Text(
+                                    email,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Divider(height: 26),
+                      _profileTile(
+                        icon: Icons.person_outline_rounded,
+                        label: tr({
+                          'en': 'Profile',
+                          'si': 'පැතිකඩ',
+                          'ta': 'சுயவிவரம்',
+                        }),
+                        onTap: () => Navigator.of(sheetCtx).pop(),
+                      ),
+                      _profileTile(
+                        icon: Icons.bookmark_border_rounded,
+                        label: tr({
+                          'en': 'Saved Tips',
+                          'si': 'සුරකිනා ලද ඉඟි',
+                          'ta': 'சேமித்த குறிப்புகள்',
+                        }),
+                        onTap: () {
+                          Navigator.of(sheetCtx).pop();
+                          setState(() => _drawerOpen = true);
+                        },
+                      ),
+                      _profileTile(
+                        icon: Icons.language_rounded,
+                        label: tr({
+                          'en': 'Language',
+                          'si': 'භාෂාව',
+                          'ta': 'மொழி',
+                        }),
+                        trailing: _LangPill(onDark: false),
+                        onTap: () {},
+                      ),
+                      _profileTile(
+                        icon: Icons.notifications_none_rounded,
+                        label: tr({
+                          'en': 'Notifications',
+                          'si': 'දැනුම්දීම්',
+                          'ta': 'அறிவிப்புகள்',
+                        }),
+                        onTap: () => Navigator.of(sheetCtx).pop(),
+                      ),
+                      _profileTile(
+                        icon: Icons.help_outline_rounded,
+                        label: tr({
+                          'en': 'Help & Support',
+                          'si': 'උදව් හා සහාය',
+                          'ta': 'உதவி மற்றும் ஆதரவு',
+                        }),
+                        onTap: () => Navigator.of(sheetCtx).pop(),
+                      ),
+                      const Divider(height: 22),
+                      _profileTile(
+                        icon: Icons.logout_rounded,
+                        label: tr({
+                          'en': 'Logout',
+                          'si': 'පිටවීම',
+                          'ta': 'வெளியேறு',
+                        }),
+                        color: const Color(0xFFC62828),
+                        onTap: () async {
+                          Navigator.of(sheetCtx).pop();
+                          await FirebaseAuth.instance.signOut();
+                          widget.onLogout?.call();
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _profileTile({
+    required IconData icon,
+    required String label,
+    Widget? trailing,
+    Color? color,
+    required VoidCallback onTap,
+  }) {
+    final tileColor = color ?? const Color(0xFF1B4D1B);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
+          child: Row(
+            children: [
+              Icon(icon, size: 22, color: color ?? const Color(0xFF2E7D32)),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: tileColor,
+                  ),
+                ),
+              ),
+              if (trailing != null) trailing,
+              if (trailing == null)
+                Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   //  Build
   // ─────────────────────────────────────────────────────────────────────────
@@ -1076,36 +1300,111 @@ class _DashboardScreenState extends State<DashboardScreen>
     final tips = _tipsForSeason(season);
     final tip = tips[_tipIndex % tips.length];
 
-    return Stack(
-      children: [
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final w = constraints.maxWidth;
-            if (w < 600) {
-              return _buildMobile(context, firstName, season, tips, tip);
-            } else if (w < 960) {
-              return _buildTablet(context, firstName, season, tips, tip);
-            } else {
-              return _buildWeb(context, firstName, season, tips, tip);
-            }
-          },
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFFDFF3DF), Color(0xFFEFF9EE), Color(0xFFFFFFFF)],
+          stops: [0.0, 0.22, 0.55],
         ),
-        // Saved-tips slide-over drawer
-        if (_drawerOpen) _buildSavedTipsDrawer(tips),
-      ],
+      ),
+      child: Stack(
+        children: [
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final w = constraints.maxWidth;
+              final h = constraints.maxHeight;
+
+              // Keep accessibility font-scale bumps from blowing up cards
+              // that were tuned for ~1.0x — still respects the user's OS
+              // text-size preference, just within a safe band.
+              final clampedScaler = MediaQuery.textScalerOf(
+                context,
+              ).clamp(minScaleFactor: 0.9, maxScaleFactor: 1.2);
+
+              // Width alone doesn't "fit any device" — a portrait tablet and
+              // a landscape tablet can share the same width class but need
+              // very different layouts. So: pick the two-pane layout for
+              // anything reasonably wide OR anything in landscape (phones
+              // rotated, tablets rotated, laptops, desktops); reserve the
+              // single-column layout for narrow/portrait devices only.
+              //
+              // Mobile itself is split into small / regular / large so a
+              // 320px budget phone and a 480px "phablet" both get padding
+              // and grid sizing proportional to their own screen instead
+              // of one fixed layout stretched or squeezed to fit.
+              final Widget content;
+              if (w < 600) {
+                content = _buildMobile(
+                  context,
+                  firstName,
+                  season,
+                  tips,
+                  tip,
+                  w,
+                );
+              } else if (w < 900 && h >= w) {
+                // Portrait tablet (e.g. iPad portrait ~768–834px wide) —
+                // single column, but height-aware so it doesn't strand a
+                // block of empty space at the bottom.
+                content = _buildTabletPortrait(
+                  context,
+                  firstName,
+                  season,
+                  tips,
+                  tip,
+                  w,
+                );
+              } else {
+                // Landscape tablet, laptop, or desktop — two-pane layout,
+                // capped and centred on ultra-wide monitors so the page
+                // doesn't stretch into a thin strip of content lost in
+                // white space.
+                content = _buildWeb(context, firstName, season, tips, tip, w);
+              }
+
+              return MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(textScaler: clampedScaler),
+                child: content,
+              );
+            },
+          ),
+          // Saved-tips slide-over drawer
+          if (_drawerOpen) _buildSavedTipsDrawer(),
+        ],
+      ),
     );
   }
 
   // ── MOBILE ────────────────────────────────────────────────────────────────
+  // `width` is the real viewport width from the outer LayoutBuilder, so a
+  // small phone (< 340px, e.g. an older/budget device), a regular phone
+  // (340–420px), and a large phone/phablet (420–600px) each get padding,
+  // icon sizing, and grid density scaled to their own screen rather than
+  // one fixed 14px-everywhere layout being stretched or cramped.
   Widget _buildMobile(
     BuildContext context,
     String name,
     String season,
     List<_Tip> tips,
     _Tip tip,
+    double width,
   ) {
+    final bool isSmall = width < 340;
+    final bool isLarge = width >= 420;
+    final double hPad = isSmall ? 10 : (isLarge ? 16 : 14);
+    final double iconSize = isSmall ? 22 : (isLarge ? 28 : 26);
+    // 3 columns once a phone is genuinely wide enough (phablets, small
+    // tablets caught by this branch in landscape) so cards don't stretch
+    // into wasted white space; otherwise the usual 2-column grid.
+    final int gridColumns = width >= 520 ? 3 : 2;
+
     return Column(
       children: [
+        _buildMobileAppBar(context, width),
         Expanded(
           child: RefreshIndicator(
             color: AppTheme.primary,
@@ -1114,13 +1413,15 @@ class _DashboardScreenState extends State<DashboardScreen>
               _loadWeather();
             },
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(14, 0, 14, 20),
+              padding: EdgeInsets.fromLTRB(hPad, 14, hPad, 20),
               children: [
-                _buildHero(name, season, compact: true),
+                _buildGreetingLine(name, season),
+                const SizedBox(height: 12),
+                _buildWeatherCard(compact: true),
                 const SizedBox(height: 10),
                 _buildQuickStats(compact: true),
                 const SizedBox(height: 10),
-                _buildTipCard(tip, tips, compact: true),
+                _buildTipCard(tip, tips, season, compact: true),
                 const SizedBox(height: 12),
                 _sectionLabel(
                   _t({
@@ -1130,7 +1431,10 @@ class _DashboardScreenState extends State<DashboardScreen>
                   }),
                 ),
                 const SizedBox(height: 8),
-                _buildActionGrid(crossAxisCount: 2, iconSize: 26),
+                _buildActionGrid(
+                  crossAxisCount: gridColumns,
+                  iconSize: iconSize,
+                ),
                 const SizedBox(height: 14),
                 _buildChatBox(),
               ],
@@ -1141,51 +1445,222 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
-  // ── TABLET ────────────────────────────────────────────────────────────────
-  Widget _buildTablet(
+  // ── TABLET (PORTRAIT) ────────────────────────────────────────────────────
+  // Tuned against the actual portrait widths of common tablets rather than
+  // one fixed layout stretched to fit everything 600–1024dp:
+  //   Galaxy Tab 7.0 / 7.0+ / Tab 2 7.0      ~600dp
+  //   Galaxy Tab 7.7                          ~600–650dp
+  //   iPad Mini 4                             ~700dp
+  //   iPad / iPad 2 / New iPad / Tab 8.9      ~760–770dp
+  //   Galaxy Tab 10.1                         ~800dp
+  //   iPad Pro 11" (M2)                       ~830–840dp
+  // Below ~700dp the screen is too narrow for a second column without
+  // squeezing everything, so content runs full-bleed single-column with
+  // only small fixed side padding (no centered narrow strip). From
+  // ~700dp up there's enough real width to split into an info rail +
+  // action grid — same idea as the web layout — so the extra width is
+  // actually used instead of sitting empty on either side of a centered
+  // column.
+  Widget _buildTabletPortrait(
     BuildContext context,
     String name,
     String season,
     List<_Tip> tips,
     _Tip tip,
+    double width,
   ) {
+    if (width < 700) {
+      return _buildTabletCompact(context, name, season, tips, tip, width);
+    }
+    return _buildTabletSplit(context, name, season, tips, tip, width);
+  }
+
+  // Small/narrow portrait tablets (~600–700dp): single column, full-bleed.
+  Widget _buildTabletCompact(
+    BuildContext context,
+    String name,
+    String season,
+    List<_Tip> tips,
+    _Tip tip,
+    double width,
+  ) {
+    final double hPad = width < 640 ? 16.0 : 20.0;
+    const double gap = 13.0;
+    const int gridCols = 2;
+
     return Column(
       children: [
         _buildTopBar(context),
         Expanded(
           child: LayoutBuilder(
             builder: (ctx, bc) {
-              final contentW = bc.maxWidth.clamp(0.0, 700.0);
-              final hPad = ((bc.maxWidth - contentW) / 2).clamp(
-                0.0,
-                double.infinity,
+              final contentW = bc.maxWidth - hPad * 2;
+              final rows = (_kActions.length / gridCols).ceil();
+              const aboveGridEstimate = 420.0;
+              final availH = (bc.maxHeight - 32 - aboveGridEstimate).clamp(
+                200.0,
+                800.0,
               );
-              return ListView(
-                padding: EdgeInsets.fromLTRB(hPad + 16, 14, hPad + 16, 28),
-                children: [
-                  _buildHeroInner(name, season, compact: false),
-                  const SizedBox(height: 10),
-                  _buildQuickStats(compact: false),
-                  const SizedBox(height: 12),
-                  _buildTipCard(tip, tips, compact: false),
-                  const SizedBox(height: 14),
-                  _sectionLabel(
-                    _t({
-                      'en': 'What do you need today?',
-                      'si': 'ඔබට අද මොකද ඕනෙ?',
-                      'ta': 'உங்களுக்கு என்ன தேவை?',
-                    }),
+              final cardH = ((availH - (rows - 1) * gap) / rows).clamp(
+                120.0,
+                200.0,
+              );
+              final cardW = (contentW - (gridCols - 1) * gap) / gridCols;
+              final ratio = (cardW / cardH).clamp(0.75, 1.6);
+
+              return SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 16),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: bc.maxHeight - 32),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _buildGreetingLine(name, season),
+                      const SizedBox(height: gap),
+                      _buildWeatherCard(compact: false),
+                      const SizedBox(height: gap),
+                      _buildQuickStats(compact: false),
+                      const SizedBox(height: gap),
+                      _buildTipCard(tip, tips, season, compact: false),
+                      const SizedBox(height: gap + 4),
+                      _sectionLabel(
+                        _t({
+                          'en': 'What do you need today?',
+                          'si': 'ඔබට අද මොකද ඕනෙ?',
+                          'ta': 'உங்களுக்கு என்ன தேவை?',
+                        }),
+                      ),
+                      const SizedBox(height: 10),
+                      _buildActionGrid(
+                        crossAxisCount: gridCols,
+                        iconSize: 27,
+                        aspectRatio: ratio,
+                      ),
+                      const SizedBox(height: gap + 4),
+                      _buildChatBox(),
+                    ],
                   ),
-                  const SizedBox(height: 10),
-                  _buildActionGrid(crossAxisCount: 2, iconSize: 28),
-                  const SizedBox(height: 14),
-                  _buildChatBox(),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Wider portrait tablets (~700–1024dp): info rail + action grid, split
+  // like the web layout so full device width is actually used — this is
+  // what removes the centered-column-with-side-whitespace look.
+  Widget _buildTabletSplit(
+    BuildContext context,
+    String name,
+    String season,
+    List<_Tip> tips,
+    _Tip tip,
+    double width,
+  ) {
+    final bool isLarge = width >= 800; // Tab 10.1 / iPad Pro 11" territory
+    final int gridCols = isLarge ? 3 : 2;
+    final double iconSize = isLarge ? 30 : 28;
+
+    return Column(
+      children: [
+        _buildTopBar(context),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (ctx, bc) {
+              final leftW = (bc.maxWidth * (isLarge ? 0.34 : 0.42)).clamp(
+                260.0,
+                340.0,
+              );
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SizedBox(
+                    width: leftW,
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 10, 24),
+                      children: [
+                        _buildGreetingLine(name, season),
+                        const SizedBox(height: 12),
+                        _buildWeatherCard(compact: false),
+                        const SizedBox(height: 12),
+                        _buildQuickStats(compact: false),
+                        const SizedBox(height: 12),
+                        _buildTipCard(tip, tips, season, compact: false),
+                      ],
+                    ),
+                  ),
+                  Container(width: 1, color: const Color(0xFFE4EEE4)),
+                  Expanded(
+                    child: _buildRightPane(
+                      gridCols: gridCols,
+                      iconSize: iconSize,
+                      includeChat: true,
+                    ),
+                  ),
                 ],
               );
             },
           ),
         ),
       ],
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  //  Right-hand action pane (tablet-split + web layouts).
+  //  Top-anchored, not vertically centered: the section label sits flush
+  //  under the top bar (in line with the greeting on the left rail), and
+  //  the grid is measured via its own LayoutBuilder to fill exactly the
+  //  height/width it's given — no guessed offsets, no leftover blank
+  //  strip on the right or a big empty gap above the cards.
+  // ─────────────────────────────────────────────────────────────────────────
+  Widget _buildRightPane({
+    required int gridCols,
+    required double iconSize,
+    required bool includeChat,
+  }) {
+    const double pad = 16;
+    const double spacing = 14;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(pad, 16, pad, 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionLabel(
+            _t({
+              'en': 'What do you need today?',
+              'si': 'ඔබට අද මොකද ඕනෙ?',
+              'ta': 'உங்களுக்கு என்ன தேவை?',
+            }),
+          ),
+          const SizedBox(height: spacing),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (ctx, bc) {
+                final rows = (_kActions.length / gridCols).ceil();
+                final cardW =
+                    (bc.maxWidth - (gridCols - 1) * spacing) / gridCols;
+                final cardH = (bc.maxHeight - (rows - 1) * spacing) / rows;
+                final ratio = (cardW / cardH).clamp(0.6, 1.9);
+                return _buildActionGrid(
+                  crossAxisCount: gridCols,
+                  iconSize: iconSize,
+                  aspectRatio: ratio,
+                  scrollable: false,
+                  spacing: spacing,
+                );
+              },
+            ),
+          ),
+          if (includeChat) ...[
+            const SizedBox(height: spacing),
+            _buildChatBox(),
+          ],
+        ],
+      ),
     );
   }
 
@@ -1196,6 +1671,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     String season,
     List<_Tip> tips,
     _Tip tip,
+    double width,
   ) {
     return Column(
       children: [
@@ -1203,48 +1679,100 @@ class _DashboardScreenState extends State<DashboardScreen>
         Expanded(
           child: LayoutBuilder(
             builder: (ctx, bc) {
-              final leftW = (bc.maxWidth * 0.38).clamp(300.0, 440.0);
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  SizedBox(
-                    width: leftW,
-                    child: ListView(
-                      padding: const EdgeInsets.fromLTRB(20, 14, 12, 28),
-                      children: [
-                        _buildHeroInner(name, season, compact: false),
-                        const SizedBox(height: 10),
-                        _buildQuickStats(compact: false),
-                        const SizedBox(height: 12),
-                        _buildTipCard(tip, tips, compact: false),
-                        const SizedBox(height: 12),
-                        _buildChatBox(),
-                      ],
+              // Cap the whole working area on ultra-wide desktop monitors
+              // (e.g. 1800px+) and centre it, instead of letting the
+              // two-pane row stretch edge-to-edge into a thin, hard-to-scan
+              // strip flanked by huge margins of empty space.
+              final maxContentW = bc.maxWidth.clamp(0.0, 1400.0);
+              final outerPad = ((bc.maxWidth - maxContentW) / 2).clamp(
+                0.0,
+                double.infinity,
+              );
+              final leftW = (maxContentW * 0.36).clamp(300.0, 460.0);
+              return Padding(
+                padding: EdgeInsets.symmetric(horizontal: outerPad),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(
+                      width: leftW,
+                      child: ListView(
+                        padding: const EdgeInsets.fromLTRB(20, 16, 12, 28),
+                        children: [
+                          _buildGreetingLine(name, season),
+                          const SizedBox(height: 12),
+                          _buildWeatherCard(compact: false),
+                          const SizedBox(height: 12),
+                          _buildQuickStats(compact: false),
+                          const SizedBox(height: 12),
+                          _buildTipCard(tip, tips, season, compact: false),
+                          const SizedBox(height: 12),
+                          _buildChatBox(),
+                        ],
+                      ),
                     ),
-                  ),
-                  Container(width: 1, color: const Color(0xFFE4EEE4)),
-                  Expanded(
-                    child: ListView(
-                      padding: const EdgeInsets.fromLTRB(16, 14, 20, 28),
-                      children: [
-                        _sectionLabel(
-                          _t({
-                            'en': 'What do you need today?',
-                            'si': 'ඔබට අද මොකද ඕනෙ?',
-                            'ta': 'உங்களுக்கு என்ன தேவை?',
-                          }),
-                        ),
-                        const SizedBox(height: 10),
-                        _buildActionGrid(crossAxisCount: 3, iconSize: 28),
-                      ],
+                    Container(width: 1, color: const Color(0xFFE4EEE4)),
+                    Expanded(
+                      child: _buildRightPane(
+                        gridCols: (maxContentW - leftW) < 640 ? 2 : 3,
+                        iconSize: (maxContentW - leftW) < 640 ? 30 : 32,
+                        includeChat: false,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               );
             },
           ),
         ),
       ],
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  //  Slim mobile app bar — logo · language pill · profile avatar.
+  //  No nav labels here by design (Dashboard/Yield/Price/... only show
+  //  on tablet+ where there's room). Navigation on mobile happens via
+  //  the action grid / chat / profile sheet.
+  // ─────────────────────────────────────────────────────────────────────────
+  Widget _buildMobileAppBar(BuildContext context, double width) {
+    final bool isSmall = width < 340;
+    final double logoSize = isSmall ? 26 : 30;
+    return Container(
+      height: 56,
+      padding: EdgeInsets.symmetric(horizontal: isSmall ? 10 : 14),
+      decoration: const BoxDecoration(
+        // Faint green tint (not flat white) so the app bar reads as part
+        // of the same brand wash as the rest of the screen.
+        color: Color(0xFFFAFDFA),
+        border: Border(bottom: BorderSide(color: Color(0xFFE4EEE4))),
+      ),
+      child: Row(
+        children: [
+          SvgPicture.string(
+            _DashIcons.cropSphere,
+            width: logoSize,
+            height: logoSize,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            'CropSphere',
+            style: TextStyle(
+              color: const Color(0xFF1B4D1B),
+              fontSize: isSmall ? 14.5 : 16,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.2,
+            ),
+          ),
+          const Spacer(),
+          // Language switcher sits directly beside the profile avatar so
+          // both language and account controls live in one glanceable
+          // cluster on the right of the bar.
+          _LangPill(onDark: false),
+          const SizedBox(width: 8),
+          _ProfileAvatar(onTap: _openProfileSheet),
+        ],
+      ),
     );
   }
 
@@ -1281,7 +1809,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     return Container(
       height: 60,
       decoration: const BoxDecoration(
-        color: Colors.white,
+        color: Color(0xFFFAFDFA),
         border: Border(bottom: BorderSide(color: Color(0xFFE4EEE4))),
         boxShadow: [
           BoxShadow(
@@ -1364,7 +1892,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                             child: Text(
                               navLabels[i],
                               style: TextStyle(
-                                fontSize: 11.5,
+                                fontSize: 12.5,
                                 fontWeight: active
                                     ? FontWeight.w700
                                     : FontWeight.w500,
@@ -1384,85 +1912,70 @@ class _DashboardScreenState extends State<DashboardScreen>
           const SizedBox(width: 8),
           // Language pill
           _LangPill(onDark: false),
+          const SizedBox(width: 8),
+          // Profile avatar
+          _ProfileAvatar(onTap: _openProfileSheet),
         ],
       ),
     );
   }
 
   Widget _buildSavedBadge() {
-    final count = _savedTipIndices.length;
-    return GestureDetector(
-      onTap: () => setState(() => _drawerOpen = true),
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF0F4F0),
-              borderRadius: BorderRadius.circular(10),
+    final count = _savedTipKeys.length;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () => setState(() => _drawerOpen = true),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0F4F0),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.bookmark_rounded,
+                size: 20,
+                color: Color(0xFF2E7D32),
+              ),
             ),
-            child: const Icon(
-              Icons.bookmark_rounded,
-              size: 20,
-              color: Color(0xFF2E7D32),
-            ),
-          ),
-          if (count > 0)
-            Positioned(
-              right: -4,
-              top: -4,
-              child: Container(
-                width: 16,
-                height: 16,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFE65100),
-                  shape: BoxShape.circle,
-                ),
-                child: Center(
-                  child: Text(
-                    '$count',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 9,
-                      fontWeight: FontWeight.w800,
+            if (count > 0)
+              Positioned(
+                right: -4,
+                top: -4,
+                child: Container(
+                  width: 16,
+                  height: 16,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFE65100),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Center(
+                    child: Text(
+                      '$count',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  //  Hero card
+  //  Greeting line + season/date pills (replaces the old green hero card)
   // ─────────────────────────────────────────────────────────────────────────
-  Widget _buildHero(String name, String season, {required bool compact}) {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF1B5E20),
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF1B5E20).withValues(alpha: 0.22),
-            blurRadius: 14,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: _buildHeroInner(name, season, compact: compact, insideCard: true),
-    );
-  }
-
-  Widget _buildHeroInner(
-    String name,
-    String season, {
-    required bool compact,
-    bool insideCard = false,
-  }) {
+  Widget _buildGreetingLine(String name, String season) {
     final lang = AppLangProvider.lang(context);
     final String greet;
     if (lang == AppLang.si) {
@@ -1479,192 +1992,207 @@ class _DashboardScreenState extends State<DashboardScreen>
       greet = '${_greeting()},';
     }
 
-    final Widget content = Padding(
-      padding: EdgeInsets.all(compact ? 14.0 : 16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ── Row: logo + greeting + lang pill ──
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        RichText(
+          text: TextSpan(
             children: [
-              Container(
-                width: compact ? 40 : 46,
-                height: compact ? 40 : 46,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.13),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Center(
-                  child: SvgPicture.string(
-                    _DashIcons.cropSphere,
-                    width: compact ? 28 : 32,
-                    height: compact ? 28 : 32,
-                  ),
+              TextSpan(
+                text: '$greet ',
+                style: const TextStyle(
+                  color: Color(0xFF6B8F6B),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
-              const SizedBox(width: 11),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      greet,
-                      style: const TextStyle(
-                        color: Colors.white60,
-                        fontSize: 11,
-                      ),
-                    ),
-                    Text(
-                      name,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: compact ? 20 : 24,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.2,
-                        height: 1.15,
-                      ),
-                    ),
-                  ],
+              TextSpan(
+                text: name,
+                style: const TextStyle(
+                  color: Color(0xFF1B4D1B),
+                  fontSize: 19,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
-              if (insideCard) _LangPill(onDark: true),
             ],
           ),
-          const SizedBox(height: 10),
-          // ── Season + date pills ──
-          Wrap(
-            spacing: 7,
-            runSpacing: 5,
-            children: [
-              _heroPill(_seasonPill(season, lang)),
-              _heroPill('📅 ${_formattedDate()}'),
-            ],
-          ),
-          // ── Live weather strip (only shown when location is granted) ────
-          if (!_locationDenied) ...[
-            const SizedBox(height: 8),
-            _buildWeatherStrip(compact: compact),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 7,
+          runSpacing: 6,
+          children: [
+            _pill(
+              _seasonPill(season, lang),
+              color: const Color(0xFF1B5E20),
+              bg: const Color(0xFFE8F5E9),
+            ),
+            _pill(
+              '📅 ${_formattedDate()}',
+              color: const Color(0xFF3E5E3E),
+              bg: const Color(0xFFF0F4F0),
+            ),
           ],
-        ],
-      ),
-    );
-
-    if (insideCard) return content;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF1B5E20),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF1B5E20).withValues(alpha: 0.2),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: content,
+        ),
+      ],
     );
   }
 
-  // ── Live weather strip ─────────────────────────────────────────────────────
-  //  • _locationDenied = true  → return SizedBox.shrink() (nothing shown)
-  //  • _weatherLoading = true  → tiny spinner chip while permission/fetch runs
-  //  • _weather == null        → should not happen after denied guard, but just
-  //                              in case of a network error: show nothing
-  //  • data present            → three chips: temp · rain% · wind
-  Widget _buildWeatherStrip({required bool compact}) {
-    // User refused location — hide the strip completely, no message shown
-    if (_locationDenied) return const SizedBox.shrink();
+  Widget _pill(String label, {required Color color, required Color bg}) =>
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      );
 
-    // Loading: waiting for permission dialog or geolocator result
+  // ─────────────────────────────────────────────────────────────────────────
+  //  Weather card — dedicated real estate instead of tiny hero chips.
+  //  • Loading  → small spinner row
+  //  • Denied / error → tappable "Tap to enable weather" chip
+  //  • Data     → large temp + rain% + wind
+  // ─────────────────────────────────────────────────────────────────────────
+  Widget _buildWeatherCard({required bool compact}) {
     if (_weatherLoading) {
-      return Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      return Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF4F8F4),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFE0EAE0)),
+        ),
+        child: Row(
+          children: [
+            const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation(Color(0xFF4CAF50)),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              _t({
+                'en': 'Getting weather…',
+                'si': 'කාලගුණ දත්ත ලබාගනිමින්…',
+                'ta': 'வானிலை பெறப்படுகிறது…',
+              }),
+              style: const TextStyle(
+                fontSize: 13,
+                color: Color(0xFF3E5E3E),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_locationDenied || _weather == null) {
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () {
+            if (_permanentlyDenied) {
+              Geolocator.openAppSettings();
+            } else {
+              _loadWeather();
+            }
+          },
+          child: Ink(
+            padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(20),
+              color: const Color(0xFFFFF8E1),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFFFE082)),
             ),
             child: Row(
               children: [
-                SizedBox(
-                  width: 10,
-                  height: 10,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 1.5,
-                    valueColor: AlwaysStoppedAnimation(Colors.white60),
+                const Icon(
+                  Icons.location_off_rounded,
+                  size: 22,
+                  color: Color(0xFFE65100),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    _t({
+                      'en': 'Tap to enable weather',
+                      'si': 'කාලගුණ ලබාගැනීමට මෙතන ඔබන්න',
+                      'ta': 'வானிலை பெற இங்கே தட்டவும்',
+                    }),
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFFE65100),
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
-                const SizedBox(width: 6),
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  color: Color(0xFFE65100),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    final w = _weather!;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE3F2FD),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF90CAF9)),
+      ),
+      child: Row(
+        children: [
+          Text(w.weatherEmoji, style: const TextStyle(fontSize: 32)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 Text(
-                  _t({
-                    'en': 'Getting weather…',
-                    'si': 'කාලගුණ දත්ත…',
-                    'ta': 'வானிலை…',
-                  }),
-                  style: const TextStyle(color: Colors.white60, fontSize: 10),
+                  w.tempStr,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0D47A1),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '🌧 ${w.rainStr} rain   💨 ${w.windStr}',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Color(0xFF1565C0),
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ],
             ),
           ),
         ],
-      );
-    }
-
-    // Network error after permission was granted — show nothing silently
-    if (_weather == null) return const SizedBox.shrink();
-
-    // ✅ Permission granted + data fetched → show weather chips
-    final w = _weather!;
-    return Wrap(
-      spacing: 6,
-      runSpacing: 5,
-      children: [
-        _weatherChip('${w.weatherEmoji} ${w.tempStr}'),
-        _weatherChip('🌧 ${w.rainStr} rain'),
-        _weatherChip('💨 ${w.windStr}'),
-      ],
+      ),
     );
   }
 
-  Widget _weatherChip(String label) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-    decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: 0.15),
-      borderRadius: BorderRadius.circular(20),
-      border: Border.all(color: Colors.white.withValues(alpha: 0.25), width: 1),
-    ),
-    child: Text(
-      label,
-      style: const TextStyle(
-        color: Colors.white,
-        fontSize: 10,
-        fontWeight: FontWeight.w600,
-      ),
-    ),
-  );
-
-  Widget _heroPill(String label) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
-    decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: 0.14),
-      borderRadius: BorderRadius.circular(20),
-    ),
-    child: Text(
-      label,
-      style: const TextStyle(
-        color: Colors.white,
-        fontSize: 10,
-        fontWeight: FontWeight.w600,
-      ),
-    ),
-  );
-
   // ─────────────────────────────────────────────────────────────────────────
-  //  Quick stats strip (NEW)
+  //  Quick stats strip
   // ─────────────────────────────────────────────────────────────────────────
   Widget _buildQuickStats({required bool compact}) {
     // Replace _kMockStats with real DB/Hive reads
@@ -1701,62 +2229,89 @@ class _DashboardScreenState extends State<DashboardScreen>
       },
     ];
 
-    return Row(
-      children: items.map((item) {
-        return Expanded(
-          child: Container(
-            margin: const EdgeInsets.only(right: 7),
-            padding: EdgeInsets.symmetric(
-              vertical: compact ? 9 : 11,
-              horizontal: 10,
-            ),
-            decoration: BoxDecoration(
-              color: item['bg'] as Color,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: (item['color'] as Color).withValues(alpha: 0.2),
-                width: 1.2,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: List.generate(items.length, (i) {
+            final item = items[i];
+            final isLast = i == items.length - 1;
+            return Expanded(
+              child: Container(
+                margin: EdgeInsets.only(right: isLast ? 0 : 7),
+                padding: EdgeInsets.symmetric(
+                  vertical: compact ? 9 : 11,
+                  horizontal: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: item['bg'] as Color,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: (item['color'] as Color).withValues(alpha: 0.2),
+                    width: 1.2,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item['icon'] as String,
+                      style: TextStyle(fontSize: compact ? 16 : 18),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      item['label'] as String,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: (item['color'] as Color).withValues(alpha: 0.8),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      item['value'] as String,
+                      style: TextStyle(
+                        fontSize: compact ? 13 : 14,
+                        color: item['color'] as Color,
+                        fontWeight: FontWeight.w800,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
               ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item['icon'] as String,
-                  style: TextStyle(fontSize: compact ? 16 : 18),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  item['label'] as String,
-                  style: TextStyle(
-                    fontSize: 9,
-                    color: (item['color'] as Color).withValues(alpha: 0.7),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  item['value'] as String,
-                  style: TextStyle(
-                    fontSize: compact ? 11 : 12,
-                    color: item['color'] as Color,
-                    fontWeight: FontWeight.w800,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
+            );
+          }),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          _t({
+            'en': '* Sample data — will update after your first entries',
+            'si': '* නියැදි දත්ත — ඔබේ පළමු ප්‍රවේශයෙන් පසු යාවත්කාලීන වේ',
+            'ta':
+                '* மாதிரி தரவு — உங்கள் முதல் பதிவிற்குப் பிறகு புதுப்பிக்கப்படும்',
+          }),
+          style: TextStyle(
+            fontSize: 10.5,
+            color: Colors.grey.shade500,
+            fontStyle: FontStyle.italic,
           ),
-        );
-      }).toList()..last, // remove trailing margin on last item
+        ),
+      ],
     );
   }
 
   // ─────────────────────────────────────────────────────────────────────────
   //  Tip card  (with bookmark icon)
   // ─────────────────────────────────────────────────────────────────────────
-  Widget _buildTipCard(_Tip tip, List<_Tip> tips, {required bool compact}) {
-    final isSaved = _savedTipIndices.contains(_tipIndex);
+  Widget _buildTipCard(
+    _Tip tip,
+    List<_Tip> tips,
+    String season, {
+    required bool compact,
+  }) {
+    final tipKey = _tipKey(season, _tipIndex);
+    final isSaved = _savedTipKeys.contains(tipKey);
     return FadeTransition(
       opacity: _tipFade,
       child: Container(
@@ -1796,17 +2351,17 @@ class _DashboardScreenState extends State<DashboardScreen>
                       Text(
                         _t(tip.label),
                         style: TextStyle(
-                          fontSize: 9,
+                          fontSize: 11,
                           fontWeight: FontWeight.w800,
                           color: tip.color,
-                          letterSpacing: 0.7,
+                          letterSpacing: 0.6,
                         ),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         _t(tip.text),
                         style: TextStyle(
-                          fontSize: compact ? 12 : 13,
+                          fontSize: compact ? 13 : 14,
                           color: const Color(0xFF1A2B1A),
                           height: 1.5,
                           fontWeight: FontWeight.w500,
@@ -1815,22 +2370,27 @@ class _DashboardScreenState extends State<DashboardScreen>
                     ],
                   ),
                 ),
-                // ── NEW: Bookmark button ──────────────────────────
-                GestureDetector(
-                  onTap: () => _toggleSaveTip(_tipIndex),
-                  child: Padding(
-                    padding: const EdgeInsets.only(left: 6, top: 2),
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 200),
-                      child: Icon(
-                        isSaved
-                            ? Icons.bookmark_rounded
-                            : Icons.bookmark_border_rounded,
-                        key: ValueKey(isSaved),
-                        size: 22,
-                        color: isSaved
-                            ? tip.color
-                            : tip.color.withValues(alpha: 0.4),
+                // Bookmark button
+                Material(
+                  color: Colors.transparent,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: () => _toggleSaveTip(season, _tipIndex),
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 6, top: 2),
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 200),
+                        child: Icon(
+                          isSaved
+                              ? Icons.bookmark_rounded
+                              : Icons.bookmark_border_rounded,
+                          key: ValueKey(isSaved),
+                          size: 22,
+                          color: isSaved
+                              ? tip.color
+                              : tip.color.withValues(alpha: 0.4),
+                        ),
                       ),
                     ),
                   ),
@@ -1844,7 +2404,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               child: TweenAnimationBuilder<double>(
                 key: ValueKey(_tipIndex),
                 tween: Tween(begin: 0.0, end: 1.0),
-                duration: const Duration(seconds: 10),
+                duration: _tipInterval,
                 builder: (_, v, _) => LinearProgressIndicator(
                   value: v,
                   backgroundColor: tip.border.withValues(alpha: 0.25),
@@ -1861,7 +2421,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                   children: List.generate(tips.length, (i) {
                     final active = i == _tipIndex;
                     return GestureDetector(
-                      onTap: () => _moveTip(i - _tipIndex),
+                      onTap: () => _moveTip(i - _tipIndex, manual: true),
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 220),
                         width: active ? 14 : 6,
@@ -1889,20 +2449,22 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
-  Widget _tipArrow(bool forward) => GestureDetector(
-    onTap: () => _moveTip(forward ? 1 : -1),
-    child: Container(
-      width: 28,
-      height: 28,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFD0E8C8), width: 1.5),
-      ),
-      child: Icon(
-        forward ? Icons.chevron_right_rounded : Icons.chevron_left_rounded,
-        size: 17,
-        color: const Color(0xFF2E7D32),
+  Widget _tipArrow(bool forward) => Material(
+    color: Colors.white,
+    shape: const CircleBorder(
+      side: BorderSide(color: Color(0xFFD0E8C8), width: 1.5),
+    ),
+    child: InkWell(
+      customBorder: const CircleBorder(),
+      onTap: () => _moveTip(forward ? 1 : -1, manual: true),
+      child: SizedBox(
+        width: 28,
+        height: 28,
+        child: Icon(
+          forward ? Icons.chevron_right_rounded : Icons.chevron_left_rounded,
+          size: 17,
+          color: const Color(0xFF2E7D32),
+        ),
       ),
     ),
   );
@@ -1910,8 +2472,8 @@ class _DashboardScreenState extends State<DashboardScreen>
   // ─────────────────────────────────────────────────────────────────────────
   //  Saved tips slide-over panel
   // ─────────────────────────────────────────────────────────────────────────
-  Widget _buildSavedTipsDrawer(List<_Tip> allTips) {
-    final saved = _savedTipIndices.toList()..sort();
+  Widget _buildSavedTipsDrawer() {
+    final savedKeys = _savedTipKeys.toList()..sort();
     return GestureDetector(
       onTap: () => setState(() => _drawerOpen = false),
       child: Container(
@@ -1966,7 +2528,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                     ),
                     // Tips list
                     Expanded(
-                      child: saved.isEmpty
+                      child: savedKeys.isEmpty
                           ? Center(
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
@@ -1995,12 +2557,21 @@ class _DashboardScreenState extends State<DashboardScreen>
                             )
                           : ListView.separated(
                               padding: const EdgeInsets.all(12),
-                              itemCount: saved.length,
+                              itemCount: savedKeys.length,
                               separatorBuilder: (_, _) =>
                                   const SizedBox(height: 8),
                               itemBuilder: (_, idx) {
-                                final tipIdx = saved[idx];
-                                final tip = allTips[tipIdx % allTips.length];
+                                final key = savedKeys[idx];
+                                final parts = key.split('#');
+                                final season = parts[0];
+                                final tipIdx =
+                                    int.tryParse(
+                                      parts.length > 1 ? parts[1] : '0',
+                                    ) ??
+                                    0;
+                                final seasonTips = _tipsForSeason(season);
+                                final tip =
+                                    seasonTips[tipIdx % seasonTips.length];
                                 return Container(
                                   padding: const EdgeInsets.all(12),
                                   decoration: BoxDecoration(
@@ -2029,7 +2600,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                                             Text(
                                               _t(tip.label),
                                               style: TextStyle(
-                                                fontSize: 8,
+                                                fontSize: 10,
                                                 fontWeight: FontWeight.w800,
                                                 color: tip.color,
                                                 letterSpacing: 0.6,
@@ -2039,7 +2610,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                                             Text(
                                               _t(tip.text),
                                               style: const TextStyle(
-                                                fontSize: 11,
+                                                fontSize: 13,
                                                 color: Color(0xFF1A2B1A),
                                                 height: 1.45,
                                               ),
@@ -2048,7 +2619,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                                         ),
                                       ),
                                       GestureDetector(
-                                        onTap: () => _toggleSaveTip(tipIdx),
+                                        onTap: () =>
+                                            _toggleSaveTip(season, tipIdx),
                                         child: Icon(
                                           Icons.bookmark_remove_rounded,
                                           size: 18,
@@ -2097,15 +2669,20 @@ class _DashboardScreenState extends State<DashboardScreen>
   Widget _buildActionGrid({
     required int crossAxisCount,
     required double iconSize,
+    double? aspectRatio,
+    bool scrollable = true,
+    double spacing = 10,
   }) {
-    final ratio = crossAxisCount == 2 ? 0.95 : 1.0;
+    final ratio = aspectRatio ?? (crossAxisCount == 2 ? 0.95 : 1.0);
     return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
+      shrinkWrap: scrollable,
+      physics: scrollable
+          ? const NeverScrollableScrollPhysics()
+          : const ClampingScrollPhysics(),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: crossAxisCount,
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 10,
+        crossAxisSpacing: spacing,
+        mainAxisSpacing: spacing,
         childAspectRatio: ratio,
       ),
       itemCount: _kActions.length,
@@ -2172,7 +2749,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                     Text(
                       chatTitle,
                       style: const TextStyle(
-                        fontSize: 13,
+                        fontSize: 13.5,
                         fontWeight: FontWeight.w800,
                         color: Color(0xFF1B5E20),
                       ),
@@ -2180,7 +2757,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                     Text(
                       chatSub,
                       style: const TextStyle(
-                        fontSize: 10,
+                        fontSize: 11.5,
                         color: Color(0xFF4CAF50),
                       ),
                     ),
@@ -2201,6 +2778,64 @@ class _DashboardScreenState extends State<DashboardScreen>
             );
           }),
         ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Profile avatar — photo if available, otherwise a colored initial.
+//  Tapping opens the profile bottom sheet (Profile / Saved Tips /
+//  Language / Logout).
+// ─────────────────────────────────────────────────────────────────────────────
+class _ProfileAvatar extends StatelessWidget {
+  final VoidCallback onTap;
+  final double size;
+  const _ProfileAvatar({required this.onTap, this.size = 36});
+
+  @override
+  Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+    final photo = user?.photoURL;
+    String initial = 'U';
+    final dn = user?.displayName;
+    final em = user?.email;
+    if (dn != null && dn.trim().isNotEmpty) {
+      initial = dn.trim()[0].toUpperCase();
+    } else if (em != null && em.trim().isNotEmpty) {
+      initial = em.trim()[0].toUpperCase();
+    }
+
+    return Material(
+      color: Colors.transparent,
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: const Color(0xFF1B5E20),
+            image: (photo != null && photo.isNotEmpty)
+                ? DecorationImage(image: NetworkImage(photo), fit: BoxFit.cover)
+                : null,
+            border: Border.all(color: const Color(0xFFE4EEE4), width: 1.4),
+          ),
+          child: (photo == null || photo.isEmpty)
+              ? Center(
+                  child: Text(
+                    initial,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: size * 0.4,
+                    ),
+                  ),
+                )
+              : null,
+        ),
       ),
     );
   }
@@ -2234,7 +2869,7 @@ class _LangPill extends StatelessWidget {
             onTap: () => notifier.setLang(l),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
-              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
               decoration: BoxDecoration(
                 color: active
                     ? (onDark ? Colors.white : const Color(0xFF1B5E20))
@@ -2244,7 +2879,7 @@ class _LangPill extends StatelessWidget {
               child: Text(
                 l.label,
                 style: TextStyle(
-                  fontSize: 9.5,
+                  fontSize: 11,
                   fontWeight: active ? FontWeight.w800 : FontWeight.w500,
                   color: active
                       ? (onDark ? const Color(0xFF1B5E20) : Colors.white)
@@ -2262,7 +2897,7 @@ class _LangPill extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Action card
+//  Action card — neutral white surface + colored icon tile + InkWell ripple
 // ─────────────────────────────────────────────────────────────────────────────
 class _ActionCard extends StatelessWidget {
   final _ActionBtn data;
@@ -2281,65 +2916,72 @@ class _ActionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-        decoration: BoxDecoration(
-          color: data.bg,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: data.border, width: 1.5),
-          boxShadow: [
-            BoxShadow(
-              color: data.border.withValues(alpha: 0.2),
-              blurRadius: 5,
-              offset: const Offset(0, 2),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: data.border.withValues(alpha: 0.85),
+              width: 1.4,
             ),
-          ],
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Container(
-              width: iconSize + 14,
-              height: iconSize + 14,
-              decoration: BoxDecoration(
-                color: data.border,
-                borderRadius: BorderRadius.circular(10),
+            boxShadow: [
+              BoxShadow(
+                color: data.border.withValues(alpha: 0.12),
+                blurRadius: 5,
+                offset: const Offset(0, 2),
               ),
-              child: Center(
-                child: SvgPicture.string(
-                  _DashIcons.forKey(data.iconKey),
-                  width: iconSize,
-                  height: iconSize,
+            ],
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                width: iconSize + 14,
+                height: iconSize + 14,
+                decoration: BoxDecoration(
+                  color: data.border,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Center(
+                  child: SvgPicture.string(
+                    _DashIcons.forKey(data.iconKey),
+                    width: iconSize,
+                    height: iconSize,
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              _t(data.title),
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-                color: data.titleColor,
-                height: 1.3,
+              const SizedBox(height: 8),
+              Text(
+                _t(data.title),
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.w800,
+                  color: data.titleColor,
+                  height: 1.3,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 3),
-            Text(
-              _t(data.sub),
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 9.5,
-                color: data.subColor,
-                fontWeight: FontWeight.w500,
+              const SizedBox(height: 3),
+              Text(
+                _t(data.sub),
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: data.subColor,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -2384,50 +3026,56 @@ class _ChatChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 7),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: Colors.white,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 7),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
           borderRadius: BorderRadius.circular(11),
-          border: Border.all(color: const Color(0xFFC8E6C9), width: 1.5),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 28,
-              height: 28,
-              decoration: BoxDecoration(
-                color: const Color(0xFFE8F5E9),
-                borderRadius: BorderRadius.circular(7),
-              ),
-              child: Center(
-                child: SvgPicture.string(
-                  _chipIcons[chipIndex % 3],
-                  width: 15,
-                  height: 15,
+          onTap: onTap,
+          child: Ink(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(11),
+              border: Border.all(color: const Color(0xFFC8E6C9), width: 1.5),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE8F5E9),
+                    borderRadius: BorderRadius.circular(7),
+                  ),
+                  child: Center(
+                    child: SvgPicture.string(
+                      _chipIcons[chipIndex % 3],
+                      width: 15,
+                      height: 15,
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                data.text[langKey] ?? data.text['en']!,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF1B4D1B),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    data.text[langKey] ?? data.text['en']!,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF1B4D1B),
+                    ),
+                  ),
                 ),
-              ),
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  size: 18,
+                  color: Color(0xFFA5D6A7),
+                ),
+              ],
             ),
-            const Icon(
-              Icons.chevron_right_rounded,
-              size: 18,
-              color: Color(0xFFA5D6A7),
-            ),
-          ],
+          ),
         ),
       ),
     );

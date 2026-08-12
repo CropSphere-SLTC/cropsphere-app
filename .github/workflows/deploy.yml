@@ -1,13 +1,31 @@
 name: Deploy
 
+# Chained off CI Pipeline's own completion rather than push, so this cannot
+# start before CI has a verdict — push-triggered, the two ran concurrently
+# and a red CI run never stopped a deploy (branch protection on main was also
+# never configured, so nothing else was enforcing "only after CI passes"
+# either; that comment used to be aspirational, not real).
+#
+# workflow_run always reads its trigger definition from the DEFAULT branch,
+# so this only takes effect once this file itself is on main — the run that
+# merges it still deploys on the old push trigger underneath it.
 on:
-  push:
+  workflow_run:
+    workflows: ["CI Pipeline"]
+    types: [completed]
     branches: [main]
+  workflow_dispatch:    # manual redeploy, bypasses the CI gate deliberately
+
+permissions:
+  contents: read
+  actions: read    # workflow_run needs this to read the triggering run's info
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    # Only runs after CI passes — enforce this via branch protection rules on main
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
 
     steps:
       # No lfs: true needed — the model files are ordinary git blobs now, so a
@@ -16,6 +34,12 @@ jobs:
       # deploying mock predictions.
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # Pin the exact commit CI validated. Without this, checkout defaults
+          # to main's current tip — which may have moved again since the CI
+          # run this workflow is reacting to — and would deploy code nothing
+          # gated.
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
 
       # No docker build step here: `railway up` uploads the source and builds
       # remotely, so a local image would be thrown away. ci.yml already builds

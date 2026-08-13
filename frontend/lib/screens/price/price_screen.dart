@@ -20,6 +20,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../app_lang.dart';
 import '../../models/api_models.dart';
@@ -392,7 +393,14 @@ class PriceScreen extends StatefulWidget {
   State<PriceScreen> createState() => _PriceScreenState();
 }
 
-class _PriceScreenState extends State<PriceScreen> {
+class _PriceScreenState extends State<PriceScreen>
+    with SingleTickerProviderStateMixin {
+  // ── Section tabs: "Enter Details" and "Selling Tips" ───────────────────────
+  late final TabController _tabController = TabController(
+    length: 2,
+    vsync: this,
+  );
+
   // ── Selections ─────────────────────────────────────────────────────────────
   String? _selectedCrop;
   String? _selectedDistrict;
@@ -408,9 +416,6 @@ class _PriceScreenState extends State<PriceScreen> {
   bool _isLoading = false;
   PriceResponse? _result;
   String? _errorMessage;
-
-  // ── Tips expand ────────────────────────────────────────────────────────────
-  bool _tipsExpanded = false;
 
   // ── Derived ────────────────────────────────────────────────────────────────
   List<String> get _availableDistricts =>
@@ -442,6 +447,7 @@ class _PriceScreenState extends State<PriceScreen> {
 
   @override
   void dispose() {
+    _tabController.dispose();
     _qtyCtrl.dispose();
     super.dispose();
   }
@@ -576,13 +582,13 @@ class _PriceScreenState extends State<PriceScreen> {
         final w = bc.maxWidth;
         return Column(
           children: [
-            _buildTopBar(context),
+            _buildTopBar(context, w),
+            _buildSectionTabBar(w),
             Expanded(
-              child: w >= 960
-                  ? _buildWebLayout()
-                  : w >= 600
-                  ? _buildTabletLayout()
-                  : _buildMobileLayout(),
+              child: TabBarView(
+                controller: _tabController,
+                children: [_buildDetailsTab(w), _buildTipsTab(w)],
+              ),
             ),
           ],
         );
@@ -590,8 +596,276 @@ class _PriceScreenState extends State<PriceScreen> {
     );
   }
 
+  // ── Section tabs — "Enter Details" and "Selling Tips" live side by side ───
+  //    so the long tips list doesn't force extra scrolling in the main form.
+  Widget _buildSectionTabBar(double width) {
+    final compact = width < 380;
+    return Container(
+      color: Colors.white,
+      child: TabBar(
+        controller: _tabController,
+        labelColor: const Color(0xFFBF360C),
+        unselectedLabelColor: AppTheme.textMuted,
+        indicatorColor: const Color(0xFFE65100),
+        indicatorWeight: 3,
+        labelStyle: TextStyle(
+          fontSize: compact ? 12 : 13.5,
+          fontWeight: FontWeight.w700,
+        ),
+        unselectedLabelStyle: TextStyle(
+          fontSize: compact ? 12 : 13.5,
+          fontWeight: FontWeight.w600,
+        ),
+        tabs: [
+          Tab(
+            height: 44,
+            icon: const Icon(Icons.edit_note_rounded, size: 18),
+            iconMargin: const EdgeInsets.only(bottom: 2),
+            text: _t({
+              'en': 'Enter Details',
+              'si': 'විස්තර ඇතුළත් කරන්න',
+              'ta': 'விவரங்களை உள்ளிடவும்',
+            }),
+          ),
+          Tab(
+            height: 44,
+            icon: const Icon(Icons.tips_and_updates_outlined, size: 18),
+            iconMargin: const EdgeInsets.only(bottom: 2),
+            // Slightly bolder so this tab stands out.
+            child: Text(
+              _t({
+                'en': 'Selling Tips',
+                'si': 'විකිණීමේ ඉඟි',
+                'ta': 'விற்பனை குறிப்புகள்',
+              }),
+              style: const TextStyle(fontWeight: FontWeight.w900),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Details tab — resizes for mobile / tablet / web ────────────────────────
+  Widget _buildDetailsTab(double width) {
+    if (width >= 960) return _buildWebDetails(width);
+    if (width >= 600) return _buildTabletDetails(width);
+    return _buildMobileDetails(width);
+  }
+
+  Widget _buildMobileDetails(double width) {
+    final bool isSmall = width < 340;
+    final double hPad = isSmall ? 12 : 14;
+    return Stack(
+      children: [
+        SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(hPad, 14, hPad, 100),
+          child: _formColumn(),
+        ),
+        _stickyPredict(),
+      ],
+    );
+  }
+
+  // 600–960dp portrait/landscape tablets: content width and side padding
+  // scale with the real viewport instead of one fixed max-width.
+  Widget _buildTabletDetails(double width) {
+    final targetContentW = width < 760 ? width - 32 : 680.0;
+    final hPad = ((width - targetContentW) / 2).clamp(16.0, 220.0);
+    return Stack(
+      children: [
+        SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(hPad, 14, hPad, 100),
+          child: _formColumn(),
+        ),
+        _stickyPredict(),
+      ],
+    );
+  }
+
+  // Web (≥960dp): form on the left, checklist/result on the right — with
+  // Selling Tips now living in its own tab, this left column is short
+  // enough that it fits without scrolling on most desktop viewports.
+  Widget _buildWebDetails(double width) {
+    final leftW = (width * 0.4).clamp(340.0, 480.0);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          width: leftW,
+          child: Stack(
+            children: [
+              SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 16, 12, 100),
+                child: _formColumn(webLeft: true),
+              ),
+              _stickyPredict(),
+            ],
+          ),
+        ),
+        Container(width: 1, color: const Color(0xFFE4EEE4)),
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 20, 28),
+            child: _rightPanel(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Selling Tips tab — its own scroll area, always expanded here ──────────
+  Widget _buildTipsTab(double width) {
+    final bool isWeb = width >= 960;
+    final double maxW = isWeb ? 760 : double.infinity;
+    final double hPad = isWeb
+        ? ((width - maxW) / 2).clamp(16.0, 400.0)
+        : (width < 340 ? 12.0 : (width < 600 ? 16.0 : 24.0));
+    return SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 28),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxW),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(
+                  Icons.tips_and_updates,
+                  size: 18,
+                  color: Color(0xFFBF360C),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _t({
+                      'en': 'Selling Tips',
+                      'si': 'විකිණීමේ ඉඟි',
+                      'ta': 'விற்பனை குறிப்புகள்',
+                    }),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFFBF360C),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ..._kMarketTips.map(
+              (tip) => Container(
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.all(13),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: tip.color.withValues(alpha: 0.2)),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: tip.color.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                      child: Icon(tip.icon, size: 18, color: tip.color),
+                    ),
+                    const SizedBox(width: 11),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _t(tip.title),
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: tip.color,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            _t(tip.text),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.textSecondary,
+                              height: 1.45,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ── Top bar ────────────────────────────────────────────────────────────────
-  Widget _buildTopBar(BuildContext context) {
+  Widget _buildTopBar(BuildContext context, double width) {
+    if (width < 600) return _buildMobileTopBar(width);
+    return _buildFullTopBar(context);
+  }
+
+  // ── Mobile top bar — logo + language pill + profile avatar only. ──────────
+  //    Nav labels (Dashboard/Yield/Price/Weather/Crop Rec./Demand/AI Chat)
+  //    are dropped here — there's no room, and navigation on mobile happens
+  //    through the dashboard's own action grid instead.
+  Widget _buildMobileTopBar(double width) {
+    final bool isSmall = width < 340;
+    return Container(
+      height: 56,
+      padding: EdgeInsets.symmetric(horizontal: isSmall ? 10 : 14),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: Color(0xFFE4EEE4))),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: isSmall ? 34 : 38,
+            height: isSmall ? 34 : 38,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: const Color(0xFF4CAF50).withValues(alpha: 0.15),
+            ),
+            child: Center(
+              child: SvgPicture.string(
+                _cropSphereSvg,
+                width: isSmall ? 22 : 26,
+                height: isSmall ? 22 : 26,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            'CropSphere',
+            style: TextStyle(
+              color: const Color(0xFF1B4D1B),
+              fontSize: isSmall ? 14.5 : 16,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.2,
+            ),
+          ),
+          const Spacer(),
+          const _LangPill(),
+          const SizedBox(width: 8),
+          _ProfileAvatar(onTap: () => widget.onNavigate?.call(0)),
+        ],
+      ),
+    );
+  }
+
+  // ── Tablet/web top bar — logo + nav labels + language pill + avatar. ──────
+  Widget _buildFullTopBar(BuildContext context) {
     final lang = AppLangProvider.lang(context);
     final List<String> navLabels = lang == AppLang.si
         ? ['ඩෑෂ්', 'අස්වැන්න', 'මිල', 'කාලගුණ', 'භෝග', 'ඉල්ලුම', 'AI']
@@ -695,68 +969,16 @@ class _PriceScreenState extends State<PriceScreen> {
             ),
           ),
           const _LangPill(),
+          const SizedBox(width: 8),
+          _ProfileAvatar(onTap: () => widget.onNavigate?.call(0)),
         ],
       ),
     );
   }
 
-  // ── Layout helpers ─────────────────────────────────────────────────────────
-  Widget _buildMobileLayout() => Stack(
-    children: [
-      SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
-        child: _formColumn(),
-      ),
-      _stickyPredict(),
-    ],
-  );
-
-  Widget _buildTabletLayout() => Stack(
-    children: [
-      LayoutBuilder(
-        builder: (ctx, bc) {
-          final hPad = ((bc.maxWidth - 700) / 2).clamp(0.0, 200.0);
-          return SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(hPad + 16, 14, hPad + 16, 100),
-            child: _formColumn(),
-          );
-        },
-      ),
-      _stickyPredict(),
-    ],
-  );
-
-  Widget _buildWebLayout() => LayoutBuilder(
-    builder: (ctx, bc) {
-      final leftW = (bc.maxWidth * 0.42).clamp(340.0, 480.0);
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SizedBox(
-            width: leftW,
-            child: Stack(
-              children: [
-                SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(20, 14, 12, 100),
-                  child: _formColumn(webLeft: true),
-                ),
-                _stickyPredict(),
-              ],
-            ),
-          ),
-          Container(width: 1, color: const Color(0xFFE4EEE4)),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 14, 20, 28),
-              child: _rightPanel(),
-            ),
-          ),
-        ],
-      );
-    },
-  );
-
-  // ── Form column ────────────────────────────────────────────────────────────
+  // ── Form column — Crop/Location, Market Conditions, Quantity only; ────────
+  //    Selling Tips now lives in its own tab, which is what keeps this
+  //    column short enough to fit without a forced scroll on web/tablet.
   Widget _formColumn({bool webLeft = false}) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
@@ -796,17 +1018,6 @@ class _PriceScreenState extends State<PriceScreen> {
       ),
       const SizedBox(height: 10),
       _quantityCard(),
-      const SizedBox(height: 20),
-      _sectionTitle(
-        _t({
-          'en': 'Selling Tips',
-          'si': 'විකිණීමේ ඉඟි',
-          'ta': 'விற்பனை குறிப்புகள்',
-        }),
-        Icons.tips_and_updates,
-      ),
-      const SizedBox(height: 10),
-      _tipsCard(),
       if (!webLeft) ...[
         const SizedBox(height: 16),
         _inputChecklist(),
@@ -1315,118 +1526,40 @@ class _PriceScreenState extends State<PriceScreen> {
                   ),
                 ),
               ),
+              if (_result != null) ...[
+                const SizedBox(height: 6),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.bolt_rounded,
+                      size: 13,
+                      color: Colors.grey.shade500,
+                    ),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        _t({
+                          'en':
+                              'Estimated revenue updates instantly as you change this — the price itself only changes when you tap Predict again.',
+                          'si':
+                              'මෙය වෙනස් කරන විට ඇස්තමේන්තුගත ආදායම වහාම යාවත්කාලීන වේ — මිල වෙනස් වන්නේ ඔබ නැවත Predict ඔබන විට පමණි.',
+                          'ta':
+                              'இதை மாற்றும்போது மதிப்பிடப்பட்ட வருமானம் உடனடியாக புதுப்பிக்கப்படும் — நீங்கள் மீண்டும் Predict அழுத்தும்போது மட்டுமே விலை மாறும்.',
+                        }),
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.grey.shade500,
+                          height: 1.35,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
-      ],
-    ),
-  );
-
-  // ── Selling tips card ──────────────────────────────────────────────────────
-  Widget _tipsCard() => Container(
-    decoration: BoxDecoration(
-      border: Border.all(color: const Color(0xFFFFD9A8)),
-      borderRadius: BorderRadius.circular(12),
-      color: const Color(0xFFFFF8E1).withValues(alpha: 0.4),
-    ),
-    child: Column(
-      children: [
-        InkWell(
-          onTap: () => setState(() => _tipsExpanded = !_tipsExpanded),
-          borderRadius: BorderRadius.circular(12),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.tips_and_updates,
-                  size: 18,
-                  color: Color(0xFFE65100),
-                ),
-                const SizedBox(width: 9),
-                Expanded(
-                  child: Text(
-                    _t({
-                      'en': 'General tips to get a better price',
-                      'si': 'හොඳ මිලක් ලබා ගැනීමට ඉඟි',
-                      'ta': 'சிறந்த விலை பெற பொதுவான குறிப்புகள்',
-                    }),
-                    style: const TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFFE65100),
-                    ),
-                  ),
-                ),
-                Icon(
-                  _tipsExpanded ? Icons.expand_less : Icons.expand_more,
-                  size: 18,
-                  color: const Color(0xFFE65100),
-                ),
-              ],
-            ),
-          ),
-        ),
-        if (_tipsExpanded)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-            child: Column(
-              children: _kMarketTips
-                  .map(
-                    (tip) => Container(
-                      margin: const EdgeInsets.only(top: 8),
-                      padding: const EdgeInsets.all(11),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: tip.color.withValues(alpha: 0.2),
-                        ),
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            width: 30,
-                            height: 30,
-                            decoration: BoxDecoration(
-                              color: tip.color.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Icon(tip.icon, size: 15, color: tip.color),
-                          ),
-                          const SizedBox(width: 9),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _t(tip.title),
-                                  style: TextStyle(
-                                    fontSize: 11.5,
-                                    fontWeight: FontWeight.w800,
-                                    color: tip.color,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  _t(tip.text),
-                                  style: const TextStyle(
-                                    fontSize: 11,
-                                    color: AppTheme.textSecondary,
-                                    height: 1.4,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  )
-                  .toList(),
-            ),
-          ),
       ],
     ),
   );
@@ -2227,6 +2360,63 @@ class _LangPill extends StatelessWidget {
             ),
           );
         }).toList(),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Profile avatar — photo if available, otherwise a colored initial.
+//  Tapping navigates to the Dashboard tab, where the full profile sheet lives.
+// ─────────────────────────────────────────────────────────────────────────────
+class _ProfileAvatar extends StatelessWidget {
+  final VoidCallback onTap;
+  final double size;
+  const _ProfileAvatar({required this.onTap, this.size = 34});
+
+  @override
+  Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+    final photo = user?.photoURL;
+    String initial = 'U';
+    final dn = user?.displayName;
+    final em = user?.email;
+    if (dn != null && dn.trim().isNotEmpty) {
+      initial = dn.trim()[0].toUpperCase();
+    } else if (em != null && em.trim().isNotEmpty) {
+      initial = em.trim()[0].toUpperCase();
+    }
+
+    return Material(
+      color: Colors.transparent,
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: const Color(0xFF1B5E20),
+            image: (photo != null && photo.isNotEmpty)
+                ? DecorationImage(image: NetworkImage(photo), fit: BoxFit.cover)
+                : null,
+            border: Border.all(color: const Color(0xFFE4EEE4), width: 1.2),
+          ),
+          child: (photo == null || photo.isEmpty)
+              ? Center(
+                  child: Text(
+                    initial,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: size * 0.42,
+                    ),
+                  ),
+                )
+              : null,
+        ),
       ),
     );
   }

@@ -14,7 +14,16 @@ import '../../models/chat_history_models.dart';
 import '../../widgets/app_theme.dart';
 
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key});
+  /// Lets the shared top nav bar switch to another tab (Dashboard, Yield,
+  /// Price, Weather, Crop Rec., Demand, AI Chat) — same contract as the
+  /// other screens' `onNavigate`.
+  final ValueChanged<int>? onNavigate;
+
+  /// The signed-in farmer's email, shown as an initial on the profile
+  /// avatar next to the nav bar. Optional — falls back to a generic icon.
+  final String? userEmail;
+
+  const ChatScreen({super.key, this.onNavigate, this.userEmail});
   @override
   State<ChatScreen> createState() => _ChatScreenState();
 }
@@ -540,25 +549,145 @@ class _ChatScreenState extends State<ChatScreen> {
       key: _scaffoldKey,
       backgroundColor: AppTheme.background,
       drawer: isWide ? null : Drawer(child: SafeArea(child: _buildSidebar())),
-      body: isWide
-          ? Row(
-              children: [
-                SizedBox(
-                  width: 280,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      border: Border(
-                        right: BorderSide(color: Colors.grey[300]!),
+      body: Column(
+        children: [
+          _buildAppNavBar(context),
+          Expanded(
+            child: isWide
+                ? Row(
+                    children: [
+                      SizedBox(
+                        width: 280,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            border: Border(
+                              right: BorderSide(color: Colors.grey[300]!),
+                            ),
+                          ),
+                          child: _buildSidebar(),
+                        ),
+                      ),
+                      Expanded(child: chatArea),
+                    ],
+                  )
+                : chatArea,
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Shared app-wide top nav bar ─────────────────────────────────────────
+  // Matches the nav bar used on Dashboard/Yield/Price/Weather/Crop Rec./
+  // Demand: logo + nav labels (hidden on mobile <600px, per the same pattern
+  // already applied elsewhere) + profile avatar. No language pill here —
+  // the chat already handles language automatically per-message.
+  Widget _buildAppNavBar(BuildContext context) {
+    const navLabels = [
+      'Dashboard',
+      'Yield',
+      'Price',
+      'Weather',
+      'Crop Rec.',
+      'Demand',
+      'AI Chat',
+    ];
+    const activeBg = Color(0xFFECEFF1);
+    const activeColor = Color(0xFF37474F);
+    const activeIndex = 6; // AI Chat
+
+    return Container(
+      height: 60,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: Color(0xFFE4EEE4))),
+        boxShadow: [
+          BoxShadow(
+            color: Color(0x0A000000),
+            blurRadius: 6,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      child: LayoutBuilder(
+        builder: (ctx, bc) {
+          // Below 600px (mobile) the text nav labels are dropped entirely —
+          // just logo + profile avatar remain. Tablet/web (>=600px) keep
+          // the full nav bar. Same exact pattern as Demand/Recommend.
+          final isMobile = bc.maxWidth < 600;
+          return Row(
+            children: [
+              _logo(36),
+              const SizedBox(width: 10),
+              const Text(
+                'CropSphere',
+                style: TextStyle(
+                  color: Color(0xFF1B4D1B),
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.3,
+                ),
+              ),
+              if (!isMobile)
+                Expanded(
+                  child: Center(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: List.generate(navLabels.length, (i) {
+                          final active = i == activeIndex;
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 2),
+                            child: TextButton(
+                              onPressed: widget.onNavigate == null
+                                  ? null
+                                  : () => widget.onNavigate!(i),
+                              style: TextButton.styleFrom(
+                                backgroundColor: active
+                                    ? activeBg
+                                    : Colors.transparent,
+                                foregroundColor: active
+                                    ? activeColor
+                                    : const Color(0xFF555555),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 11,
+                                  vertical: 6,
+                                ),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                              child: Text(
+                                navLabels[i],
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: active
+                                      ? FontWeight.w700
+                                      : FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          );
+                        }),
                       ),
                     ),
-                    child: _buildSidebar(),
                   ),
                 ),
-                Expanded(child: chatArea),
-              ],
-            )
-          : chatArea,
+              if (isMobile) const Spacer(),
+              const SizedBox(width: 8),
+              _ProfileAvatar(
+                email: widget.userEmail,
+                onTap: () => widget.onNavigate?.call(0), // Dashboard
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 
@@ -1604,6 +1733,56 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         )
         .toList();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Profile avatar (matches other screens) — shows the farmer's email initial
+//  when available, otherwise a generic profile icon. ChatScreen has no
+//  profile sheet of its own, so tapping it navigates to Dashboard.
+// ─────────────────────────────────────────────────────────────────────────────
+class _ProfileAvatar extends StatelessWidget {
+  final String? email;
+  final VoidCallback? onTap;
+  const _ProfileAvatar({this.email, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final trimmed = email?.trim();
+    final hasEmail = trimmed != null && trimmed.isNotEmpty;
+    final initial = hasEmail ? trimmed[0].toUpperCase() : null;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Tooltip(
+        message: hasEmail ? trimmed : '',
+        child: Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: const Color(0xFF37474F).withValues(alpha: 0.12),
+            border: Border.all(color: const Color(0xFF37474F), width: 1.2),
+          ),
+          child: Center(
+            child: initial != null
+                ? Text(
+                    initial,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF37474F),
+                    ),
+                  )
+                : const Icon(
+                    Icons.person_rounded,
+                    size: 19,
+                    color: Color(0xFF37474F),
+                  ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

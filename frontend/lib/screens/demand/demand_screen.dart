@@ -198,7 +198,17 @@ class DemandScreen extends StatefulWidget {
   final ValueChanged<int>? onNavigate;
   final ValueChanged<String>? onAiChatContext;
 
-  const DemandScreen({super.key, this.onNavigate, this.onAiChatContext});
+  /// The signed-in farmer's email, used to personalise the profile avatar
+  /// next to the language pill (shows their initial). Optional — falls
+  /// back to a generic profile icon if not provided.
+  final String? userEmail;
+
+  const DemandScreen({
+    super.key,
+    this.onNavigate,
+    this.onAiChatContext,
+    this.userEmail,
+  });
 
   @override
   State<DemandScreen> createState() => _DemandScreenState();
@@ -206,15 +216,19 @@ class DemandScreen extends StatefulWidget {
 
 class _DemandScreenState extends State<DemandScreen> {
   // ── Selections ────────────────────────────────────────────────────────────
-  String _selectedCrop = 'Carrot';
-  String _selectedSeason = 'Maha';
-  late double _retailPrice = _crops[_selectedCrop]!.typicalPriceLkr;
+  // Nothing is pre-selected — the farmer must actively choose a Crop and
+  // Season themselves.
+  String? _selectedCrop;
+  String? _selectedSeason;
+  // Generic starting price until a crop is picked — then this updates to
+  // that crop's typical price automatically (still fully editable).
+  double _retailPrice = 150.0;
 
   // ── Advanced market data (hidden by default, sensible defaults) ──────────
   bool _marketDataOpen = false;
-  late double _demandLag1 = _crops[_selectedCrop]!.demandBaseline;
-  late double _demandLag2 = _crops[_selectedCrop]!.demandBaseline - 3;
-  late double _demandLag4 = _crops[_selectedCrop]!.demandBaseline - 6;
+  double _demandLag1 = 65.0;
+  double _demandLag2 = 62.0;
+  double _demandLag4 = 59.0;
   double _inflationIndex = 1.15;
   double _consumerPrefIndex = 60.0;
   double _searchTrendIndex = 50.0;
@@ -226,6 +240,19 @@ class _DemandScreenState extends State<DemandScreen> {
   DemandResponse? _result;
   String? _errorMessage;
 
+  // Retail price is entered as exact text (no artificial ceiling) rather
+  // than a capped slider — real market prices can go well past what any
+  // fixed slider maximum would allow.
+  final TextEditingController _priceController = TextEditingController(
+    text: '150',
+  );
+
+  @override
+  void dispose() {
+    _priceController.dispose();
+    super.dispose();
+  }
+
   String get _langKey {
     final l = AppLangProvider.lang(context);
     if (l == AppLang.si) return 'si';
@@ -234,8 +261,18 @@ class _DemandScreenState extends State<DemandScreen> {
   }
 
   String _t(_L m) => m[_langKey] ?? m['en']!;
-  String _cropLabel(String key) => _t(_crops[key]?.name ?? {'en': key});
-  String _seasonLabel(String key) {
+
+  String get _notSelectedLabel => _t({
+    'en': 'not selected yet',
+    'si': 'තවම තෝරා නැත',
+    'ta': 'இன்னும் தேர்ந்தெடுக்கப்படவில்லை',
+  });
+
+  String _cropLabel(String? key) =>
+      key == null ? _notSelectedLabel : _t(_crops[key]?.name ?? {'en': key});
+
+  String _seasonLabel(String? key) {
+    if (key == null) return _notSelectedLabel;
     final s = _seasons.firstWhere(
       (s) => s['name']!['en'] == key,
       orElse: () => {
@@ -245,15 +282,85 @@ class _DemandScreenState extends State<DemandScreen> {
     return _t(s['name']!);
   }
 
+  // ── Meaningful labels for the "I have real market data" sliders ─────────
+  // These replace raw, meaningless numbers (e.g. "87", "1.15") with bands a
+  // farmer can actually interpret at a glance — same pattern as the Soil
+  // N/P/K fertility ratings on the Recommend screen.
+  String _demandLevelLabel(double v) {
+    if (v < 35) {
+      return _t({'en': 'Very Low', 'si': 'ඉතා අඩු', 'ta': 'மிகக் குறைவு'});
+    } else if (v < 60) {
+      return _t({'en': 'Low', 'si': 'අඩු', 'ta': 'குறைவு'});
+    } else if (v < 90) {
+      return _t({'en': 'Moderate', 'si': 'මධ්‍යම', 'ta': 'மிதமான'});
+    } else if (v < 120) {
+      return _t({'en': 'High', 'si': 'ඉහළ', 'ta': 'அதிகம்'});
+    }
+    return _t({'en': 'Very High', 'si': 'ඉතා ඉහළ', 'ta': 'மிக அதிகம்'});
+  }
+
+  /// Inflation Index shown as a plain percentage change from normal
+  /// (index 1.0 = 0%) plus a direction word, instead of a raw "1.15".
+  String _inflationLevelLabel(double v) {
+    final pct = ((v - 1) * 100).round();
+    final sign = pct >= 0 ? '+' : '';
+    final String word;
+    if (pct <= -15) {
+      word = _t({
+        'en': 'Falling Fast',
+        'si': 'ඉක්මනින් අඩුවෙයි',
+        'ta': 'வேகமாக குறைகிறது',
+      });
+    } else if (pct < 0) {
+      word = _t({'en': 'Falling', 'si': 'අඩුවෙයි', 'ta': 'குறைகிறது'});
+    } else if (pct < 10) {
+      word = _t({'en': 'Stable', 'si': 'ස්ථාවර', 'ta': 'நிலையானது'});
+    } else if (pct < 30) {
+      word = _t({'en': 'Rising', 'si': 'ඉහළ යයි', 'ta': 'உயர்கிறது'});
+    } else {
+      word = _t({
+        'en': 'Rising Fast',
+        'si': 'ඉක්මනින් ඉහළ යයි',
+        'ta': 'வேகமாக உயர்கிறது',
+      });
+    }
+    return '$sign$pct% · $word';
+  }
+
+  String _interestLevelLabel(double v) {
+    if (v < 25) {
+      return _t({'en': 'Low', 'si': 'අඩු', 'ta': 'குறைவு'});
+    } else if (v < 50) {
+      return _t({'en': 'Moderate', 'si': 'මධ්‍යම', 'ta': 'மிதமான'});
+    } else if (v < 75) {
+      return _t({'en': 'High', 'si': 'ඉහළ', 'ta': 'அதிகம்'});
+    }
+    return _t({'en': 'Very High', 'si': 'ඉතා ඉහළ', 'ta': 'மிக அதிகம்'});
+  }
+
   void _applyCropDefaults(String crop) {
     final info = _crops[crop]!;
     _retailPrice = info.typicalPriceLkr;
+    _priceController.text = info.typicalPriceLkr.toStringAsFixed(0);
     _demandLag1 = info.demandBaseline;
     _demandLag2 = info.demandBaseline - 3;
     _demandLag4 = info.demandBaseline - 6;
   }
 
   Future<void> _predict() async {
+    // Crop and Season are required — nothing is pre-selected, so make sure
+    // the farmer actually picked both before calling the API.
+    if (_selectedCrop == null || _selectedSeason == null) {
+      setState(() {
+        _result = null;
+        _errorMessage = _t({
+          'en': 'Please select a Crop and Season first.',
+          'si': 'කරුණාකර පළමුව භෝගයක් සහ කන්නයක් තෝරන්න.',
+          'ta': 'முதலில் ஒரு பயிரையும் பருவத்தையும் தேர்ந்தெடுக்கவும்.',
+        });
+      });
+      return;
+    }
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -263,8 +370,8 @@ class _DemandScreenState extends State<DemandScreen> {
       final service = ServiceFactory.getService();
       final response = await service.predictDemand(
         DemandRequest(
-          crop: _selectedCrop,
-          season: _selectedSeason,
+          crop: _selectedCrop!,
+          season: _selectedSeason!,
           weekOfYear: _weekOfYear(),
           demandLag1: _demandLag1,
           demandLag2: _demandLag2,
@@ -346,42 +453,60 @@ class _DemandScreenState extends State<DemandScreen> {
     AppLangProvider.of(context);
     return Container(
       color: AppTheme.background,
-      child: LayoutBuilder(
-        builder: (ctx, bc) {
-          final w = bc.maxWidth;
-          return Column(
-            children: [
-              _buildTopBar(context),
-              Expanded(
-                child: w >= 960
-                    ? _buildWebLayout()
-                    : w >= 600
-                    ? _buildCenteredScroll(700)
-                    : _buildCenteredScroll(null),
-              ),
-            ],
-          );
-        },
+      child: Column(
+        children: [
+          _buildTopBar(context),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (ctx, bc) {
+                final w = bc.maxWidth;
+                final isWeb = w >= 960;
+                // Mobile/tablet: single stacked column (unchanged).
+                // Web: compact 2-column grid so every input fits without
+                // scrolling — see _formColumn.
+                final maxW = isWeb ? 1000.0 : (w >= 600 ? 700.0 : null);
+                return _buildBody(maxW, isWeb);
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildCenteredScroll(double? maxW) => Stack(
-    children: [
-      LayoutBuilder(
+  // ── Mobile/tablet: single stacked column with a sticky bottom button.
+  //    Web: compact 2-column grid (see _formColumn), button sits inline. ────
+  Widget _buildBody(double? maxW, bool isWeb) {
+    if (isWeb) {
+      return LayoutBuilder(
         builder: (ctx, bc) {
           final hPad = maxW == null
               ? 14.0
-              : ((bc.maxWidth - maxW) / 2).clamp(14.0, 200.0);
+              : ((bc.maxWidth - maxW) / 2).clamp(14.0, 120.0);
           return SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(hPad, 14, hPad, 100),
-            child: _formColumn(),
+            padding: EdgeInsets.fromLTRB(hPad, 14, hPad, 24),
+            child: _formColumn(isWeb: true),
           );
         },
-      ),
-      _stickyPredictButton(),
-    ],
-  );
+      );
+    }
+    return Stack(
+      children: [
+        LayoutBuilder(
+          builder: (ctx, bc) {
+            final hPad = maxW == null
+                ? 14.0
+                : ((bc.maxWidth - maxW) / 2).clamp(14.0, 200.0);
+            return SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(hPad, 14, hPad, 100),
+              child: _formColumn(isWeb: false),
+            );
+          },
+        ),
+        _stickyPredictButton(),
+      ],
+    );
+  }
 
   Widget _stickyPredictButton() => Positioned(
     bottom: 0,
@@ -403,96 +528,156 @@ class _DemandScreenState extends State<DemandScreen> {
     ),
   );
 
-  Widget _buildWebLayout() => LayoutBuilder(
-    builder: (ctx, bc) {
-      final leftW = (bc.maxWidth * 0.45).clamp(340.0, 520.0);
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+  Widget _formColumn({required bool isWeb}) {
+    final cropBlock = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(
+          _t({'en': 'Crop', 'si': 'භෝගය', 'ta': 'பயிர்'}),
+          Icons.eco,
+        ),
+        const SizedBox(height: 10),
+        _cropChips(),
+      ],
+    );
+
+    final seasonBlock = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(
+          _t({'en': 'Season', 'si': 'කන්නය', 'ta': 'பருவம்'}),
+          Icons.calendar_month,
+        ),
+        const SizedBox(height: 10),
+        _seasonChips(),
+      ],
+    );
+
+    final priceBlock = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(
+          _t({
+            'en': 'Today\'s Market Price',
+            'si': 'අද වෙළඳපොළ මිල',
+            'ta': 'இன்றைய சந்தை விலை',
+          }),
+          Icons.payments,
+        ),
+        const SizedBox(height: 10),
+        _priceCard(),
+      ],
+    );
+
+    final flagsBlock = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(
+          _t({
+            'en': 'Holidays & Festivals',
+            'si': 'නිවාඩු හා උත්සව',
+            'ta': 'விடுமுறைகள் & திருவிழாக்கள்',
+          }),
+          Icons.celebration,
+        ),
+        const SizedBox(height: 10),
+        _flagsCard(),
+      ],
+    );
+
+    final marketDataBlock = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(
+          _t({'en': 'Market Data', 'si': 'වෙළඳපොළ දත්ත', 'ta': 'சந்தைத் தரவு'}),
+          Icons.insights,
+        ),
+        const SizedBox(height: 10),
+        _marketDataCard(),
+      ],
+    );
+
+    // ── Mobile / tablet: unchanged single-column stack ─────────────────────
+    if (!isWeb) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: leftW,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 14, 12, 28),
-              child: _formColumn(webLeft: true),
-            ),
-          ),
-          Container(width: 1, color: const Color(0xFFE4EEE4)),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 14, 20, 28),
-              child: _rightPanel(),
-            ),
-          ),
+          _pageHeader(),
+          const SizedBox(height: 16),
+          cropBlock,
+          const SizedBox(height: 20),
+          seasonBlock,
+          const SizedBox(height: 20),
+          priceBlock,
+          const SizedBox(height: 20),
+          flagsBlock,
+          const SizedBox(height: 20),
+          marketDataBlock,
+          const SizedBox(height: 20),
+          if (_errorMessage != null) _errorCard(),
+          if (_result != null) _resultCard(),
+          if (_result == null && _errorMessage == null && !_isLoading)
+            _emptyPlaceholder(),
         ],
       );
-    },
-  );
+    }
 
-  Widget _formColumn({bool webLeft = false}) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      _pageHeader(),
-      const SizedBox(height: 16),
-      _sectionTitle(_t({'en': 'Crop', 'si': 'භෝගය', 'ta': 'பயிர்'}), Icons.eco),
-      const SizedBox(height: 10),
-      _cropChips(),
-      const SizedBox(height: 20),
-      _sectionTitle(
-        _t({'en': 'Season', 'si': 'කන්නය', 'ta': 'பருவம்'}),
-        Icons.calendar_month,
-      ),
-      const SizedBox(height: 10),
-      _seasonChips(),
-      const SizedBox(height: 20),
-      _sectionTitle(
-        _t({
-          'en': 'Today\'s Market Price',
-          'si': 'අද වෙළඳපොළ මිල',
-          'ta': 'இன்றைய சந்தை விலை',
-        }),
-        Icons.payments,
-      ),
-      const SizedBox(height: 10),
-      _priceCard(),
-      const SizedBox(height: 20),
-      _sectionTitle(
-        _t({
-          'en': 'Holidays & Festivals',
-          'si': 'නිවාඩු හා උත්සව',
-          'ta': 'விடுமுறைகள் & திருவிழாக்கள்',
-        }),
-        Icons.celebration,
-      ),
-      const SizedBox(height: 10),
-      _flagsCard(),
-      const SizedBox(height: 20),
-      _sectionTitle(
-        _t({'en': 'Market Data', 'si': 'වෙළඳපොළ දත්ත', 'ta': 'சந்தைத் தரவு'}),
-        Icons.insights,
-      ),
-      const SizedBox(height: 10),
-      _marketDataCard(),
-      const SizedBox(height: 20),
-      if (webLeft) _predictButton(),
-      if (!webLeft) ...[
-        const SizedBox(height: 20),
+    // ── Web: compact 2-column grid so every input is visible without
+    //    scrolling — Crop+Season+Price on the left, Holidays/Festivals +
+    //    Market Data + the button/result on the right. No IntrinsicHeight
+    //    is used anywhere here. ─────────────────────────────────────────────
+    final resultBlock = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _predictButton(),
+        const SizedBox(height: 14),
         if (_errorMessage != null) _errorCard(),
         if (_result != null) _resultCard(),
         if (_result == null && _errorMessage == null && !_isLoading)
           _emptyPlaceholder(),
       ],
-    ],
-  );
+    );
 
-  Widget _rightPanel() => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      if (_errorMessage != null) ...[_errorCard(), const SizedBox(height: 14)],
-      if (_result != null) _resultCard(),
-      if (_result == null && _errorMessage == null && !_isLoading)
-        _emptyPlaceholder(),
-    ],
-  );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _pageHeader(),
+        const SizedBox(height: 14),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              flex: 5,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  cropBlock,
+                  const SizedBox(height: 14),
+                  seasonBlock,
+                  const SizedBox(height: 14),
+                  priceBlock,
+                ],
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              flex: 4,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  flagsBlock,
+                  const SizedBox(height: 14),
+                  marketDataBlock,
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        resultBlock,
+      ],
+    );
+  }
 
   // ── Top bar ────────────────────────────────────────────────────────────────
   Widget _buildTopBar(BuildContext context) {
@@ -529,78 +714,98 @@ class _DemandScreenState extends State<DemandScreen> {
         ],
       ),
       padding: const EdgeInsets.symmetric(horizontal: 14),
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: const Color(0xFF4CAF50).withValues(alpha: 0.15),
-            ),
-            child: Center(
-              child: SvgPicture.string(_cropSphereSvg, width: 32, height: 32),
-            ),
-          ),
-          const SizedBox(width: 10),
-          const Text(
-            'CropSphere',
-            style: TextStyle(
-              color: Color(0xFF1B4D1B),
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.3,
-            ),
-          ),
-          Expanded(
-            child: Center(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: List.generate(navLabels.length, (i) {
-                    final active = i == activeIndex;
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 2),
-                      child: TextButton(
-                        onPressed: widget.onNavigate == null
-                            ? null
-                            : () => widget.onNavigate!(i),
-                        style: TextButton.styleFrom(
-                          backgroundColor: active
-                              ? activeBg
-                              : Colors.transparent,
-                          foregroundColor: active
-                              ? activeColor
-                              : const Color(0xFF555555),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 11,
-                            vertical: 6,
-                          ),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        child: Text(
-                          navLabels[i],
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            fontWeight: active
-                                ? FontWeight.w700
-                                : FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                    );
-                  }),
+      child: LayoutBuilder(
+        builder: (ctx, bc) {
+          // Below 600px (mobile) the text nav labels are dropped entirely —
+          // just logo + language pill + profile avatar remain. Tablet/web
+          // (>=600px) keep the full nav bar.
+          final isMobile = bc.maxWidth < 600;
+          return Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: const Color(0xFF4CAF50).withValues(alpha: 0.15),
+                ),
+                child: Center(
+                  child: SvgPicture.string(
+                    _cropSphereSvg,
+                    width: 32,
+                    height: 32,
+                  ),
                 ),
               ),
-            ),
-          ),
-          const _LangPill(),
-        ],
+              const SizedBox(width: 10),
+              const Text(
+                'CropSphere',
+                style: TextStyle(
+                  color: Color(0xFF1B4D1B),
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.3,
+                ),
+              ),
+              if (!isMobile)
+                Expanded(
+                  child: Center(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: List.generate(navLabels.length, (i) {
+                          final active = i == activeIndex;
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 2),
+                            child: TextButton(
+                              onPressed: widget.onNavigate == null
+                                  ? null
+                                  : () => widget.onNavigate!(i),
+                              style: TextButton.styleFrom(
+                                backgroundColor: active
+                                    ? activeBg
+                                    : Colors.transparent,
+                                foregroundColor: active
+                                    ? activeColor
+                                    : const Color(0xFF555555),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 11,
+                                  vertical: 6,
+                                ),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                              child: Text(
+                                navLabels[i],
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: active
+                                      ? FontWeight.w700
+                                      : FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          );
+                        }),
+                      ),
+                    ),
+                  ),
+                ),
+              if (isMobile) const Spacer(),
+              const SizedBox(width: 8),
+              const _LangPill(),
+              const SizedBox(width: 8),
+              _ProfileAvatar(
+                email: widget.userEmail,
+                onTap: () => widget.onNavigate?.call(0), // Dashboard
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -788,31 +993,105 @@ class _DemandScreenState extends State<DemandScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _infoBox(
-          _t({
-            'en':
-                'Auto-filled with a typical price for ${_cropLabel(_selectedCrop)}. Adjust it if you know today\'s price at your local market.',
-            'si':
-                '${_cropLabel(_selectedCrop)} සඳහා සාමාන්‍ය මිලක් මෙහි ඇතුළත් කර ඇත. ඔබේ ප්‍රදේශයේ අද මිල දන්නේ නම් එය වෙනස් කරන්න.',
-            'ta':
-                '${_cropLabel(_selectedCrop)}-க்கான வழக்கமான விலை இங்கு பூர்த்தி செய்யப்பட்டுள்ளது. உங்கள் பகுதியில் இன்றைய விலை தெரிந்தால் அதை மாற்றவும்.',
-          }),
+          _selectedCrop == null
+              ? _t({
+                  'en':
+                      'Select a crop above, then enter today\'s market price. There is no upper limit — enter the exact price you\'ve seen at your local market.',
+                  'si':
+                      'ඉහත භෝගයක් තෝරන්න, පසුව අද වෙළඳපොළ මිල ඇතුළත් කරන්න. උපරිම සීමාවක් නැත — ඔබේ ප්‍රදේශයේ දුටු නිවැරදි මිල ඇතුළත් කරන්න.',
+                  'ta':
+                      'மேலே ஒரு பயிரைத் தேர்ந்தெடுக்கவும், பின்னர் இன்றைய சந்தை விலையை உள்ளிடவும். அதிகபட்ச வரம்பு இல்லை — உங்கள் பகுதியில் கண்ட சரியான விலையை உள்ளிடவும்.',
+                })
+              : _t({
+                  'en':
+                      'Auto-filled with a typical price for ${_cropLabel(_selectedCrop)}. Type in today\'s actual price at your local market — there is no upper limit.',
+                  'si':
+                      '${_cropLabel(_selectedCrop)} සඳහා සාමාන්‍ය මිලක් මෙහි ඇතුළත් කර ඇත. ඔබේ ප්‍රදේශයේ අද සැබෑ මිල ටයිප් කරන්න — උපරිම සීමාවක් නැත.',
+                  'ta':
+                      '${_cropLabel(_selectedCrop)}-க்கான வழக்கமான விலை இங்கு பூர்த்தி செய்யப்பட்டுள்ளது. உங்கள் பகுதியில் இன்றைய உண்மையான விலையை தட்டச்சு செய்யவும் — அதிகபட்ச வரம்பு இல்லை.',
+                }),
           color: AppTheme.info,
           icon: Icons.info_outline,
         ),
-        const SizedBox(height: 10),
-        _slider(
-          _t({
-            'en': 'Retail Price (LKR/kg)',
-            'si': 'සිල්ලර මිල (රු./kg)',
-            'ta': 'சில்லறை விலை (ரூ./kg)',
-          }),
-          _retailPrice,
-          20,
-          800,
-          '',
-          AppTheme.success,
-          (v) => setState(() => _retailPrice = v),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _priceController,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          style: const TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+            color: AppTheme.textPrimary,
+          ),
+          decoration: InputDecoration(
+            labelText: _t({
+              'en': 'Retail Price (LKR/kg)',
+              'si': 'සිල්ලර මිල (රු./kg)',
+              'ta': 'சில்லறை விலை (ரூ./kg)',
+            }),
+            prefixText: 'Rs. ',
+            prefixStyle: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              color: AppTheme.success,
+            ),
+            prefixIcon: const Icon(
+              Icons.payments_outlined,
+              color: AppTheme.success,
+            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 12,
+            ),
+          ),
+          onChanged: (text) {
+            final parsed = double.tryParse(text.trim());
+            if (parsed != null && parsed >= 0) {
+              setState(() {
+                _retailPrice = parsed;
+                _result = null;
+              });
+            }
+          },
         ),
+        if (_selectedCrop != null) ...[
+          const SizedBox(height: 8),
+          GestureDetector(
+            onTap: () => setState(() {
+              final typical = _crops[_selectedCrop]!.typicalPriceLkr;
+              _retailPrice = typical;
+              _priceController.text = typical.toStringAsFixed(0);
+              _result = null;
+            }),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.restore,
+                  size: 13,
+                  color: AppTheme.primaryDark,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  _t({
+                    'en':
+                        'Use typical price for ${_cropLabel(_selectedCrop)} (Rs. ${_crops[_selectedCrop]!.typicalPriceLkr.toStringAsFixed(0)})',
+                    'si':
+                        '${_cropLabel(_selectedCrop)} සඳහා සාමාන්‍ය මිල භාවිතා කරන්න (රු. ${_crops[_selectedCrop]!.typicalPriceLkr.toStringAsFixed(0)})',
+                    'ta':
+                        '${_cropLabel(_selectedCrop)}-க்கான வழக்கமான விலையைப் பயன்படுத்தவும் (ரூ. ${_crops[_selectedCrop]!.typicalPriceLkr.toStringAsFixed(0)})',
+                  }),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.primaryDark,
+                    decoration: TextDecoration.underline,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ],
     ),
   );
@@ -918,11 +1197,11 @@ class _DemandScreenState extends State<DemandScreen> {
           Text(
             _t({
               'en':
-                  'How much demand there was for this crop in recent weeks (0 = none, 100+ = very high)',
+                  'How strong demand was for this crop in recent weeks, on a Very Low → Very High scale.',
               'si':
-                  'මෑත සති කිහිපයේදී මෙම භෝගයට තිබූ ඉල්ලුම (0 = නැත, 100+ = ඉතා ඉහළ)',
+                  'මෑත සති කිහිපයේදී මෙම භෝගයට තිබූ ඉල්ලුම, ඉතා අඩු → ඉතා ඉහළ පරිමාණයෙන්.',
               'ta':
-                  'சமீபத்திய வாரங்களில் இந்த பயிருக்கு இருந்த தேவை (0 = இல்லை, 100+ = மிக அதிகம்)',
+                  'சமீபத்திய வாரங்களில் இந்த பயிருக்கு இருந்த தேவை, மிகக் குறைவு → மிக அதிகம் அளவில்.',
             }),
             style: const TextStyle(
               fontSize: 11,
@@ -939,6 +1218,8 @@ class _DemandScreenState extends State<DemandScreen> {
             '',
             Colors.purple,
             (v) => setState(() => _demandLag1 = v),
+            levelLabel: _demandLevelLabel,
+            divisions: 4,
           ),
           _slider(
             _t({
@@ -952,6 +1233,8 @@ class _DemandScreenState extends State<DemandScreen> {
             '',
             Colors.deepPurple,
             (v) => setState(() => _demandLag2 = v),
+            levelLabel: _demandLevelLabel,
+            divisions: 4,
           ),
           _slider(
             _t({
@@ -965,13 +1248,15 @@ class _DemandScreenState extends State<DemandScreen> {
             '',
             Colors.indigo,
             (v) => setState(() => _demandLag4 = v),
+            levelLabel: _demandLevelLabel,
+            divisions: 4,
           ),
           const SizedBox(height: 4),
           _slider(
             _t({
-              'en': 'Inflation Index',
-              'si': 'උද්ධමන දර්ශකය',
-              'ta': 'பணவீக்க குறியீடு',
+              'en': 'Price Trend (Inflation)',
+              'si': 'මිල ප්‍රවණතාව (උද්ධමනය)',
+              'ta': 'விலைப் போக்கு (பணவீக்கம்)',
             }),
             _inflationIndex,
             0.5,
@@ -979,6 +1264,15 @@ class _DemandScreenState extends State<DemandScreen> {
             '',
             Colors.red,
             (v) => setState(() => _inflationIndex = v),
+            levelLabel: _inflationLevelLabel,
+            helperText: _t({
+              'en':
+                  'Shown as % change from a normal market — e.g. "+15% · Rising" means prices are about 15% above usual.',
+              'si':
+                  'සාමාන්‍ය වෙළඳපොළට සාපේක්ෂව % වෙනස ලෙස පෙන්වයි — උදා: "+15% · ඉහළ යයි" යනු මිල සාමාන්‍යයට වඩා 15%ක් පමණ ඉහළ බවයි.',
+              'ta':
+                  'சாதாரண சந்தையிலிருந்து % மாற்றமாக காட்டப்படுகிறது — எ.கா. "+15% · உயர்கிறது" என்றால் விலை வழக்கத்தை விட சுமார் 15% அதிகம்.',
+            }),
           ),
           _slider(
             _t({
@@ -992,6 +1286,16 @@ class _DemandScreenState extends State<DemandScreen> {
             '',
             Colors.teal,
             (v) => setState(() => _consumerPrefIndex = v),
+            levelLabel: _interestLevelLabel,
+            divisions: 3,
+            helperText: _t({
+              'en':
+                  'How eager buyers/traders seem to be for this crop right now.',
+              'si':
+                  'මේ මොහොතේ ගැනුම්කරුවන්/වෙළෙන්දන් මෙම භෝගය සඳහා පෙන්වන උනන්දුව.',
+              'ta':
+                  'இப்போது வாங்குபவர்கள்/வர்த்தகர்கள் இந்த பயிருக்கு காட்டும் ஆர்வம்.',
+            }),
           ),
           _slider(
             _t({
@@ -1005,6 +1309,15 @@ class _DemandScreenState extends State<DemandScreen> {
             '',
             Colors.blueGrey,
             (v) => setState(() => _searchTrendIndex = v),
+            levelLabel: _interestLevelLabel,
+            divisions: 3,
+            helperText: _t({
+              'en':
+                  'How often people have been searching/asking about this crop online lately.',
+              'si': 'මෑතකදී අන්තර්ජාලයේ මෙම භෝගය ගැන කොපමණ නිතර සොයා ඇත්දැයි.',
+              'ta':
+                  'சமீபத்தில் மக்கள் இணையத்தில் இந்த பயிரை எவ்வளவு அடிக்கடி தேடியுள்ளனர்.',
+            }),
           ),
         ],
       ],
@@ -1391,8 +1704,11 @@ class _DemandScreenState extends State<DemandScreen> {
     double max,
     String unit,
     Color color,
-    ValueChanged<double> onChanged,
-  ) => Padding(
+    ValueChanged<double> onChanged, {
+    String Function(double)? levelLabel,
+    String? helperText,
+    int? divisions,
+  }) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 4),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1416,7 +1732,9 @@ class _DemandScreenState extends State<DemandScreen> {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
-                '${value.toStringAsFixed(max <= 3 ? 2 : 0)} $unit'.trim(),
+                levelLabel == null
+                    ? '${value.toStringAsFixed(max <= 3 ? 2 : 0)} $unit'.trim()
+                    : levelLabel(value),
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.bold,
@@ -1434,11 +1752,79 @@ class _DemandScreenState extends State<DemandScreen> {
             inactiveTrackColor: color.withValues(alpha: 0.15),
             trackHeight: 2.5,
           ),
-          child: Slider(value: value, min: min, max: max, onChanged: onChanged),
+          child: Slider(
+            value: value,
+            min: min,
+            max: max,
+            divisions: divisions,
+            onChanged: onChanged,
+          ),
         ),
+        if (helperText != null) ...[
+          const SizedBox(height: 3),
+          Text(
+            helperText,
+            style: TextStyle(
+              fontSize: 10,
+              color: AppTheme.textMuted.withValues(alpha: 0.9),
+              height: 1.3,
+            ),
+          ),
+        ],
       ],
     ),
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Profile avatar (matches other screens) — shows the farmer's email initial
+//  when available (tied to their account), otherwise a generic profile icon.
+//  DemandScreen has no profile sheet of its own, so tapping it navigates to
+//  Dashboard, same pattern used elsewhere.
+// ─────────────────────────────────────────────────────────────────────────────
+class _ProfileAvatar extends StatelessWidget {
+  final String? email;
+  final VoidCallback? onTap;
+  const _ProfileAvatar({this.email, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final trimmed = email?.trim();
+    final hasEmail = trimmed != null && trimmed.isNotEmpty;
+    final initial = hasEmail ? trimmed[0].toUpperCase() : null;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Tooltip(
+        message: hasEmail ? trimmed : '',
+        child: Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: const Color(0xFF283593).withValues(alpha: 0.12),
+            border: Border.all(color: const Color(0xFF283593), width: 1.2),
+          ),
+          child: Center(
+            child: initial != null
+                ? Text(
+                    initial,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF283593),
+                    ),
+                  )
+                : const Icon(
+                    Icons.person_rounded,
+                    size: 19,
+                    color: Color(0xFF283593),
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

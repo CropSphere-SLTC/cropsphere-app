@@ -255,15 +255,22 @@ String _navSvg(int i, Color color) {
 class WeatherScreen extends StatefulWidget {
   final ValueChanged<int>? onNavigate;
 
-  const WeatherScreen({super.key, this.onNavigate});
+  /// The signed-in farmer's email, used to personalise the profile avatar
+  /// next to the language pill (shows their initial). Optional — falls
+  /// back to a generic profile icon if not provided.
+  final String? userEmail;
+
+  const WeatherScreen({super.key, this.onNavigate, this.userEmail});
 
   @override
   State<WeatherScreen> createState() => _WeatherScreenState();
 }
 
 class _WeatherScreenState extends State<WeatherScreen> {
-  String _selectedDistrict = 'Nuwara Eliya';
-  int _weeksAhead = 4;
+  // Nothing is pre-selected — the farmer must actively choose a District
+  // and a Forecast Range themselves.
+  String? _selectedDistrict;
+  int? _weeksAhead;
   bool _isLoading = false;
   WeatherResponse? _result;
   String? _errorMessage;
@@ -279,6 +286,20 @@ class _WeatherScreenState extends State<WeatherScreen> {
   String _t(_L m) => m[_langKey] ?? m['en']!;
 
   Future<void> _forecast() async {
+    // District and Forecast Range are required — nothing is pre-selected,
+    // so make sure the farmer actually picked both first.
+    if (_selectedDistrict == null || _weeksAhead == null) {
+      setState(() {
+        _result = null;
+        _errorMessage = _t({
+          'en': 'Please select a District and Forecast Range first.',
+          'si': 'කරුණාකර පළමුව දිස්ත්‍රික්කය සහ අනාවැකි කාලය තෝරන්න.',
+          'ta':
+              'முதலில் ஒரு மாவட்டத்தையும் முன்னறிவிப்பு காலத்தையும் தேர்ந்தெடுக்கவும்.',
+        });
+      });
+      return;
+    }
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -291,9 +312,9 @@ class _WeatherScreenState extends State<WeatherScreen> {
           '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
       final response = await service.forecastWeather(
         WeatherRequest(
-          district: _selectedDistrict,
+          district: _selectedDistrict!,
           startDate: startDate,
-          weeksAhead: _weeksAhead,
+          weeksAhead: _weeksAhead!,
         ),
       );
       setState(() => _result = response);
@@ -424,87 +445,110 @@ class _WeatherScreenState extends State<WeatherScreen> {
         ],
       ),
       padding: const EdgeInsets.symmetric(horizontal: 14),
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: const Color(0xFF4CAF50).withValues(alpha: 0.15),
-            ),
-            child: Center(
-              child: SvgPicture.string(_cropSphereSvg, width: 32, height: 32),
-            ),
-          ),
-          const SizedBox(width: 10),
-          const Text(
-            'CropSphere',
-            style: TextStyle(
-              color: Color(0xFF1B4D1B),
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.3,
-            ),
-          ),
-          Expanded(
-            child: Center(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: List.generate(navLabels.length, (i) {
-                    final active = i == 3;
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 2),
-                      child: TextButton(
-                        onPressed: widget.onNavigate == null
-                            ? null
-                            : () => widget.onNavigate!(i),
-                        style: TextButton.styleFrom(
-                          backgroundColor: active
-                              ? activeBg
-                              : Colors.transparent,
-                          foregroundColor: active
-                              ? activeColor
-                              : const Color(0xFF555555),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 11,
-                            vertical: 6,
-                          ),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        child: Text(
-                          navLabels[i],
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            fontWeight: active
-                                ? FontWeight.w700
-                                : FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                    );
-                  }),
+      child: LayoutBuilder(
+        builder: (ctx, bc) {
+          // Below 600px (mobile) the text nav labels are dropped entirely —
+          // just logo + language pill + profile avatar remain. Tablet/web
+          // (>=600px) keep the full nav bar. Same pattern as other screens.
+          final isMobile = bc.maxWidth < 600;
+          return Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: const Color(0xFF4CAF50).withValues(alpha: 0.15),
+                ),
+                child: Center(
+                  child: SvgPicture.string(
+                    _cropSphereSvg,
+                    width: 32,
+                    height: 32,
+                  ),
                 ),
               ),
-            ),
-          ),
-          const _LangPill(),
-        ],
+              const SizedBox(width: 10),
+              const Text(
+                'CropSphere',
+                style: TextStyle(
+                  color: Color(0xFF1B4D1B),
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.3,
+                ),
+              ),
+              if (!isMobile)
+                Expanded(
+                  child: Center(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: List.generate(navLabels.length, (i) {
+                          final active = i == 3;
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 2),
+                            child: TextButton(
+                              onPressed: widget.onNavigate == null
+                                  ? null
+                                  : () => widget.onNavigate!(i),
+                              style: TextButton.styleFrom(
+                                backgroundColor: active
+                                    ? activeBg
+                                    : Colors.transparent,
+                                foregroundColor: active
+                                    ? activeColor
+                                    : const Color(0xFF555555),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 11,
+                                  vertical: 6,
+                                ),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                              child: Text(
+                                navLabels[i],
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: active
+                                      ? FontWeight.w700
+                                      : FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          );
+                        }),
+                      ),
+                    ),
+                  ),
+                ),
+              if (isMobile) const Spacer(),
+              const SizedBox(width: 8),
+              const _LangPill(),
+              const SizedBox(width: 8),
+              _ProfileAvatar(
+                email: widget.userEmail,
+                onTap: () => widget.onNavigate?.call(0), // Dashboard
+              ),
+            ],
+          );
+        },
       ),
     );
   }
 
+  // ── Mobile / tablet: unchanged single-column stack with a sticky
+  //    "Get Forecast" bar. Web: compact 2-column grid so every input is
+  //    visible without scrolling — see _formColumn. ─────────────────────────
   Widget _buildMobileLayout() => Stack(
     children: [
       SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
-        child: _formColumn(),
+        child: _formColumn(isWeb: false),
       ),
       _stickyForecastButton(),
     ],
@@ -517,7 +561,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
           final hPad = ((bc.maxWidth - 700) / 2).clamp(0.0, 200.0);
           return SingleChildScrollView(
             padding: EdgeInsets.fromLTRB(hPad + 16, 14, hPad + 16, 100),
-            child: _formColumn(),
+            child: _formColumn(isWeb: false),
           );
         },
       ),
@@ -525,87 +569,158 @@ class _WeatherScreenState extends State<WeatherScreen> {
     ],
   );
 
+  // Web: no more splitting the screen into a form panel + a separate
+  // results panel (that produced a mostly-empty right side before the
+  // farmer had a result). Instead, a compact 2-column grid holds every
+  // input, with the button/result shown full-width beneath it. No
+  // IntrinsicHeight anywhere, so it stays compatible with any scrollable
+  // content inside either column.
   Widget _buildWebLayout() => LayoutBuilder(
     builder: (ctx, bc) {
-      final leftW = (bc.maxWidth * 0.4).clamp(340.0, 460.0);
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SizedBox(
-            width: leftW,
-            child: Stack(
-              children: [
-                SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(20, 14, 12, 100),
-                  child: _formColumn(webLeft: true),
-                ),
-                _stickyForecastButton(),
-              ],
-            ),
-          ),
-          Container(width: 1, color: const Color(0xFFE4EEE4)),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 14, 20, 28),
-              child: _rightPanel(),
-            ),
-          ),
-        ],
+      final maxW = 1000.0;
+      final hPad = ((bc.maxWidth - maxW) / 2).clamp(14.0, 120.0);
+      return SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(hPad, 14, hPad, 24),
+        child: _formColumn(isWeb: true),
       );
     },
   );
 
-  Widget _formColumn({bool webLeft = false}) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      _pageHeader(),
-      const SizedBox(height: 16),
-      _districtQuickChips(),
-      const SizedBox(height: 16),
-      _sectionTitle(
-        _t({'en': 'Location', 'si': 'ස්ථානය', 'ta': 'இடம்'}),
-        Icons.location_on,
-      ),
-      const SizedBox(height: 10),
-      _districtDropdownCard(),
-      const SizedBox(height: 20),
-      _sectionTitle(
-        _t({
-          'en': 'Forecast Range',
-          'si': 'අනාවැකි කාලය',
-          'ta': 'முன்னறிவிப்பு காலம்',
-        }),
-        Icons.calendar_month,
-      ),
-      const SizedBox(height: 10),
-      _weeksAheadCard(),
-      const SizedBox(height: 20),
-      _sectionTitle(
-        _t({
-          'en': 'Weather & Farming Tips',
-          'si': 'කාලගුණ හා ගොවිතැන් ඉඟි',
-          'ta': 'வானிலை & விவசாய குறிப்புகள்',
-        }),
-        Icons.tips_and_updates,
-      ),
-      const SizedBox(height: 10),
-      _tipsCard(),
-      if (!webLeft) ...[
+  Widget _formColumn({required bool isWeb}) {
+    final locationBlock = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _districtQuickChips(),
+        const SizedBox(height: 16),
+        _sectionTitle(
+          _t({'en': 'Location', 'si': 'ස්ථානය', 'ta': 'இடம்'}),
+          Icons.location_on,
+        ),
+        const SizedBox(height: 10),
+        _districtDropdownCard(),
+      ],
+    );
+
+    final rangeBlock = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(
+          _t({
+            'en': 'Forecast Range',
+            'si': 'අනාවැකි කාලය',
+            'ta': 'முன்னறிவிப்பு காலம்',
+          }),
+          Icons.calendar_month,
+        ),
+        const SizedBox(height: 10),
+        _weeksAheadCard(),
+      ],
+    );
+
+    final tipsBlock = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(
+          _t({
+            'en': 'Weather & Farming Tips',
+            'si': 'කාලගුණ හා ගොවිතැන් ඉඟි',
+            'ta': 'வானிலை & விவசாய குறிப்புகள்',
+          }),
+          Icons.tips_and_updates,
+        ),
+        const SizedBox(height: 10),
+        _tipsCard(),
+      ],
+    );
+
+    // ── Mobile / tablet: unchanged single-column stack ─────────────────────
+    if (!isWeb) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _pageHeader(),
+          const SizedBox(height: 16),
+          locationBlock,
+          const SizedBox(height: 20),
+          rangeBlock,
+          const SizedBox(height: 20),
+          tipsBlock,
+          const SizedBox(height: 16),
+          if (_errorMessage != null) _errorCard(),
+          if (_result != null) _resultSection(),
+          if (_result == null && _errorMessage == null)
+            _emptyResultPlaceholder(),
+        ],
+      );
+    }
+
+    // ── Web: compact 2-column grid — Location on the left, Forecast Range
+    //    + Tips on the right, result/button full-width beneath. ────────────
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _pageHeader(),
+        const SizedBox(height: 14),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(flex: 5, child: locationBlock),
+            const SizedBox(width: 16),
+            Expanded(
+              flex: 4,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [rangeBlock, const SizedBox(height: 14), tipsBlock],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: _isLoading ? null : _forecast,
+            icon: _isLoading
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.wb_sunny),
+            label: Text(
+              _isLoading
+                  ? _t({
+                      'en': 'Getting forecast...',
+                      'si': 'අනාවැකිය ලබාගනිමින්...',
+                      'ta': 'முன்னறிவிப்பு பெறப்படுகிறது...',
+                    })
+                  : _t({
+                      'en': 'Get Forecast',
+                      'si': 'අනාවැකිය ලබාගන්න',
+                      'ta': 'முன்னறிவிப்பு பெறவும்',
+                    }),
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF1565C0),
+              foregroundColor: Colors.white,
+              minimumSize: const Size.fromHeight(52),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ),
         const SizedBox(height: 16),
         if (_errorMessage != null) _errorCard(),
         if (_result != null) _resultSection(),
+        if (_result == null && _errorMessage == null) _emptyResultPlaceholder(),
       ],
-    ],
-  );
-
-  Widget _rightPanel() => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      if (_errorMessage != null) ...[_errorCard(), const SizedBox(height: 14)],
-      if (_result != null) _resultSection(),
-      if (_result == null && _errorMessage == null) _emptyResultPlaceholder(),
-    ],
-  );
+    );
+  }
 
   Widget _pageHeader() => Container(
     padding: const EdgeInsets.all(16),
@@ -739,6 +854,13 @@ class _WeatherScreenState extends State<WeatherScreen> {
   Widget _districtDropdownCard() => _card(
     child: DropdownButtonFormField<String>(
       initialValue: _selectedDistrict,
+      hint: Text(
+        _t({
+          'en': 'Select District',
+          'si': 'දිස්ත්‍රික්කය තෝරන්න',
+          'ta': 'மாவட்டத்தை தேர்ந்தெடுக்கவும்',
+        }),
+      ),
       decoration: InputDecoration(
         labelText: _t({
           'en': 'Select District',
@@ -765,7 +887,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
           )
           .toList(),
       onChanged: (v) => setState(() {
-        _selectedDistrict = v!;
+        _selectedDistrict = v;
         _result = null;
       }),
     ),
@@ -1013,9 +1135,9 @@ class _WeatherScreenState extends State<WeatherScreen> {
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: Colors.orange),
                 ),
-                child: const Text(
-                  'MOCK',
-                  style: TextStyle(color: Colors.orange, fontSize: 10),
+                child: Text(
+                  _t({'en': 'MOCK', 'si': 'ආදර්ශ', 'ta': 'மாதிரி'}),
+                  style: const TextStyle(color: Colors.orange, fontSize: 10),
                 ),
               ),
           ],
@@ -1299,6 +1421,56 @@ class _WeatherScreenState extends State<WeatherScreen> {
       ),
     ],
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Profile avatar (matches other screens) — shows the farmer's email initial
+//  when available, otherwise a generic profile icon. WeatherScreen has no
+//  profile sheet of its own, so tapping it navigates to Dashboard.
+// ─────────────────────────────────────────────────────────────────────────────
+class _ProfileAvatar extends StatelessWidget {
+  final String? email;
+  final VoidCallback? onTap;
+  const _ProfileAvatar({this.email, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final trimmed = email?.trim();
+    final hasEmail = trimmed != null && trimmed.isNotEmpty;
+    final initial = hasEmail ? trimmed[0].toUpperCase() : null;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Tooltip(
+        message: hasEmail ? trimmed : '',
+        child: Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: const Color(0xFF1565C0).withValues(alpha: 0.12),
+            border: Border.all(color: const Color(0xFF1565C0), width: 1.2),
+          ),
+          child: Center(
+            child: initial != null
+                ? Text(
+                    initial,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF1565C0),
+                    ),
+                  )
+                : const Icon(
+                    Icons.person_rounded,
+                    size: 19,
+                    color: Color(0xFF1565C0),
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _LangPill extends StatelessWidget {

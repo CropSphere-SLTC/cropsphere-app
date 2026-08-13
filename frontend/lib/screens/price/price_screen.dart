@@ -2371,8 +2371,8 @@ class _LangPill extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 class _ProfileAvatar extends StatelessWidget {
   final VoidCallback onTap;
-  final double size;
-  const _ProfileAvatar({required this.onTap, this.size = 34});
+  final double size = 34;
+  const _ProfileAvatar({required this.onTap});
 
   @override
   Widget build(BuildContext context) {

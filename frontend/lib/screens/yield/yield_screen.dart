@@ -63,7 +63,6 @@ const Map<String, List<double>> _districtCoords = {
 double _haToPerches(double ha) => ha * 395.3686;
 double _haToAcres(double ha) => ha * 2.47105;
 double _perchesToHa(double p) => p / 395.3686;
-double _acresToHa(double a) => a / 2.47105;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Weather data model (from Open-Meteo)
@@ -4667,8 +4666,8 @@ class _LangPill extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 class _ProfileAvatar extends StatelessWidget {
   final VoidCallback onTap;
-  final double size;
-  const _ProfileAvatar({required this.onTap, this.size = 34});
+  final double size = 34;
+  const _ProfileAvatar({required this.onTap});
 
   @override
   Widget build(BuildContext context) {

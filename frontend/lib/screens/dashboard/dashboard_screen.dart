@@ -1276,7 +1276,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                   ),
                 ),
               ),
-              if (trailing != null) trailing,
+              ?trailing,
               if (trailing == null)
                 Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400),
             ],

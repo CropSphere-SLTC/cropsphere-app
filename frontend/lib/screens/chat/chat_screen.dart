@@ -3,6 +3,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../config/app_config.dart';
@@ -286,11 +287,24 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// Non-streaming fallback — the original POST /api/chat flow, kept
   /// intact and selected via AppConfig.useStreamingChat = false.
-  Future<void> _sendMessageNonStreaming(String message) async {
+  ///
+  /// [isRetry] skips re-adding the user bubble/history entry — used by
+  /// "regenerate response" to re-run the last question without duplicating
+  /// it in the transcript.
+  Future<void> _sendMessageNonStreaming(
+    String message, {
+    bool isRetry = false,
+  }) async {
     _controller.clear();
     setState(() {
-      _displayMessages.add({'role': 'user', 'content': message});
-      _history.add(ChatMessage(role: 'user', content: message));
+      if (!isRetry) {
+        _displayMessages.add({
+          'role': 'user',
+          'content': message,
+          'time': DateTime.now(),
+        });
+        _history.add(ChatMessage(role: 'user', content: message));
+      }
       _isLoading = true;
       _suggestedFollowups = [];
     });
@@ -330,6 +344,7 @@ class _ChatScreenState extends State<ChatScreen> {
           'isMock': response.isMock,
           'confidence': response.confidence,
           'sources': response.sourcesUsed,
+          'time': DateTime.now(),
         });
         _history.add(ChatMessage(role: 'assistant', content: response.reply));
         _suggestedFollowups = response.suggestedFollowups;
@@ -371,13 +386,18 @@ class _ChatScreenState extends State<ChatScreen> {
       'content': '',
       'streaming': true,
       'retryFor': message,
+      'time': DateTime.now(),
     };
     // _isStreaming is set synchronously, before any await, so the input
     // field is disabled for the whole stream — initial send and retry alike.
     setState(() {
       _isStreaming = true;
       if (!isRetry) {
-        _displayMessages.add({'role': 'user', 'content': message});
+        _displayMessages.add({
+          'role': 'user',
+          'content': message,
+          'time': DateTime.now(),
+        });
         _history.add(ChatMessage(role: 'user', content: message));
       }
       _displayMessages.add(bubble);
@@ -487,6 +507,41 @@ class _ChatScreenState extends State<ChatScreen> {
     if (retryFor == null) return;
     setState(() => _displayMessages.remove(bubble));
     await _sendMessageStreaming(retryFor, isRetry: true);
+  }
+
+  /// "Regenerate response" — re-asks the question behind the given (last,
+  /// completed) bot answer and replaces it with a fresh one, without
+  /// duplicating the question bubble or its history entry.
+  Future<void> _regenerateResponse(int index) async {
+    if (_isStreaming || _isLoading) return;
+    final question = _questionForAnswer(index);
+    if (question.isEmpty) return;
+    setState(() {
+      _displayMessages.removeAt(index);
+      if (_history.isNotEmpty && _history.last.role == 'assistant') {
+        _history.removeLast();
+      }
+    });
+    if (AppConfig.useStreamingChat) {
+      await _sendMessageStreaming(question, isRetry: true);
+    } else {
+      await _sendMessageNonStreaming(question, isRetry: true);
+    }
+  }
+
+  /// Copies a bot answer's plain text to the clipboard (reasoning line
+  /// excluded, matching what's visible as the "main" answer).
+  void _copyMessage(Map<String, dynamic> msg) {
+    final content = msg['content'] as String? ?? '';
+    final parsed = _parseReply(content);
+    final text = parsed.answer.isNotEmpty ? parsed.answer : content;
+    Clipboard.setData(ClipboardData(text: text));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Copied to clipboard'),
+        duration: Duration(seconds: 1),
+      ),
+    );
   }
 
   /// Removes the model's "FOLLOWUP:" suggestion lines from streamed text.
@@ -704,12 +759,22 @@ class _ChatScreenState extends State<ChatScreen> {
     return '${time.toLocal().day}/${time.toLocal().month}/${time.toLocal().year}';
   }
 
+  /// "HH:MM" clock time for the tap-to-reveal timestamp under a bubble
+  /// (relative time reads better in the sidebar list; a specific message
+  /// benefits from the exact time it was sent/received).
+  String _formatClockTime(DateTime time) {
+    final local = time.toLocal();
+    final h = local.hour.toString().padLeft(2, '0');
+    final m = local.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+
   Widget _buildHeader(bool isWide) {
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         gradient: LinearGradient(
-          colors: [const Color(0xFF37474F), const Color(0xFF546E7A)],
+          colors: [AppTheme.primary, AppTheme.primaryDark],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -764,14 +829,14 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget _buildContextBar() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: Colors.grey[100],
+      color: AppTheme.background,
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(
           children: [
             const Text(
               'Context:',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
+              style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
             ),
             const SizedBox(width: 8),
             _buildContextChip(
@@ -831,7 +896,7 @@ class _ChatScreenState extends State<ChatScreen> {
               : Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: selected != null ? AppTheme.primary : Colors.grey[300]!,
+            color: selected != null ? AppTheme.primary : AppTheme.textMuted,
           ),
         ),
         child: Row(
@@ -841,7 +906,9 @@ class _ChatScreenState extends State<ChatScreen> {
               selected ?? label,
               style: TextStyle(
                 fontSize: 12,
-                color: selected != null ? AppTheme.primary : Colors.grey[600],
+                color: selected != null
+                    ? AppTheme.primary
+                    : AppTheme.textSecondary,
                 fontWeight: selected != null
                     ? FontWeight.w600
                     : FontWeight.normal,
@@ -851,7 +918,7 @@ class _ChatScreenState extends State<ChatScreen> {
             Icon(
               Icons.arrow_drop_down,
               size: 16,
-              color: selected != null ? AppTheme.primary : Colors.grey,
+              color: selected != null ? AppTheme.primary : AppTheme.textMuted,
             ),
           ],
         ),
@@ -864,7 +931,7 @@ class _ChatScreenState extends State<ChatScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey[300]!),
+        border: Border.all(color: AppTheme.textMuted),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -893,7 +960,7 @@ class _ChatScreenState extends State<ChatScreen> {
           label,
           style: TextStyle(
             fontSize: 12,
-            color: isSelected ? AppTheme.primary : Colors.grey[600],
+            color: isSelected ? AppTheme.primary : AppTheme.textSecondary,
             fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
           ),
         ),
@@ -912,8 +979,27 @@ class _ChatScreenState extends State<ChatScreen> {
       itemBuilder: (ctx, i) {
         if (i == _displayMessages.length) return _buildTypingIndicator();
         final msg = _displayMessages[i];
-        return _buildMessageBubble(msg, i);
+        return _entranceAnimate(msg, _buildMessageBubble(msg, i));
       },
+    );
+  }
+
+  /// Minimal, one-time fade + slight rise for a newly-appended bubble —
+  /// signals "a new turn happened" without drawing attention to itself.
+  /// Marks the message as already-animated on its own data so scrolling
+  /// back up through history never replays it.
+  Widget _entranceAnimate(Map<String, dynamic> msg, Widget child) {
+    if (msg['_entered'] == true) return child;
+    msg['_entered'] = true;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOut,
+      builder: (context, t, c) => Opacity(
+        opacity: t,
+        child: Transform.translate(offset: Offset(0, (1 - t) * 8), child: c),
+      ),
+      child: child,
     );
   }
 
@@ -976,7 +1062,10 @@ class _ChatScreenState extends State<ChatScreen> {
                   'agriculture',
                   textAlign: TextAlign.center,
                   maxLines: 2,
-                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: AppTheme.textSecondary,
+                  ),
                 ),
               ),
               if (_savedDistrict != null && _savedDistrict!.isNotEmpty) ...[
@@ -1015,7 +1104,7 @@ class _ChatScreenState extends State<ChatScreen> {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey[200]!),
+            border: Border.all(color: AppTheme.background),
           ),
           child: Row(
             children: [
@@ -1024,7 +1113,10 @@ class _ChatScreenState extends State<ChatScreen> {
               Expanded(
                 child: Text(
                   text,
-                  style: const TextStyle(fontSize: 14, color: Colors.black87),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: AppTheme.textPrimary,
+                  ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -1069,167 +1161,242 @@ class _ChatScreenState extends State<ChatScreen> {
         parsed.reasoning.isNotEmpty ||
         sources.isNotEmpty ||
         advisory.isNotEmpty;
+    // Tap a bubble to reveal exactly when it was sent — kept off by default
+    // so the transcript stays uncluttered (visibility of system status
+    // on demand, not by default). Stored on the message itself so it
+    // survives rebuilds without extra top-level state.
+    final msgTime = msg['time'] as DateTime?;
+    final showTime = msg['_showTime'] as bool? ?? false;
+    // Only the most recent completed bot answer offers "regenerate" — older
+    // turns would be confusing to silently rewrite.
+    final canRegenerate =
+        isBot &&
+        !isStreamingMsg &&
+        errorCode == null &&
+        index == _displayMessages.length - 1;
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        mainAxisAlignment: isUser
-            ? MainAxisAlignment.end
-            : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (!isUser) ...[_logo(32), const SizedBox(width: 8)],
-          Flexible(
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: isUser
-                    ? AppTheme.primaryDark
-                    : isError
-                    ? Colors.red[50]
-                    : Colors.white,
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(16),
-                  topRight: const Radius.circular(16),
-                  bottomLeft: Radius.circular(isUser ? 16 : 4),
-                  bottomRight: Radius.circular(isUser ? 4 : 16),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.06),
-                    blurRadius: 4,
-                    offset: const Offset(0, 2),
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onTap: msgTime == null
+          ? null
+          : () => setState(() => msg['_showTime'] = !showTime),
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Row(
+          mainAxisAlignment: isUser
+              ? MainAxisAlignment.end
+              : MainAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (!isUser) ...[_logo(32), const SizedBox(width: 8)],
+            Flexible(
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: isUser
+                      ? AppTheme.primaryDark
+                      : isError
+                      ? AppTheme.error.withValues(alpha: 0.08)
+                      : Colors.white,
+                  borderRadius: BorderRadius.only(
+                    topLeft: const Radius.circular(16),
+                    topRight: const Radius.circular(16),
+                    bottomLeft: Radius.circular(isUser ? 16 : 4),
+                    bottomRight: Radius.circular(isUser ? 4 : 16),
                   ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // TOP — XAI confidence badge (bot messages only); fades in
-                  // when metadata arrives at the end of a stream
-                  if (confidence.isNotEmpty) ...[
-                    wasStreamed
-                        ? _fadeIn(_confidenceBadge(confidence))
-                        : _confidenceBadge(confidence),
-                    const SizedBox(height: 6),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.06),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
                   ],
-                  // MIDDLE — answer text (reasoning split out for bot replies);
-                  // "..." placeholder while the stream is starting (Phase 1).
-                  // Bot replies render as markdown (the model uses **bold**,
-                  // numbered/dash lists in math and multi-item answers) —
-                  // softLineBreak keeps single '\n's as real line breaks,
-                  // matching how our system prompt actually formats text
-                  // (single newlines between steps/list items, not blank
-                  // lines). User/error bubbles stay plain text.
-                  isBot
-                      ? MarkdownBody(
-                          data: isStreamingMsg && parsed.answer.isEmpty
-                              ? '...'
-                              : parsed.answer,
-                          softLineBreak: true,
-                          styleSheet: MarkdownStyleSheet(
-                            p: const TextStyle(
-                              color: Colors.black87,
-                              fontSize: 14,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // TOP — XAI confidence badge (bot messages only); fades in
+                    // when metadata arrives at the end of a stream
+                    if (confidence.isNotEmpty) ...[
+                      wasStreamed
+                          ? _fadeIn(_confidenceBadge(confidence))
+                          : _confidenceBadge(confidence),
+                      const SizedBox(height: 6),
+                    ],
+                    // MIDDLE — answer text (reasoning split out for bot replies);
+                    // "..." placeholder while the stream is starting (Phase 1).
+                    // Bot replies render as markdown (the model uses **bold**,
+                    // numbered/dash lists in math and multi-item answers) —
+                    // softLineBreak keeps single '\n's as real line breaks,
+                    // matching how our system prompt actually formats text
+                    // (single newlines between steps/list items, not blank
+                    // lines). User/error bubbles stay plain text.
+                    isBot
+                        ? MarkdownBody(
+                            data: isStreamingMsg && parsed.answer.isEmpty
+                                ? '...'
+                                : parsed.answer,
+                            softLineBreak: true,
+                            styleSheet: MarkdownStyleSheet(
+                              p: const TextStyle(
+                                color: Colors.black87,
+                                fontSize: 14,
+                              ),
+                              strong: const TextStyle(
+                                color: Colors.black87,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                              ),
+                              listBullet: const TextStyle(
+                                color: Colors.black87,
+                                fontSize: 14,
+                              ),
                             ),
-                            strong: const TextStyle(
-                              color: Colors.black87,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                            ),
-                            listBullet: const TextStyle(
-                              color: Colors.black87,
-                              fontSize: 14,
-                            ),
-                          ),
-                        )
-                      : Text(
-                          parsed.answer,
-                          style: TextStyle(
-                            color: isUser ? Colors.white : Colors.red,
-                            fontSize: 14,
-                          ),
-                        ),
-                  // BOTTOM — muted XAI footer; hidden when empty (out-of-scope)
-                  if (hasFooter)
-                    wasStreamed
-                        ? _fadeIn(_xaiFooter(parsed, sources, advisory))
-                        : _xaiFooter(parsed, sources, advisory),
-                  // Inline stream-error state: keeps any partial text above,
-                  // adds a muted warning + optional retry inside the bubble.
-                  if (errorCode != null) ...[
-                    const SizedBox(height: 8),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(
-                          Icons.warning_amber_outlined,
-                          size: 14,
-                          color: Colors.orange[800],
-                        ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            _streamErrorMessages[errorCode] ??
-                                _streamErrorMessages['server_error']!,
+                          )
+                        : Text(
+                            parsed.answer,
                             style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.orange[800],
+                              color: isUser ? Colors.white : AppTheme.error,
+                              fontSize: 14,
                             ),
                           ),
+                    // BOTTOM — muted XAI footer; hidden when empty (out-of-scope)
+                    if (hasFooter)
+                      wasStreamed
+                          ? _fadeIn(_xaiFooter(parsed, sources, advisory))
+                          : _xaiFooter(parsed, sources, advisory),
+                    // Inline stream-error state: keeps any partial text above,
+                    // adds a muted warning + optional retry inside the bubble.
+                    if (errorCode != null) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.warning_amber_outlined,
+                            size: 14,
+                            color: Colors.orange[800],
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              _streamErrorMessages[errorCode] ??
+                                  _streamErrorMessages['server_error']!,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.orange[800],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      // Auth errors need a fresh sign-in, not a retry.
+                      if (errorCode != 'auth_error')
+                        TextButton.icon(
+                          onPressed: () => _retryStream(msg),
+                          icon: const Icon(Icons.refresh, size: 14),
+                          label: const Text('Tap to retry'),
+                          style: TextButton.styleFrom(
+                            padding: EdgeInsets.zero,
+                            minimumSize: const Size(0, 28),
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            foregroundColor: AppTheme.primaryDark,
+                            textStyle: const TextStyle(fontSize: 12),
+                          ),
                         ),
-                      ],
-                    ),
-                    // Auth errors need a fresh sign-in, not a retry.
-                    if (errorCode != 'auth_error')
-                      TextButton.icon(
-                        onPressed: () => _retryStream(msg),
-                        icon: const Icon(Icons.refresh, size: 14),
-                        label: const Text('Tap to retry'),
-                        style: TextButton.styleFrom(
-                          padding: EdgeInsets.zero,
-                          minimumSize: const Size(0, 28),
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          foregroundColor: AppTheme.primaryDark,
-                          textStyle: const TextStyle(fontSize: 12),
+                    ],
+                    if (isMock)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          'Mock response',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.orange[700],
+                          ),
+                        ),
+                      ),
+                    // Actions row — copy (all completed bot answers), regenerate
+                    // (last bot answer only), and feedback (thumbs) on real,
+                    // completed Groq answers (which carry retrieval sources), OR
+                    // on any bubble that already has a restored vote after a
+                    // reload (history bubbles have no sources). Refusals/
+                    // clarifications/capability/context-ack and the welcome view
+                    // have neither, so they stay thumb-less.
+                    if (isBot && !isStreamingMsg && errorCode == null)
+                      _buildBubbleActionsRow(msg, index, canRegenerate),
+                    // Tap-to-reveal timestamp — off by default, shown on tap.
+                    if (msgTime != null && showTime)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          _formatClockTime(msgTime),
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: isUser
+                                ? Colors.white.withValues(alpha: 0.7)
+                                : AppTheme.textMuted,
+                          ),
                         ),
                       ),
                   ],
-                  if (isMock)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Text(
-                        'Mock response',
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: Colors.orange[700],
-                        ),
-                      ),
-                    ),
-                  // Feedback (thumbs) — on real, completed Groq answers (which
-                  // carry retrieval sources), OR on any bubble that already has
-                  // a restored vote after a reload (history bubbles have no
-                  // sources). Refusals/clarifications/capability/context-ack and
-                  // the welcome view have neither, so they stay thumb-less.
-                  if (isBot &&
-                      !isStreamingMsg &&
-                      errorCode == null &&
-                      (sources.isNotEmpty || msg['feedback'] != null))
-                    _buildFeedbackRow(msg, index),
-                ],
+                ),
               ),
             ),
-          ),
-          if (isUser) ...[
-            const SizedBox(width: 8),
-            CircleAvatar(
-              backgroundColor: AppTheme.primary,
-              radius: 16,
-              child: const Icon(Icons.person, color: Colors.white, size: 16),
-            ),
+            if (isUser) ...[
+              const SizedBox(width: 8),
+              CircleAvatar(
+                backgroundColor: AppTheme.primary,
+                radius: 16,
+                child: const Icon(Icons.person, color: Colors.white, size: 16),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
+    );
+  }
+
+  /// Bot-bubble action row: copy, regenerate (last answer only), and the
+  /// existing thumbs-up/down feedback control.
+  Widget _buildBubbleActionsRow(
+    Map<String, dynamic> msg,
+    int index,
+    bool canRegenerate,
+  ) {
+    final sources = (msg['sources'] as List?)?.cast<String>() ?? const [];
+    final showFeedback = sources.isNotEmpty || msg['feedback'] != null;
+    return Row(
+      children: [
+        _bubbleActionButton(
+          icon: Icons.copy_outlined,
+          tooltip: 'Copy',
+          onTap: () => _copyMessage(msg),
+        ),
+        if (canRegenerate)
+          _bubbleActionButton(
+            icon: Icons.refresh,
+            tooltip: 'Regenerate response',
+            onTap: () => _regenerateResponse(index),
+          ),
+        const Spacer(),
+        if (showFeedback) _buildFeedbackRow(msg, index),
+      ],
+    );
+  }
+
+  Widget _bubbleActionButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onTap,
+  }) {
+    return IconButton(
+      icon: Icon(icon, size: 15, color: AppTheme.textMuted),
+      onPressed: onTap,
+      tooltip: tooltip,
+      padding: EdgeInsets.zero,
+      visualDensity: VisualDensity.compact,
+      constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
     );
   }
 
@@ -1339,26 +1506,18 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// Small colored chip showing the XAI confidence label. Long backend labels
   /// ("Low confidence — please verify...") are truncated at the em dash; the
-  /// advisory tail is rendered in the bubble footer instead.
+  /// advisory tail is rendered in the bubble footer instead. Reuses the same
+  /// CsConfidenceBadge/AppTheme.confidenceColor mapping as the rest of the
+  /// app (yield/price screens) so "High"/"Medium"/"Low" mean the same shade
+  /// everywhere.
   Widget _confidenceBadge(String confidence) {
     final label = confidence.split('—').first.trim();
-    final (bg, fg) = switch (label) {
-      'High confidence' => (Colors.green[600]!, Colors.white),
-      'Moderate confidence' => (Colors.amber[400]!, Colors.black87),
-      'Low confidence' => (Colors.orange[700]!, Colors.white),
-      _ => (Colors.grey[600]!, Colors.white), // Out of scope + unknown
+    final level = switch (label) {
+      'High confidence' => 'high',
+      'Moderate confidence' => 'medium',
+      _ => 'low', // Low confidence, "Out of scope", and unknown labels
     };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: fg),
-      ),
-    );
+    return CsConfidenceBadge(confidence: level);
   }
 
   /// The bubble's muted XAI footer: divider + reasoning/sources/advisory.
@@ -1522,58 +1681,87 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         ],
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Expanded(
-            child: TextField(
-              controller: _controller,
-              maxLength: 500,
-              maxLines: null,
-              decoration: InputDecoration(
-                hintText: 'Ask about crops, prices, weather...',
-                counterText: '',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(24),
-                  borderSide: BorderSide(color: Colors.grey[300]!),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _controller,
+                  maxLength: 500,
+                  maxLines: null,
+                  decoration: InputDecoration(
+                    hintText: 'Ask about crops, prices, weather...',
+                    counterText: '',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(24),
+                      borderSide: BorderSide(color: Colors.grey[300]!),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(24),
+                      borderSide: BorderSide(color: Colors.grey[300]!),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
+                    filled: true,
+                    fillColor: Colors.grey[50],
+                  ),
+                  onSubmitted: _sendMessage,
                 ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(24),
-                  borderSide: BorderSide(color: Colors.grey[300]!),
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 10,
-                ),
-                filled: true,
-                fillColor: Colors.grey[50],
               ),
-              onSubmitted: _sendMessage,
-            ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: (_isLoading || _isStreaming)
+                    ? null
+                    : () => _sendMessage(_controller.text),
+                child: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: (_isLoading || _isStreaming)
+                        ? Colors.grey
+                        : AppTheme.primaryDark,
+                    shape: BoxShape.circle,
+                  ),
+                  child: (_isLoading || _isStreaming)
+                      ? const Padding(
+                          padding: EdgeInsets.all(10),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.send, color: Colors.white, size: 20),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          GestureDetector(
-            onTap: (_isLoading || _isStreaming)
-                ? null
-                : () => _sendMessage(_controller.text),
-            child: Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: (_isLoading || _isStreaming)
-                    ? Colors.grey
-                    : AppTheme.primaryDark,
-                shape: BoxShape.circle,
-              ),
-              child: (_isLoading || _isStreaming)
-                  ? const Padding(
-                      padding: EdgeInsets.all(10),
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.send, color: Colors.white, size: 20),
-            ),
+          // Recognition-over-recall: only surface the char budget once it
+          // actually matters, instead of a silent hard cutoff at 500.
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: _controller,
+            builder: (context, value, _) {
+              final len = value.text.length;
+              if (len <= 400) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.only(top: 4, right: 8),
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    '$len/500',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: len >= 500 ? FontWeight.w600 : null,
+                      color: len >= 500 ? AppTheme.error : AppTheme.textMuted,
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
         ],
       ),

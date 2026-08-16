@@ -28,13 +28,25 @@ class ConversationSummary {
 class ConversationMessage {
   final String role;
   final String content;
+  // Backend sends this per-message (schemas.ConversationMessage.timestamp)
+  // but the frontend was never parsing it, which silently disabled the
+  // chat screen's tap/hover-to-reveal timestamp for every message loaded
+  // from history (it only had a value for messages created this session).
+  final DateTime? timestamp;
 
-  ConversationMessage({required this.role, required this.content});
+  ConversationMessage({
+    required this.role,
+    required this.content,
+    this.timestamp,
+  });
 
   factory ConversationMessage.fromJson(Map<String, dynamic> json) =>
       ConversationMessage(
         role: json['role'] ?? 'user',
         content: json['content'] ?? '',
+        timestamp: json['timestamp'] != null
+            ? DateTime.tryParse(json['timestamp'])
+            : null,
       );
 }
 

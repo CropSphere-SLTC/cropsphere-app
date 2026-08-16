@@ -3,10 +3,8 @@
 // wide screens, a drawer on narrow) drives a content area that renders either
 // an admin page or one of the user-app screens — so an admin lands here on
 // login and can still use the whole user app from the sidebar's "App" section.
-// The top bar carries the profile avatar (settings / change password / logout).
 
 import 'package:flutter/material.dart';
-import '../../models/profile_models.dart';
 import '../../services/session_service.dart';
 import '../../widgets/app_theme.dart';
 import '../../widgets/profile_avatar_button.dart';
@@ -36,19 +34,8 @@ import '../chat/chat_screen.dart';
 
 class AdminShell extends StatefulWidget {
   final String role; // 'admin' | 'superadmin'
-  final UserProfile? profile;
-  final ValueChanged<UserProfile> onProfileUpdated;
-  final VoidCallback onOpenSettings;
-  final VoidCallback onOpenChangePassword;
 
-  const AdminShell({
-    super.key,
-    required this.role,
-    required this.profile,
-    required this.onProfileUpdated,
-    required this.onOpenSettings,
-    required this.onOpenChangePassword,
-  });
+  const AdminShell({super.key, required this.role});
 
   @override
   State<AdminShell> createState() => _AdminShellState();
@@ -158,13 +145,13 @@ class _AdminShellState extends State<AdminShell> {
       case AdminPage.appYield:
         return YieldScreen(onNavigate: _navigateUser);
       case AdminPage.appPrice:
-        return const PriceScreen();
+        return PriceScreen(onNavigate: _navigateUser);
       case AdminPage.appWeather:
-        return const WeatherScreen();
+        return WeatherScreen(onNavigate: _navigateUser);
       case AdminPage.appRecommend:
-        return const RecommendScreen();
+        return RecommendScreen(onNavigate: _navigateUser);
       case AdminPage.appDemand:
-        return const DemandScreen();
+        return DemandScreen(onNavigate: _navigateUser);
       case AdminPage.appChat:
         return const ChatScreen();
     }
@@ -213,16 +200,9 @@ class _AdminShellState extends State<AdminShell> {
             onOpenPatternManagement: () => _select(AdminPage.patternManagement),
             onOpenPattern: _openPattern,
           ),
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: ProfileAvatarButton(
-              profile: widget.profile,
-              onProfileUpdated: widget.onProfileUpdated,
-              onOpenSettings: widget.onOpenSettings,
-              onOpenChangePassword: widget.onOpenChangePassword,
-              onLogout: SessionService.logout,
-            ),
-          ),
+          const SizedBox(width: 10),
+          const ProfileAvatarButton(),
+          const SizedBox(width: 12),
         ],
       ),
       body: wide

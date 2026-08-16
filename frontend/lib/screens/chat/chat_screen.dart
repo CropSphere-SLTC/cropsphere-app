@@ -12,6 +12,7 @@ import '../../services/profile_service.dart';
 import '../../models/api_models.dart';
 import '../../models/chat_history_models.dart';
 import '../../widgets/app_theme.dart';
+import '../../widgets/profile_avatar_button.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
@@ -753,6 +754,8 @@ class _ChatScreenState extends State<ChatScreen> {
               tooltip: 'Clear chat',
               onPressed: _startNewChat,
             ),
+          const SizedBox(width: 4),
+          const ProfileAvatarButton(diameter: 32),
         ],
       ),
     );

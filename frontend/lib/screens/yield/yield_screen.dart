@@ -40,6 +40,7 @@ import '../../app_lang.dart';
 import '../../models/api_models.dart';
 import '../../services/service_factory.dart';
 import '../../widgets/app_theme.dart';
+import '../../widgets/profile_avatar_button.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  District → GPS coordinates for Open-Meteo
@@ -1963,7 +1964,9 @@ class _YieldScreenState extends State<YieldScreen> {
               ),
             ),
           ),
-          _LangPill(),
+          const _LangPill(),
+          const SizedBox(width: 10),
+          const ProfileAvatarButton(),
         ],
       ),
     );

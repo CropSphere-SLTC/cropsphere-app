@@ -25,6 +25,7 @@ htmlcov/
 **/__pycache__/
 **/*.pyc
 backend/.coverage
+backend/.coverage.*
 
 # ── Node ────────────────────────────────────────────────────────────────────
 node_modules/

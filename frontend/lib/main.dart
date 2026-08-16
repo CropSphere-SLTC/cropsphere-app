@@ -25,13 +25,9 @@ import 'screens/demand/demand_screen.dart';
 import 'screens/recommend/recommend_screen.dart';
 import 'screens/chat/chat_screen.dart';
 import 'screens/admin/admin_shell.dart';
-import 'screens/profile/account_settings_screen.dart';
-import 'screens/profile/change_password_screen.dart';
 import 'services/admin_service.dart';
 import 'services/profile_service.dart';
-import 'services/session_service.dart';
 import 'models/profile_models.dart';
-import 'widgets/profile_avatar_button.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -127,10 +123,10 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   late final List<Widget> _screens = [
     DashboardScreen(onNavigate: _navigateTo), // 0
     YieldScreen(onNavigate: _navigateTo), // 1
-    const PriceScreen(), // 2
-    const WeatherScreen(), // 3
-    const RecommendScreen(), // 4
-    const DemandScreen(), // 5
+    PriceScreen(onNavigate: _navigateTo), // 2
+    WeatherScreen(onNavigate: _navigateTo), // 3
+    RecommendScreen(onNavigate: _navigateTo), // 4
+    DemandScreen(onNavigate: _navigateTo), // 5
     const ChatScreen(), // 6
   ];
 
@@ -207,22 +203,6 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     }
   }
 
-  void _openSettings() {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const AccountSettingsScreen()));
-  }
-
-  void _openChangePassword() {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const ChangePasswordScreen()));
-  }
-
-  void _onProfileUpdated(UserProfile updated) {
-    if (mounted) setState(() => _profile = updated);
-  }
-
   @override
   Widget build(BuildContext context) {
     // Hold the shell until we know whether this account is an admin, so an
@@ -243,10 +223,6 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         // checkAdminAccess() only confirms admin-or-above; the loaded profile
         // decides the tier. Default to 'admin' until the profile arrives.
         role: _profile?.role == 'superadmin' ? 'superadmin' : 'admin',
-        profile: _profile,
-        onProfileUpdated: _onProfileUpdated,
-        onOpenSettings: _openSettings,
-        onOpenChangePassword: _openChangePassword,
       );
     }
 
@@ -256,26 +232,6 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
     return Scaffold(
       backgroundColor: const Color(0xFFFAFFF5),
-      appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(52),
-        child: AppBar(
-          backgroundColor: AppTheme.primary,
-          elevation: 0,
-          automaticallyImplyLeading: false,
-          actions: [
-            Padding(
-              padding: const EdgeInsets.only(right: 12),
-              child: ProfileAvatarButton(
-                profile: _profile,
-                onProfileUpdated: _onProfileUpdated,
-                onOpenSettings: _openSettings,
-                onOpenChangePassword: _openChangePassword,
-                onLogout: SessionService.logout,
-              ),
-            ),
-          ],
-        ),
-      ),
       body: IndexedStack(index: safeIndex, children: _screens),
       bottomNavigationBar: _CropBottomNav(
         selectedIndex: safeIndex,

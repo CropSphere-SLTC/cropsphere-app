@@ -63,7 +63,6 @@ frontend/.firebase/
 frontend/applog.txt
 frontend/linux/flutter/generated_plugin_registrant.cc
 frontend/linux/flutter/generated_plugins.cmake
-
 # ── IDE ──────────────────────────────────────────────────────────────────────
 .vscode/
 .idea/

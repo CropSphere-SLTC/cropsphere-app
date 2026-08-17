@@ -27,6 +27,7 @@ import 'screens/chat/chat_screen.dart';
 import 'screens/admin/admin_shell.dart';
 import 'services/admin_service.dart';
 import 'services/profile_service.dart';
+import 'services/session_service.dart';
 import 'models/profile_models.dart';
 
 void main() async {
@@ -92,10 +93,45 @@ class _CropSphereAppState extends State<CropSphereApp> {
                 ),
               );
             }
-            return snapshot.hasData ? const MainShell() : const LoginScreen();
+            if (!snapshot.hasData) {
+              // Signed out (including the timer's own inactivity logout) —
+              // nothing left to auto-expire until the next sign-in.
+              SessionService.stopTimer();
+              return const LoginScreen();
+            }
+            // (Re)start the 15-minute inactivity timer for this session.
+            // Rebuilds here only happen on an actual auth-state change, so
+            // this doesn't restart the timer on every unrelated frame.
+            SessionService.startTimer();
+            return const _InactivityWatcher(child: MainShell());
           },
         ),
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  _InactivityWatcher — resets SessionService's 15-minute timer on any user
+//  interaction anywhere in the authenticated app. Only wraps the post-login
+//  subtree; LoginScreen has nothing to time out. Listener is used (not
+//  GestureDetector) so this observes taps/scrolls/pointer moves without
+//  consuming them — every existing gesture handler underneath still works.
+// ─────────────────────────────────────────────────────────────────────────────
+class _InactivityWatcher extends StatelessWidget {
+  final Widget child;
+  const _InactivityWatcher({required this.child});
+
+  void _bump([_]) => SessionService.resetTimer();
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: _bump,
+      onPointerMove: _bump,
+      onPointerSignal: _bump,
+      child: child,
     );
   }
 }

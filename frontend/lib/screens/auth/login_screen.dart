@@ -48,6 +48,7 @@ class _L {
       enterPassword,
       minPassword,
       enterName,
+      nameTooLong,
       passwordMismatch;
   // Password strength
   final String strWeak, strFair, strGood, strStrong, strVStrong;
@@ -99,6 +100,7 @@ class _L {
     required this.enterPassword,
     required this.minPassword,
     required this.enterName,
+    required this.nameTooLong,
     required this.passwordMismatch,
     required this.strWeak,
     required this.strFair,
@@ -157,6 +159,7 @@ const _lEn = _L(
   enterPassword: 'Enter password',
   minPassword: 'At least 6 characters',
   enterName: 'Enter your name',
+  nameTooLong: 'Name must be 100 characters or fewer',
   passwordMismatch: 'Passwords do not match',
   strWeak: 'Weak',
   strFair: 'Fair',
@@ -212,6 +215,7 @@ const _lSi = _L(
   enterPassword: 'මුරපදය ඇතුළු කරන්න',
   minPassword: 'අවම අකුරු 6ක්',
   enterName: 'නම ඇතුළු කරන්න',
+  nameTooLong: 'නම අකුරු 100කට වඩා අඩු විය යුතුය',
   passwordMismatch: 'මුරපද නොගැලපේ',
   strWeak: 'දුර්වල',
   strFair: 'සාධාරණ',
@@ -268,6 +272,7 @@ const _lTa = _L(
   enterPassword: 'கடவுச்சொல்லை உள்ளிடவும்',
   minPassword: 'குறைந்தது 6 எழுத்துக்கள்',
   enterName: 'உங்கள் பெயரை உள்ளிடவும்',
+  nameTooLong: 'பெயர் 100 எழுத்துக்களுக்கு மிகாமல் இருக்க வேண்டும்',
   passwordMismatch: 'கடவுச்சொற்கள் பொருந்தவில்லை',
   strWeak: 'பலவீனம்',
   strFair: 'சராசரி',
@@ -1048,7 +1053,13 @@ class _LoginScreenState extends State<LoginScreen>
             controller: _suNameCtrl,
             label: _s.fullName,
             icon: Icons.person_outline,
-            validator: (v) => (v?.trim().isEmpty ?? true) ? _s.enterName : null,
+            maxLength: 100,
+            validator: (v) {
+              final trimmed = v?.trim() ?? '';
+              if (trimmed.isEmpty) return _s.enterName;
+              if (trimmed.length > 100) return _s.nameTooLong;
+              return null;
+            },
           ),
           const SizedBox(height: 9),
           _field(
@@ -1150,12 +1161,14 @@ class _LoginScreenState extends State<LoginScreen>
     Widget? suffix,
     void Function(String)? onChanged,
     String? Function(String?)? validator,
+    int? maxLength,
   }) {
     return TextFormField(
       controller: controller,
       obscureText: obscure,
       keyboardType: keyboard,
       onChanged: onChanged,
+      maxLength: maxLength,
       style: const TextStyle(color: Colors.white, fontSize: 13),
       validator: validator,
       decoration: InputDecoration(

@@ -1714,6 +1714,24 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  /// Blocks automatic image fetches triggered by markdown `![alt](url)`
+  /// syntax in bot-authored text (answers, reasoning/sources/advisory).
+  /// That text originates from the backend/LLM, so an embedded image URL
+  /// (e.g. via prompt injection or a compromised RAG source) would
+  /// otherwise be fetched automatically as a NetworkImage — a
+  /// tracking-pixel / data-exfiltration vector. Rendered as a small inline
+  /// placeholder instead; no request is ever made for `uri`.
+  static Widget _blockedImageBuilder(Uri uri, String? title, String? alt) {
+    return Tooltip(
+      message: alt?.isNotEmpty == true ? alt! : 'Image blocked',
+      child: const Icon(
+        Icons.broken_image_outlined,
+        size: 16,
+        color: Colors.grey,
+      ),
+    );
+  }
+
   static final _answerStyleSheet = MarkdownStyleSheet(
     p: TextStyle(color: Colors.black87, fontSize: 14),
     strong: TextStyle(
@@ -1739,6 +1757,7 @@ class _ChatScreenState extends State<ChatScreen> {
         data: parsed.answer,
         softLineBreak: true,
         styleSheet: _answerStyleSheet,
+        imageBuilder: _blockedImageBuilder,
       );
     }
     final revealedLen = (msg['_revealedLen'] as int? ?? 0).clamp(
@@ -2415,6 +2434,7 @@ class _ChatScreenState extends State<ChatScreen> {
             child: MarkdownBody(
               data: text,
               softLineBreak: true,
+              imageBuilder: _blockedImageBuilder,
               styleSheet: MarkdownStyleSheet(
                 p: TextStyle(
                   fontSize: 11,

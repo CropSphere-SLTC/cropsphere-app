@@ -176,6 +176,16 @@ class _ProfileSheetState extends State<_ProfileSheet> {
       setState(() => _editingName = false);
       return;
     }
+    if (newName.length > 100) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Name must be 100 characters or fewer'),
+          backgroundColor: AppTheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     setState(() => _savingName = true);
     try {
       final confirmedName = await ProfileService().updateProfile(newName);
@@ -361,6 +371,7 @@ class _ProfileSheetState extends State<_ProfileSheet> {
             child: TextField(
               controller: _nameCtrl,
               autofocus: true,
+              maxLength: 100,
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
               decoration: const InputDecoration(
                 isDense: true,
@@ -368,6 +379,7 @@ class _ProfileSheetState extends State<_ProfileSheet> {
                   vertical: 6,
                   horizontal: 8,
                 ),
+                counterText: '',
               ),
               onSubmitted: (_) => _saveName(),
             ),

@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import '../../../models/admin_models.dart';
 import '../../../services/superadmin_service.dart';
 import '../../../widgets/app_theme.dart';
+import '../../../widgets/skeleton_loading.dart';
 import '../../admin/shared/admin_ui.dart';
 import '../../admin/shared/widgets/tuning_ui.dart';
 
@@ -161,9 +162,7 @@ class _AdjustmentDetailScreenState extends State<AdjustmentDetailScreen> {
 
   Widget _buildBody() {
     if (_loading) {
-      return const Center(
-        child: CircularProgressIndicator(color: AppTheme.primary),
-      );
+      return _buildSkeleton();
     }
     if (_error != null) {
       return Padding(
@@ -176,6 +175,44 @@ class _AdjustmentDetailScreenState extends State<AdjustmentDetailScreen> {
       return const AdminEmptyCard(message: 'Adjustment not found.');
     }
 
+    return _buildContent(data);
+  }
+
+  /// Gradient pattern — a single small doc, fast load, so a static
+  /// gradient block signals "loading" without shimmer/pulse feeling like
+  /// overkill for something that resolves almost instantly.
+  Widget _buildSkeleton() {
+    Widget card(int lines) => Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const GradientSkeletonBox(width: 140, height: 14),
+            const SizedBox(height: 14),
+            for (var i = 0; i < lines; i++) ...[
+              GradientSkeletonBox(height: 10, width: i.isEven ? null : 200),
+              const SizedBox(height: 8),
+            ],
+          ],
+        ),
+      ),
+    );
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        card(2),
+        const SizedBox(height: 16),
+        card(3),
+        const SizedBox(height: 16),
+        card(3),
+      ],
+    );
+  }
+
+  Widget _buildContent(AdjustmentAnalytics data) {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [

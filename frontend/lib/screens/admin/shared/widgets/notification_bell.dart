@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import '../../../../models/admin_models.dart';
 import '../../../../services/notification_service.dart';
 import '../../../../widgets/app_theme.dart';
+import '../../../../widgets/skeleton_loading.dart';
 import '../admin_ui.dart';
 
 /// How often the badge re-checks the unread count.
@@ -290,9 +291,7 @@ class _NotificationPanelState extends State<NotificationPanel> {
 
   Widget _buildBody() {
     if (_loading) {
-      return const Center(
-        child: CircularProgressIndicator(color: AppTheme.primary),
-      );
+      return _buildSkeleton();
     }
     if (_error) {
       return Center(
@@ -337,6 +336,35 @@ class _NotificationPanelState extends State<NotificationPanel> {
         separatorBuilder: (_, _) =>
             const Divider(height: 1, indent: 16, endIndent: 16),
         itemBuilder: (_, i) => _card(_items[i]),
+      ),
+    );
+  }
+
+  /// Staggered pattern — a list of notification cards, so rows fade/slide
+  /// in one after another instead of appearing as one flat block.
+  Widget _buildSkeleton() {
+    return StaggeredSkeletonList(
+      itemCount: 6,
+      shrinkWrap: true,
+      itemBuilder: (context, i) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SkeletonBox(width: 22, height: 22, radius: 11),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SkeletonBox(height: 12, width: i.isEven ? 180 : 130),
+                  const SizedBox(height: 8),
+                  const SkeletonBox(height: 10),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

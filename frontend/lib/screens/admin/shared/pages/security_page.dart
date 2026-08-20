@@ -8,6 +8,7 @@ import '../../../../models/admin_models.dart';
 import '../../../../services/admin_service.dart';
 import '../../../../services/superadmin_service.dart';
 import '../../../../widgets/app_theme.dart';
+import '../../../../widgets/skeleton_loading.dart';
 import '../admin_ui.dart';
 import '../widgets/data_table_card.dart';
 import '../widgets/search_filter_bar.dart';
@@ -165,9 +166,7 @@ class _SecurityPageState extends State<SecurityPage> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Center(
-        child: CircularProgressIndicator(color: AppTheme.primary),
-      );
+      return _buildSkeleton();
     }
     return RefreshIndicator(
       color: AppTheme.primary,
@@ -202,6 +201,38 @@ class _SecurityPageState extends State<SecurityPage> {
   }
 
   String _int(int? v) => v?.toString() ?? '—';
+
+  /// Cascade pattern — a heterogeneous mix of summary cards, several
+  /// tables and an event timeline (not a uniform grid), so blocks fade in
+  /// one after another rather than all breathing together as one flat page.
+  Widget _buildSkeleton() {
+    Widget tableCard(String title, int rows) => AdminSectionCard(
+      title: title,
+      child: StaggeredSkeletonList(
+        itemCount: rows,
+        shrinkWrap: true,
+        itemBuilder: (context, i) => const AdminTableRowSkeleton(cellCount: 3),
+      ),
+    );
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: CascadeSkeletonGroup(
+        children: [
+          const AdminStatCardsSkeleton(count: 4),
+          const SizedBox(height: 20),
+          tableCard('Failed logins', 4),
+          const SizedBox(height: 20),
+          tableCard('Rate limit violations', 4),
+          const SizedBox(height: 20),
+          tableCard('Banned attempts', 3),
+          const SizedBox(height: 20),
+          tableCard('Active sessions', 4),
+          const SizedBox(height: 20),
+          tableCard('Event timeline', 6),
+        ],
+      ),
+    );
+  }
 
   Widget _buildStatCards() {
     final s = _summary;

@@ -39,7 +39,10 @@ import 'package:http/http.dart' as http;
 import '../../app_lang.dart';
 import '../../models/api_models.dart';
 import '../../services/service_factory.dart';
+import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
+import '../../widgets/profile_avatar_button.dart';
+import '../../widgets/skeleton_loading.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  District → GPS coordinates for Open-Meteo
@@ -1963,7 +1966,9 @@ class _YieldScreenState extends State<YieldScreen> {
               ),
             ),
           ),
-          _LangPill(),
+          const _LangPill(),
+          const SizedBox(width: 10),
+          const ProfileAvatarButton(),
         ],
       ),
     );
@@ -2080,6 +2085,7 @@ class _YieldScreenState extends State<YieldScreen> {
         const SizedBox(height: 16),
         _inputChecklist(),
         const SizedBox(height: 10),
+        if (_isLoading) _resultSkeleton(),
         if (_errorMessage != null) _errorCard(),
         if (_result != null) _resultCard(),
       ],
@@ -2091,9 +2097,11 @@ class _YieldScreenState extends State<YieldScreen> {
     children: [
       _inputChecklist(),
       const SizedBox(height: 14),
+      if (_isLoading) ...[_resultSkeleton(), const SizedBox(height: 14)],
       if (_errorMessage != null) ...[_errorCard(), const SizedBox(height: 14)],
       if (_result != null) ...[_resultCard(), const SizedBox(height: 14)],
-      if (_result == null && _errorMessage == null) _emptyResultPlaceholder(),
+      if (_result == null && _errorMessage == null && !_isLoading)
+        _emptyResultPlaceholder(),
     ],
   );
 
@@ -2134,7 +2142,7 @@ class _YieldScreenState extends State<YieldScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
+              AnimatedLangText(
                 _ts({
                   'en': 'Yield Predictor',
                   'si': 'අස්වැන්න පුරෝකථකය',
@@ -2146,7 +2154,7 @@ class _YieldScreenState extends State<YieldScreen> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              Text(
+              AnimatedLangText(
                 _ts({
                   'en': 'AI-powered harvest estimate',
                   'si': 'AI-ශක්තිමත් අස්වැන්න ඇස්තමේන්තුව',
@@ -4156,6 +4164,17 @@ class _YieldScreenState extends State<YieldScreen> {
     ),
   );
 
+  /// Shown in place of the empty placeholder while a prediction is in
+  /// flight — the result card is text-heavy (headline yield figure +
+  /// narrative breakdown), so Typewriter fits: bars reveal left-to-right
+  /// like the eventual text being "written in".
+  Widget _resultSkeleton() => _card(
+    child: TypewriterSkeleton(
+      lineWidthFractions: const [0.5, 1.0, 0.9, 0.7, 0.85, 0.4],
+      lineHeight: 11,
+    ),
+  );
+
   // ── Reusable primitives ────────────────────────────────────────────────────
   Widget _card({required Widget child}) => Container(
     padding: const EdgeInsets.all(14),
@@ -4171,7 +4190,7 @@ class _YieldScreenState extends State<YieldScreen> {
     children: [
       Icon(icon, size: 16, color: AppTheme.primaryDark),
       const SizedBox(width: 6),
-      Text(
+      AnimatedLangText(
         title,
         style: const TextStyle(
           fontSize: 15,

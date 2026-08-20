@@ -6,6 +6,7 @@
 import 'package:flutter/material.dart';
 import '../../../../services/admin_service.dart';
 import '../../../../widgets/app_theme.dart';
+import '../../../../widgets/skeleton_loading.dart';
 import '../admin_ui.dart';
 import '../widgets/data_table_card.dart';
 import '../widgets/search_filter_bar.dart';
@@ -129,8 +130,13 @@ class _PredictionLogsPageState extends State<PredictionLogsPage> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Center(
-        child: CircularProgressIndicator(color: AppTheme.primary),
+      return const Padding(
+        padding: EdgeInsets.all(16),
+        child: AdminTableSkeleton(
+          rowCount: 8,
+          cellCount: 3,
+          showFilterBar: true,
+        ),
       );
     }
     final filtered = _filtered;

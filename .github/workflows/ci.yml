@@ -315,6 +315,60 @@ jobs:
         run: flutter pub outdated >> $GITHUB_STEP_SUMMARY
         continue-on-error: true   # Informational only
 
+      - name: Fail on major-version-behind direct dependencies
+        # Minor/patch drift is normal and stays non-blocking (the step above).
+        # A direct dependency a full major version behind is the kind of
+        # drift that quietly turns into a security or compatibility problem
+        # if nobody's watching pub outdated's step-summary output — so this
+        # one actually fails the job. Only "direct" (pubspec.yaml-declared)
+        # packages are checked; transitive drift is the direct package's
+        # problem to surface when it in turn updates.
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess, sys
+
+          result = subprocess.run(
+              ["flutter", "pub", "outdated", "--json"],
+              capture_output=True, text=True, check=True,
+          )
+          data = json.loads(result.stdout)
+
+          def major(version):
+              return int(version.split("+")[0].split("-")[0].split(".")[0])
+
+          behind = []
+          for pkg in data.get("packages", []):
+              if pkg.get("kind") != "direct":
+                  continue
+              current, latest = pkg.get("current"), pkg.get("latest")
+              if not current or not latest:
+                  continue
+              if major(latest["version"]) > major(current["version"]):
+                  behind.append((pkg["package"], current["version"], latest["version"]))
+
+          if behind:
+              lines = [
+                  "## ⚠️ Direct dependencies a major version behind",
+                  "",
+                  "| Package | Current | Latest |",
+                  "|---|---|---|",
+              ]
+              for name, cur, lat in behind:
+                  lines.append(f"| {name} | {cur} | {lat} |")
+                  print(
+                      f"::error title=Major version behind::{name} is on "
+                      f"{cur}, latest is {lat} — review breaking changes "
+                      "before upgrading (see pubspec.yaml)"
+                  )
+              summary = os.environ.get("GITHUB_STEP_SUMMARY")
+              if summary:
+                  with open(summary, "a") as f:
+                      f.write("\n".join(lines) + "\n")
+              sys.exit(1)
+
+          print("No direct dependency is a major version behind.")
+          PY
+
       - name: Dart format check
         run: dart format --output=none --set-exit-if-changed .
 

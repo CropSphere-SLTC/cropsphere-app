@@ -589,8 +589,8 @@ _HF_CACHE = os.environ.get("SENTENCE_TRANSFORMERS_HOME", "/app/hf_cache")
 
 # Groq model mapping
 _GROQ_MODELS = {
-    "fast": "llama-3.1-8b-instant",  # 3–5 seconds
-    "accurate": "llama-3.3-70b-versatile",  # 15–25 seconds
+    "fast": "openai/gpt-oss-20b",
+    "accurate": "openai/gpt-oss-120b",
 }
 
 
@@ -715,8 +715,9 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
                 response = client.chat.completions.create(
                     model=groq_model,
                     messages=messages,
-                    max_tokens=512,
+                    max_tokens=768,
                     temperature=0.7,
+                    reasoning_effort="low",
                 )
                 _emit_analytics(
                     req, clean, "reformulation", "Moderate confidence", None, start
@@ -846,8 +847,9 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
         response = client.chat.completions.create(
             model=groq_model,
             messages=messages,
-            max_tokens=512,
+            max_tokens=768,
             temperature=0.7,
+            reasoning_effort="low",
         )
         reply = response.choices[0].message.content
 
@@ -1017,8 +1019,9 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
                 stream = client.chat.completions.create(
                     model=groq_model,
                     messages=messages,
-                    max_tokens=512,
+                    max_tokens=768,
                     temperature=0.7,
+                    reasoning_effort="low",
                     stream=True,
                 )
                 for chunk in stream:
@@ -1191,8 +1194,9 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
         stream = client.chat.completions.create(
             model=groq_model,
             messages=messages,
-            max_tokens=512,
+            max_tokens=768,
             temperature=0.7,
+            reasoning_effort="low",
             stream=True,
         )
         for chunk in stream:

@@ -54,29 +54,61 @@ ENV PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu \
 # body and --retries does not cover it, so a warm pip cache is the mitigation.
 
 # Layer 1 — torch (CPU-only, cached across builds)
+#
+# The install is wrapped in a shell retry loop, not just "pip install".
+# --retries only covers connection-level failures; it does NOT cover a
+# ProtocolError/IncompleteRead where the stream dies mid-download (seen on
+# both this wheel and the tensorflow one below, on slow/flaky local
+# connections — see the note above). pip has no resume for a partial body,
+# so the only recourse is to re-run pip and let it re-download from scratch.
+# A clean success on Railway's datacenter network is unaffected either way.
 RUN --mount=type=cache,id=s/2ce5633d-e682-472f-86d7-3393212b702a-/root/.cache/pip,target=/root/.cache/pip \
-    pip install --timeout 600 --retries 10 \
-    torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
+    for i in 1 2 3 4 5; do \
+        pip install --timeout 600 --retries 10 \
+            torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu \
+        && break; \
+        echo "torch install failed (attempt $i/5), retrying in 10s..."; \
+        sleep 10; \
+        [ "$i" -eq 5 ] && exit 1; \
+    done
 
 # Layer 2 — tensorflow CPU-only (no CUDA bloat)
 RUN --mount=type=cache,id=s/2ce5633d-e682-472f-86d7-3393212b702a-/root/.cache/pip,target=/root/.cache/pip \
-    pip install --timeout 600 --retries 10 \
-    tensorflow-cpu==2.21.0
+    for i in 1 2 3 4 5; do \
+        pip install --timeout 600 --retries 10 \
+            tensorflow-cpu==2.21.0 \
+        && break; \
+        echo "tensorflow-cpu install failed (attempt $i/5), retrying in 10s..."; \
+        sleep 10; \
+        [ "$i" -eq 5 ] && exit 1; \
+    done
 
 # Layer 3 — heavy ML deps (cached across builds)
 RUN --mount=type=cache,id=s/2ce5633d-e682-472f-86d7-3393212b702a-/root/.cache/pip,target=/root/.cache/pip \
-    pip install --timeout 600 --retries 10 \
-    sentence-transformers==5.4.1 \
-    scikit-learn==1.8.0 \
-    xgboost==3.2.0 \
-    numpy==2.4.4 \
-    pandas==3.0.2 \
-    scipy==1.17.1
+    for i in 1 2 3 4 5; do \
+        pip install --timeout 600 --retries 10 \
+            sentence-transformers==5.4.1 \
+            scikit-learn==1.8.0 \
+            xgboost==3.2.0 \
+            numpy==2.4.4 \
+            pandas==3.0.2 \
+            scipy==1.17.1 \
+        && break; \
+        echo "ML deps install failed (attempt $i/5), retrying in 10s..."; \
+        sleep 10; \
+        [ "$i" -eq 5 ] && exit 1; \
+    done
 
 # Layer 4 — remaining app dependencies
 COPY requirements.txt .
 RUN --mount=type=cache,id=s/2ce5633d-e682-472f-86d7-3393212b702a-/root/.cache/pip,target=/root/.cache/pip \
-    pip install --timeout 600 --retries 10 -r requirements.txt
+    for i in 1 2 3 4 5; do \
+        pip install --timeout 600 --retries 10 -r requirements.txt \
+        && break; \
+        echo "requirements.txt install failed (attempt $i/5), retrying in 10s..."; \
+        sleep 10; \
+        [ "$i" -eq 5 ] && exit 1; \
+    done
 
 # NOTE: the old "re-force CPU torch" step that lived here was the root cause
 # of a corrupted install (torch 2.1.0+cpu files under torch 2.12.1 metadata,

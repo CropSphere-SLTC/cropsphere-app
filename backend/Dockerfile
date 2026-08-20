@@ -110,6 +110,20 @@ RUN dupes=$(ls -d /opt/venv/lib/python3.11/site-packages/*.dist-info \
 # ──────────────────────────────────────────────────────────
 FROM python:3.11-slim
 
+# ── Security: patch base-image util-linux CVEs ────────────────────────────
+# CVE-2026-53612/-53613/-53614/-53615 — all 4 fixed upstream in
+# 2.41.5-0+deb13u1 (this base image ships 2.41-5). Trivy reports this as 36
+# findings: 4 CVEs × 9 binary packages built from the same util-linux
+# source, not 36 distinct issues. Listed explicitly rather than relying on
+# apt to pull the shared libs in via util-linux's own dependency chain.
+# Must run before USER cropsphere below (apt needs root), and nothing later
+# in this stage touches apt or these files, so nothing can undo it.
+RUN apt-get update && \
+    apt-get install -y --only-upgrade \
+        util-linux bsdutils mount login \
+        libblkid1 libmount1 libsmartcols1 libuuid1 liblastlog2-2 && \
+    rm -rf /var/lib/apt/lists/*
+
 RUN groupadd -r cropsphere && useradd -r -g cropsphere cropsphere
 
 WORKDIR /app

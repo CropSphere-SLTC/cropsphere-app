@@ -56,36 +56,33 @@ List<File> _dartFilesUnder(String relativeDir) {
 
 void main() {
   group('Token storage — regression guards', () {
-    test(
-      'no lib/ file writes a token-shaped value to SharedPreferences',
-      () {
-        final offenders = <String>[];
-        for (final file in _dartFilesUnder('lib')) {
-          final text = file.readAsStringSync();
-          if (!text.contains('SharedPreferences')) continue;
-          // Any line that both touches SharedPreferences' write API and
-          // mentions "token" (case-insensitive) is the insecure pattern
-          // this guard exists to catch — SharedPreferences is unencrypted
-          // on-disk storage.
-          for (final line in text.split('\n')) {
-            final lower = line.toLowerCase();
-            final looksLikeWrite =
-                lower.contains('.setstring(') || lower.contains('.set(');
-            if (looksLikeWrite && lower.contains('token')) {
-              offenders.add('${file.path}: ${line.trim()}');
-            }
+    test('no lib/ file writes a token-shaped value to SharedPreferences', () {
+      final offenders = <String>[];
+      for (final file in _dartFilesUnder('lib')) {
+        final text = file.readAsStringSync();
+        if (!text.contains('SharedPreferences')) continue;
+        // Any line that both touches SharedPreferences' write API and
+        // mentions "token" (case-insensitive) is the insecure pattern
+        // this guard exists to catch — SharedPreferences is unencrypted
+        // on-disk storage.
+        for (final line in text.split('\n')) {
+          final lower = line.toLowerCase();
+          final looksLikeWrite =
+              lower.contains('.setstring(') || lower.contains('.set(');
+          if (looksLikeWrite && lower.contains('token')) {
+            offenders.add('${file.path}: ${line.trim()}');
           }
         }
-        expect(
-          offenders,
-          isEmpty,
-          reason:
-              'Found SharedPreferences write(s) that look like they persist '
-              'a token — SharedPreferences is unencrypted, tokens must not '
-              'be written there:\n${offenders.join('\n')}',
-        );
-      },
-    );
+      }
+      expect(
+        offenders,
+        isEmpty,
+        reason:
+            'Found SharedPreferences write(s) that look like they persist '
+            'a token — SharedPreferences is unencrypted, tokens must not '
+            'be written there:\n${offenders.join('\n')}',
+      );
+    });
 
     test(
       'flutter_secure_storage is not a dependency (removed as unused dead code)',
@@ -161,31 +158,28 @@ void main() {
       );
     });
 
-    test(
-      'SessionService.logout stops the inactivity timer and signs out',
-      () {
-        final text = File(
-          _join([_frontendRoot.path, 'lib/services/session_service.dart']),
-        ).readAsStringSync();
-        final logoutBody = RegExp(
-          r'static Future<void> logout\(\) async \{([\s\S]*?)\n  \}',
-        ).firstMatch(text)?.group(1);
-        expect(
-          logoutBody,
-          isNotNull,
-          reason: 'Could not find SessionService.logout() — has it moved?',
-        );
-        expect(
-          logoutBody!.contains('stopTimer()'),
-          isTrue,
-          reason: 'logout() must stop the inactivity timer.',
-        );
-        expect(
-          logoutBody.contains('FirebaseAuth.instance.signOut()'),
-          isTrue,
-          reason: 'logout() must sign out of Firebase.',
-        );
-      },
-    );
+    test('SessionService.logout stops the inactivity timer and signs out', () {
+      final text = File(
+        _join([_frontendRoot.path, 'lib/services/session_service.dart']),
+      ).readAsStringSync();
+      final logoutBody = RegExp(
+        r'static Future<void> logout\(\) async \{([\s\S]*?)\n  \}',
+      ).firstMatch(text)?.group(1);
+      expect(
+        logoutBody,
+        isNotNull,
+        reason: 'Could not find SessionService.logout() — has it moved?',
+      );
+      expect(
+        logoutBody!.contains('stopTimer()'),
+        isTrue,
+        reason: 'logout() must stop the inactivity timer.',
+      );
+      expect(
+        logoutBody.contains('FirebaseAuth.instance.signOut()'),
+        isTrue,
+        reason: 'logout() must sign out of Firebase.',
+      );
+    });
   });
 }

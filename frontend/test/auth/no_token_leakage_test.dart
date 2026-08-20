@@ -80,56 +80,47 @@ void main() {
       },
     );
 
-    test(
-      'no print()/debugPrint() call logs a literal "Bearer " value',
-      () {
-        // Catches the shape 'Bearer $x' even if x isn't named anything
-        // token-like — the "Bearer " prefix itself is the tell.
-        final offenders = <String>[];
-        for (final file in _dartFilesUnderLib()) {
-          final lines = file.readAsStringSync().split('\n');
-          for (var i = 0; i < lines.length; i++) {
-            final line = lines[i];
-            if (!_printCallPattern.hasMatch(line)) continue;
-            if (line.contains('Bearer')) {
-              offenders.add('${file.path}:${i + 1}: ${line.trim()}');
-            }
+    test('no print()/debugPrint() call logs a literal "Bearer " value', () {
+      // Catches the shape 'Bearer $x' even if x isn't named anything
+      // token-like — the "Bearer " prefix itself is the tell.
+      final offenders = <String>[];
+      for (final file in _dartFilesUnderLib()) {
+        final lines = file.readAsStringSync().split('\n');
+        for (var i = 0; i < lines.length; i++) {
+          final line = lines[i];
+          if (!_printCallPattern.hasMatch(line)) continue;
+          if (line.contains('Bearer')) {
+            offenders.add('${file.path}:${i + 1}: ${line.trim()}');
           }
         }
-        expect(
-          offenders,
-          isEmpty,
-          reason:
-              'Found a print()/debugPrint() call that logs something '
-              'containing "Bearer":\n${offenders.join('\n')}',
-        );
-      },
-    );
+      }
+      expect(
+        offenders,
+        isEmpty,
+        reason:
+            'Found a print()/debugPrint() call that logs something '
+            'containing "Bearer":\n${offenders.join('\n')}',
+      );
+    });
 
-    test(
-      'the Authorization header is only ever set, never logged',
-      () {
-        // A regression guard specifically on auth_interceptor.dart, the one
-        // place every request's Authorization header is assembled — the
-        // highest-value place a leak could be introduced.
-        final text = File(
-          _join([
-            _frontendRoot.path,
-            'lib/services/auth_interceptor.dart',
-          ]),
-        ).readAsStringSync();
-        final loggingLines = text
-            .split('\n')
-            .where((l) => _printCallPattern.hasMatch(l))
-            .toList();
-        expect(
-          loggingLines,
-          isEmpty,
-          reason:
-              'auth_interceptor.dart should have no logging calls at all — '
-              'found: ${loggingLines.join(' | ')}',
-        );
-      },
-    );
+    test('the Authorization header is only ever set, never logged', () {
+      // A regression guard specifically on auth_interceptor.dart, the one
+      // place every request's Authorization header is assembled — the
+      // highest-value place a leak could be introduced.
+      final text = File(
+        _join([_frontendRoot.path, 'lib/services/auth_interceptor.dart']),
+      ).readAsStringSync();
+      final loggingLines = text
+          .split('\n')
+          .where((l) => _printCallPattern.hasMatch(l))
+          .toList();
+      expect(
+        loggingLines,
+        isEmpty,
+        reason:
+            'auth_interceptor.dart should have no logging calls at all — '
+            'found: ${loggingLines.join(' | ')}',
+      );
+    });
   });
 }

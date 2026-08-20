@@ -87,7 +87,10 @@ void main() {
 
       expect(response.statusCode, 200);
       expect(refreshCalls, 1);
-      expect(authHeadersSeen, ['Bearer initial-token', 'Bearer refreshed-token']);
+      expect(authHeadersSeen, [
+        'Bearer initial-token',
+        'Bearer refreshed-token',
+      ]);
     });
 
     test(
@@ -128,79 +131,77 @@ void main() {
       },
     );
 
-    test(
-      'concurrent requests failing with 401 at the same time',
-      () async {
-        final (server, baseUrl) = await _startServer((req, index) async {
-          final auth = req.headers.value('authorization');
-          if (auth == 'Bearer refreshed-token') {
-            req.response
-              ..statusCode = 200
-              ..write('{"ok":true}');
-          } else {
-            req.response.statusCode = 401;
-          }
-          await req.response.close();
-        });
-        addTearDown(() => server.close(force: true));
+    test('concurrent requests failing with 401 at the same time', () async {
+      final (server, baseUrl) = await _startServer((req, index) async {
+        final auth = req.headers.value('authorization');
+        if (auth == 'Bearer refreshed-token') {
+          req.response
+            ..statusCode = 200
+            ..write('{"ok":true}');
+        } else {
+          req.response.statusCode = 401;
+        }
+        await req.response.close();
+      });
+      addTearDown(() => server.close(force: true));
 
-        final dio = Dio(BaseOptions(baseUrl: baseUrl));
-        var refreshCalls = 0;
-        // See the happy-path test above for why readToken must track
-        // refreshToken's result — without it, Dio's retry re-runs
-        // onRequest, clobbers the header back to a token the server will
-        // 401 again, and each retry recurses back into onError with no
-        // depth limit (empirically: a 30s hang, not a clean failure).
-        var currentToken = 'initial-token';
-        dio.interceptors.add(
-          firebaseAuthInterceptor(
-            dio,
-            readToken: () async => currentToken,
-            refreshToken: () async {
-              refreshCalls++;
-              // A real getIdToken(true) is a network round-trip, not
-              // instantaneous — without some delay here, this fake resolves
-              // before the other concurrently-failing requests even reach
-              // onError, so there's no real "stampede window" for the
-              // shared-refresh guard to prove it closes.
-              await Future.delayed(const Duration(milliseconds: 20));
-              currentToken = 'refreshed-token';
-              return currentToken;
-            },
-            onRefreshFailure: (_) async {},
-          ),
-        );
+      final dio = Dio(BaseOptions(baseUrl: baseUrl));
+      var refreshCalls = 0;
+      // See the happy-path test above for why readToken must track
+      // refreshToken's result — without it, Dio's retry re-runs
+      // onRequest, clobbers the header back to a token the server will
+      // 401 again, and each retry recurses back into onError with no
+      // depth limit (empirically: a 30s hang, not a clean failure).
+      var currentToken = 'initial-token';
+      dio.interceptors.add(
+        firebaseAuthInterceptor(
+          dio,
+          readToken: () async => currentToken,
+          refreshToken: () async {
+            refreshCalls++;
+            // A real getIdToken(true) is a network round-trip, not
+            // instantaneous — without some delay here, this fake resolves
+            // before the other concurrently-failing requests even reach
+            // onError, so there's no real "stampede window" for the
+            // shared-refresh guard to prove it closes.
+            await Future.delayed(const Duration(milliseconds: 20));
+            currentToken = 'refreshed-token';
+            return currentToken;
+          },
+          onRefreshFailure: (_) async {},
+        ),
+      );
 
-        const concurrentRequests = 5;
-        final results = await Future.wait([
-          for (var i = 0; i < concurrentRequests; i++) dio.get('/resource'),
-        ]).timeout(
-          const Duration(seconds: 5),
-          onTimeout: () => throw TimeoutException(
-            'Concurrent requests did not settle within 5s — possible '
-            'unbounded retry recursion in the interceptor '
-            '(onError -> dio.fetch -> onError -> ...).',
-          ),
-        );
+      const concurrentRequests = 5;
+      final results =
+          await Future.wait([
+            for (var i = 0; i < concurrentRequests; i++) dio.get('/resource'),
+          ]).timeout(
+            const Duration(seconds: 5),
+            onTimeout: () => throw TimeoutException(
+              'Concurrent requests did not settle within 5s — possible '
+              'unbounded retry recursion in the interceptor '
+              '(onError -> dio.fetch -> onError -> ...).',
+            ),
+          );
 
-        // All requests still succeed either way — this is about efficiency,
-        // not correctness of the end result.
-        expect(results.every((r) => r.statusCode == 200), isTrue);
+      // All requests still succeed either way — this is about efficiency,
+      // not correctness of the end result.
+      expect(results.every((r) => r.statusCode == 200), isTrue);
 
-        // auth_interceptor.dart shares one in-flight refresh across every
-        // concurrently-failing request (module-level _inFlightRefresh) —
-        // N requests hitting 401 at once trigger exactly one refresh, not N.
-        expect(
-          refreshCalls,
-          1,
-          reason:
-              'Expected $concurrentRequests concurrently-failing requests to '
-              'share a single refresh; got $refreshCalls refreshToken() '
-              'calls instead — the shared in-flight guard may have '
-              'regressed.',
-        );
-      },
-    );
+      // auth_interceptor.dart shares one in-flight refresh across every
+      // concurrently-failing request (module-level _inFlightRefresh) —
+      // N requests hitting 401 at once trigger exactly one refresh, not N.
+      expect(
+        refreshCalls,
+        1,
+        reason:
+            'Expected $concurrentRequests concurrently-failing requests to '
+            'share a single refresh; got $refreshCalls refreshToken() '
+            'calls instead — the shared in-flight guard may have '
+            'regressed.',
+      );
+    });
 
     test(
       'a retried request that also comes back 401 does not recurse indefinitely',
@@ -249,78 +250,81 @@ void main() {
     );
   });
 
-  group('Auto-logout — session_recovery.endSessionIfRevoked as the real onRefreshFailure', () {
-    test(
-      'a refresh failure NOT caused by a dead session does not sign out (and does not crash)',
-      () async {
-        final (server, baseUrl) = await _startServer((req, index) async {
-          req.response.statusCode = 401;
-          await req.response.close();
-        });
-        addTearDown(() => server.close(force: true));
+  group(
+    'Auto-logout — session_recovery.endSessionIfRevoked as the real onRefreshFailure',
+    () {
+      test(
+        'a refresh failure NOT caused by a dead session does not sign out (and does not crash)',
+        () async {
+          final (server, baseUrl) = await _startServer((req, index) async {
+            req.response.statusCode = 401;
+            await req.response.close();
+          });
+          addTearDown(() => server.close(force: true));
 
-        final dio = Dio(BaseOptions(baseUrl: baseUrl));
-        dio.interceptors.add(
-          firebaseAuthInterceptor(
-            dio,
-            readToken: () async => 'initial-token',
-            refreshToken: () async => throw FirebaseAuthException(
-              code: 'network-request-failed',
-              message: 'transient network blip',
+          final dio = Dio(BaseOptions(baseUrl: baseUrl));
+          dio.interceptors.add(
+            firebaseAuthInterceptor(
+              dio,
+              readToken: () async => 'initial-token',
+              refreshToken: () async => throw FirebaseAuthException(
+                code: 'network-request-failed',
+                message: 'transient network blip',
+              ),
+              // The REAL production function, not a fake.
+              onRefreshFailure: endSessionIfRevoked,
             ),
-            // The REAL production function, not a fake.
-            onRefreshFailure: endSessionIfRevoked,
-          ),
-        );
+          );
 
-        // A transient error must not be treated as "session over": the
-        // request still fails (401 stands), but nothing should throw out of
-        // endSessionIfRevoked itself.
-        await expectLater(
-          () => dio.get('/resource'),
-          throwsA(isA<DioException>()),
-        );
-      },
-    );
+          // A transient error must not be treated as "session over": the
+          // request still fails (401 stands), but nothing should throw out of
+          // endSessionIfRevoked itself.
+          await expectLater(
+            () => dio.get('/resource'),
+            throwsA(isA<DioException>()),
+          );
+        },
+      );
 
-    test(
-      'a dead-session refresh failure is handled gracefully (does not crash the request)',
-      () async {
-        // NOTE — coverage limitation: endSessionIfRevoked's "true" branch
-        // calls FirebaseAuth.instance.signOut(), and FirebaseAuth.instance
-        // cannot be constructed in a plain flutter_test VM (no Firebase app
-        // registered, no platform channels) — it throws synchronously.
-        // endSessionIfRevoked catches that internally and returns false, so
-        // this test can only prove the request pipeline survives a
-        // dead-session code without crashing — NOT that a real dead session
-        // actually signs the user out. Proving that needs Firebase test
-        // scaffolding (e.g. the firebase_auth_mocks package) that isn't a
-        // project dependency; flagged in the final report rather than added
-        // here without asking.
-        final (server, baseUrl) = await _startServer((req, index) async {
-          req.response.statusCode = 401;
-          await req.response.close();
-        });
-        addTearDown(() => server.close(force: true));
+      test(
+        'a dead-session refresh failure is handled gracefully (does not crash the request)',
+        () async {
+          // NOTE — coverage limitation: endSessionIfRevoked's "true" branch
+          // calls FirebaseAuth.instance.signOut(), and FirebaseAuth.instance
+          // cannot be constructed in a plain flutter_test VM (no Firebase app
+          // registered, no platform channels) — it throws synchronously.
+          // endSessionIfRevoked catches that internally and returns false, so
+          // this test can only prove the request pipeline survives a
+          // dead-session code without crashing — NOT that a real dead session
+          // actually signs the user out. Proving that needs Firebase test
+          // scaffolding (e.g. the firebase_auth_mocks package) that isn't a
+          // project dependency; flagged in the final report rather than added
+          // here without asking.
+          final (server, baseUrl) = await _startServer((req, index) async {
+            req.response.statusCode = 401;
+            await req.response.close();
+          });
+          addTearDown(() => server.close(force: true));
 
-        final dio = Dio(BaseOptions(baseUrl: baseUrl));
-        dio.interceptors.add(
-          firebaseAuthInterceptor(
-            dio,
-            readToken: () async => 'initial-token',
-            refreshToken: () async => throw FirebaseAuthException(
-              code: 'user-token-expired',
-              message: 'refresh token revoked by a force-logout',
+          final dio = Dio(BaseOptions(baseUrl: baseUrl));
+          dio.interceptors.add(
+            firebaseAuthInterceptor(
+              dio,
+              readToken: () async => 'initial-token',
+              refreshToken: () async => throw FirebaseAuthException(
+                code: 'user-token-expired',
+                message: 'refresh token revoked by a force-logout',
+              ),
+              onRefreshFailure: endSessionIfRevoked,
             ),
-            onRefreshFailure: endSessionIfRevoked,
-          ),
-        );
+          );
 
-        await expectLater(
-          () => dio.get('/resource'),
-          throwsA(isA<DioException>()),
-        );
-      },
-    );
-  });
+          await expectLater(
+            () => dio.get('/resource'),
+            throwsA(isA<DioException>()),
+          );
+        },
+      );
+    },
+  );
 }

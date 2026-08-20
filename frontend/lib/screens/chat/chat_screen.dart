@@ -605,14 +605,14 @@ class _ChatScreenState extends State<ChatScreen> {
                   (bubble['content'] as String) +
                   (event['content'] as String? ?? '');
             });
-            // No scroll call here — network chunks arrive in bursty,
-            // irregular batches, and animating to bottom on each one used to
-            // restart an in-flight 400ms scroll animation before it settled,
-            // reading as a stutter. The buffered reveal timer below now
-            // owns auto-scroll: it advances on a steady 16ms tick that
-            // matches what's actually growing on screen, and jumps rather
-            // than animates while live so the view tracks the caret exactly
-            // instead of chasing it in restarted bursts.
+          // No scroll call here — network chunks arrive in bursty,
+          // irregular batches, and animating to bottom on each one used to
+          // restart an in-flight 400ms scroll animation before it settled,
+          // reading as a stutter. The buffered reveal timer below now
+          // owns auto-scroll: it advances on a steady 16ms tick that
+          // matches what's actually growing on screen, and jumps rather
+          // than animates while live so the view tracks the caret exactly
+          // instead of chasing it in restarted bursts.
           case 'metadata':
             final convId = event['conversation_id'] as String? ?? '';
             final isNewConversation =

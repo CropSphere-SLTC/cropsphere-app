@@ -64,10 +64,7 @@ Directory _findFrontendRoot() {
 /// of a hand-maintained copy that could silently drift from it.
 Set<AdminPage> _extractSuperOnlyPagesFromSource() {
   final text = File(
-    _join([
-      _findFrontendRoot().path,
-      'lib/screens/admin/admin_shell.dart',
-    ]),
+    _join([_findFrontendRoot().path, 'lib/screens/admin/admin_shell.dart']),
   ).readAsStringSync();
 
   final body = RegExp(
@@ -88,19 +85,14 @@ Set<AdminPage> _extractSuperOnlyPagesFromSource() {
     r'AdminPage\.(\w+)',
   ).allMatches(body).map((m) => m.group(1)!).toSet();
 
-  return AdminPage.values
-      .where((p) => pageNames.contains(p.name))
-      .toSet();
+  return AdminPage.values.where((p) => pageNames.contains(p.name)).toSet();
 }
 
 /// Confirms _select() actually applies the guard before allowing navigation
 /// (as opposed to _isSuperOnly() existing but never being consulted).
 void _expectSelectChecksTheGuard() {
   final text = File(
-    _join([
-      _findFrontendRoot().path,
-      'lib/screens/admin/admin_shell.dart',
-    ]),
+    _join([_findFrontendRoot().path, 'lib/screens/admin/admin_shell.dart']),
   ).readAsStringSync();
 
   final selectBody = RegExp(
@@ -130,20 +122,17 @@ void main() {
       _expectSelectChecksTheGuard();
     });
 
-    test(
-      'the guard is non-empty — it actually restricts something',
-      () {
-        expect(
-          superOnlyPages,
-          isNotEmpty,
-          reason:
-              '_isSuperOnly() matched no AdminPage values — either the '
-              'regex above needs updating for a source change, or the '
-              'guard has been emptied out and every admin page is now '
-              'reachable by a plain admin.',
-        );
-      },
-    );
+    test('the guard is non-empty — it actually restricts something', () {
+      expect(
+        superOnlyPages,
+        isNotEmpty,
+        reason:
+            '_isSuperOnly() matched no AdminPage values — either the '
+            'regex above needs updating for a source change, or the '
+            'guard has been emptied out and every admin page is now '
+            'reachable by a plain admin.',
+      );
+    });
 
     // Mirrors AdminShell._select()'s exact condition:
     //   if (!_isSuper && _isSuperOnly(page)) return;
@@ -154,24 +143,18 @@ void main() {
 
     for (final page in AdminPage.values) {
       final isSuperOnly = superOnlyPages.contains(page);
-      test(
-        'role WITHOUT permission (admin) on ${page.name}: '
-        '${isSuperOnly ? "blocked" : "allowed"}',
-        () {
-          expect(
-            blockedFor(isSuper: false, isSuperOnly: isSuperOnly),
-            isSuperOnly,
-          );
-        },
-      );
+      test('role WITHOUT permission (admin) on ${page.name}: '
+          '${isSuperOnly ? "blocked" : "allowed"}', () {
+        expect(
+          blockedFor(isSuper: false, isSuperOnly: isSuperOnly),
+          isSuperOnly,
+        );
+      });
 
       test(
         'role WITH permission (superadmin) on ${page.name}: always allowed',
         () {
-          expect(
-            blockedFor(isSuper: true, isSuperOnly: isSuperOnly),
-            isFalse,
-          );
+          expect(blockedFor(isSuper: true, isSuperOnly: isSuperOnly), isFalse);
         },
       );
     }
@@ -184,10 +167,6 @@ void main() {
     // guard can be driven into — its real boundary here is
     // admin-vs-superadmin, not user-vs-admin. Recorded so that's explicit
     // rather than assumed.
-    test(
-      'the "user" role never reaches AdminShell at all',
-      () {},
-      skip: true,
-    );
+    test('the "user" role never reaches AdminShell at all', () {}, skip: true);
   });
 }

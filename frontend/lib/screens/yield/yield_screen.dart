@@ -35,12 +35,14 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import '../../app_lang.dart';
 import '../../models/api_models.dart';
 import '../../services/service_factory.dart';
+import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
+import '../../widgets/profile_avatar_button.dart';
+import '../../widgets/skeleton_loading.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  District → GPS coordinates for Open-Meteo
@@ -63,6 +65,7 @@ const Map<String, List<double>> _districtCoords = {
 double _haToPerches(double ha) => ha * 395.3686;
 double _haToAcres(double ha) => ha * 2.47105;
 double _perchesToHa(double p) => p / 395.3686;
+double _acresToHa(double a) => a / 2.47105;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Weather data model (from Open-Meteo)
@@ -809,7 +812,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
         },
         caution: {
           'en': 'Wear mask. Harvest gap: 7 days.',
-          'si': 'මාස්ක් පළඳින්න. අස்வனு ගැළපීම: දින 7.',
+          'si': 'මාස්ක් පළඳින්න. අස்வனු ගැළපීම: දින 7.',
           'ta': 'முககவசம் அணியுங்கள். அறுவடை இடைவெளி: 7 நாட்கள்.',
         },
         color: Color(0xFF7B1FA2),
@@ -1541,35 +1544,6 @@ int _weekOfYear() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Display labels for crop / district — the English key stays the value used
-//  everywhere internally (soil recs, prediction request, district mapping);
-//  only what's shown in dropdowns/chips is translated.
-// ─────────────────────────────────────────────────────────────────────────────
-const Map<String, _L> _cropLabels = {
-  'Carrot': {'en': 'Carrot', 'si': 'කැරට්', 'ta': 'கேரட்'},
-  'Maize': {'en': 'Maize', 'si': 'ඉරිඟු', 'ta': 'மக்காச்சோளம்'},
-  'Green gram': {'en': 'Green gram', 'si': 'මුං ඇට', 'ta': 'பச்சைப்பயறு'},
-  'Cowpea': {'en': 'Cowpea', 'si': 'කව්පි', 'ta': 'அவரை'},
-  'Finger millet': {'en': 'Finger millet', 'si': 'කුරක්කන්', 'ta': 'கேழ்வரகு'},
-  'Groundnut': {'en': 'Groundnut', 'si': 'රටකජු', 'ta': 'வேர்க்கடலை'},
-};
-
-const Map<String, _L> _districtLabels = {
-  'Nuwara Eliya': {'en': 'Nuwara Eliya', 'si': 'නුවරඑළිය', 'ta': 'நுவரெலியா'},
-  'Badulla': {'en': 'Badulla', 'si': 'බදුල්ල', 'ta': 'பதுளை'},
-  'Anuradhapura': {
-    'en': 'Anuradhapura',
-    'si': 'අනුරාධපුරය',
-    'ta': 'அனுராதபுரம்',
-  },
-  'Monaragala': {'en': 'Monaragala', 'si': 'මොණරාගල', 'ta': 'மொணராகலை'},
-  'Ampara': {'en': 'Ampara', 'si': 'අම්පාර', 'ta': 'அம்பாறை'},
-  'Hambantota': {'en': 'Hambantota', 'si': 'හම්බන්තොට', 'ta': 'ஹம்பாந்தோட்டை'},
-  'Batticaloa': {'en': 'Batticaloa', 'si': 'මඩකලපුව', 'ta': 'மட்டக்களப்பு'},
-  'Jaffna': {'en': 'Jaffna', 'si': 'යාපනය', 'ta': 'யாழ்ப்பாணம்'},
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
 //  YieldScreen
 // ─────────────────────────────────────────────────────────────────────────────
 class YieldScreen extends StatefulWidget {
@@ -1585,45 +1559,19 @@ class YieldScreen extends StatefulWidget {
   State<YieldScreen> createState() => _YieldScreenState();
 }
 
-class _YieldScreenState extends State<YieldScreen>
-    with SingleTickerProviderStateMixin {
-  // ── Section tabs: "Enter Details" and "Soil Guide" ─────────────────────────
-  late final TabController _tabController = TabController(
-    length: 2,
-    vsync: this,
-  );
-
+class _YieldScreenState extends State<YieldScreen> {
   // ── Selections ─────────────────────────────────────────────────────────────
   String? _selectedCrop;
   String? _selectedDistrict;
   String? _selectedSeason;
   String? _selectedIrrigation; // raw value key e.g. 'drip'
 
-  // ── Area — stored in perches internally, displayed in the user's chosen unit ─
-  // Defaults to "1" in whichever unit is selected (1 perch / 1 acre / 1 hectare)
-  // — conversion math itself is unchanged, only the starting display value.
-  double _areaPerches = 1.0;
-  String _areaUnit = 'perches'; // 'perches' | 'acres' | 'hectares'
-  final _areaValueCtrl = TextEditingController(text: '1');
+  // ── Area — stored in perches internally ────────────────────────────────────
+  double _areaPerches = 160.0;
+  final _perchesCtrl = TextEditingController(text: '160');
+  final _acresCtrl = TextEditingController(text: '1.00');
+  final _hectCtrl = TextEditingController(text: '0.405');
   bool _areaUpdating = false; // prevents recursive controller updates
-
-  static const List<Map<String, Object>> _areaUnits = [
-    {
-      'code': 'perches',
-      'label': {'en': 'Perches', 'si': 'පර්ච', 'ta': 'பர்ச்'},
-      'decimals': 1,
-    },
-    {
-      'code': 'acres',
-      'label': {'en': 'Acres', 'si': 'අක්කර', 'ta': 'ஏக்கர்'},
-      'decimals': 3,
-    },
-    {
-      'code': 'hectares',
-      'label': {'en': 'Hectares', 'si': 'හෙක්ටෙයාර්', 'ta': 'ஹெக்டேர்'},
-      'decimals': 4,
-    },
-  ];
 
   // ── Weather ────────────────────────────────────────────────────────────────
   _WeatherData? _weather;
@@ -1679,79 +1627,54 @@ class _YieldScreenState extends State<YieldScreen>
   String _t(_L m) => m[_langKey] ?? m['en']!;
   String _ts(Map<String, String> m) => m[_langKey] ?? m['en']!;
 
-  // Translated display labels — the underlying English value (used for all
-  // lookups: soil recs, district mapping, the prediction request) never changes.
-  String _cropLabel(String crop) =>
-      _cropLabels.containsKey(crop) ? _t(_cropLabels[crop]!) : crop;
-  String _districtLabel(String district) =>
-      _districtLabels.containsKey(district)
-      ? _t(_districtLabels[district]!)
-      : district;
-
   @override
   void initState() {
     super.initState();
-    _areaValueCtrl.addListener(_onAreaValueChanged);
+    _perchesCtrl.addListener(_onPerchesChanged);
+    _acresCtrl.addListener(_onAcresChanged);
+    _hectCtrl.addListener(_onHectChanged);
   }
 
   @override
   void dispose() {
-    _tabController.dispose();
-    _areaValueCtrl.dispose();
+    _perchesCtrl.dispose();
+    _acresCtrl.dispose();
+    _hectCtrl.dispose();
     super.dispose();
   }
 
-  // ── Area unit conversion helpers ───────────────────────────────────────────
-  double _unitToPerches(double value, String unit) {
-    switch (unit) {
-      case 'acres':
-        return value * 160.0;
-      case 'hectares':
-        return _haToPerches(value);
-      default:
-        return value;
-    }
-  }
-
-  double _perchesToUnit(double perches, String unit) {
-    switch (unit) {
-      case 'acres':
-        return perches / 160.0;
-      case 'hectares':
-        return _perchesToHa(perches);
-      default:
-        return perches;
-    }
-  }
-
-  int _decimalsFor(String unit) =>
-      (_areaUnits.firstWhere((u) => u['code'] == unit)['decimals'] as int);
-
-  Map<String, String> _unitLabelFor(String unit) =>
-      (_areaUnits.firstWhere((u) => u['code'] == unit)['label']
-          as Map<String, String>);
-
-  // ── Area text field listener — single field, user-selected unit ───────────
-  void _onAreaValueChanged() {
+  // ── Area text field listeners ──────────────────────────────────────────────
+  void _onPerchesChanged() {
     if (_areaUpdating) return;
-    final v = double.tryParse(_areaValueCtrl.text);
+    final v = double.tryParse(_perchesCtrl.text);
     if (v == null || v <= 0) return;
     _areaUpdating = true;
-    setState(() => _areaPerches = _unitToPerches(v, _areaUnit));
+    setState(() => _areaPerches = v);
+    _acresCtrl.text = _haToAcres(_perchesToHa(v)).toStringAsFixed(3);
+    _hectCtrl.text = _perchesToHa(v).toStringAsFixed(4);
     _areaUpdating = false;
   }
 
-  // Switching units always resets the field to "1" of the newly-selected
-  // unit (1 perch / 1 acre / 1 hectare) rather than converting the old
-  // value — the underlying conversion math (_unitToPerches) is unchanged.
-  void _onAreaUnitChanged(String newUnit) {
-    if (newUnit == _areaUnit) return;
+  void _onAcresChanged() {
+    if (_areaUpdating) return;
+    final v = double.tryParse(_acresCtrl.text);
+    if (v == null || v <= 0) return;
     _areaUpdating = true;
-    setState(() {
-      _areaUnit = newUnit;
-      _areaPerches = _unitToPerches(1, newUnit);
-    });
-    _areaValueCtrl.text = '1';
+    final ha = _acresToHa(v);
+    setState(() => _areaPerches = _haToPerches(ha));
+    _perchesCtrl.text = _haToPerches(ha).toStringAsFixed(1);
+    _hectCtrl.text = ha.toStringAsFixed(4);
+    _areaUpdating = false;
+  }
+
+  void _onHectChanged() {
+    if (_areaUpdating) return;
+    final v = double.tryParse(_hectCtrl.text);
+    if (v == null || v <= 0) return;
+    _areaUpdating = true;
+    setState(() => _areaPerches = _haToPerches(v));
+    _perchesCtrl.text = _haToPerches(v).toStringAsFixed(1);
+    _acresCtrl.text = _haToAcres(v).toStringAsFixed(3);
     _areaUpdating = false;
   }
 
@@ -1925,13 +1848,13 @@ class _YieldScreenState extends State<YieldScreen>
         final w = bc.maxWidth;
         return Column(
           children: [
-            _buildTopBar(context, w),
-            _buildSectionTabBar(w),
+            _buildTopBar(context),
             Expanded(
-              child: TabBarView(
-                controller: _tabController,
-                children: [_buildDetailsTab(w), _buildSoilGuideTab(w)],
-              ),
+              child: w >= 960
+                  ? _buildWebLayout()
+                  : w >= 600
+                  ? _buildTabletLayout()
+                  : _buildMobileLayout(),
             ),
           ],
         );
@@ -1939,228 +1862,8 @@ class _YieldScreenState extends State<YieldScreen>
     );
   }
 
-  // ── Section tabs — "Enter Details" and "Soil Guide" live side by side so ──
-  //    neither the web nor tablet form column has to carry the long soil
-  //    guide inline, which is what forced the extra scrolling before.
-  Widget _buildSectionTabBar(double width) {
-    final compact = width < 380;
-    return Container(
-      color: Colors.white,
-      child: TabBar(
-        controller: _tabController,
-        labelColor: AppTheme.primaryDark,
-        unselectedLabelColor: AppTheme.textMuted,
-        indicatorColor: AppTheme.primary,
-        indicatorWeight: 3,
-        labelStyle: TextStyle(
-          fontSize: compact ? 12 : 13.5,
-          fontWeight: FontWeight.w700,
-        ),
-        unselectedLabelStyle: TextStyle(
-          fontSize: compact ? 12 : 13.5,
-          fontWeight: FontWeight.w600,
-        ),
-        tabs: [
-          Tab(
-            height: 44,
-            icon: const Icon(Icons.edit_note_rounded, size: 18),
-            iconMargin: const EdgeInsets.only(bottom: 2),
-            text: _ts({
-              'en': 'Enter Details',
-              'si': 'විස්තර ඇතුළත් කරන්න',
-              'ta': 'விவரங்களை உள்ளிடவும்',
-            }),
-          ),
-          Tab(
-            height: 44,
-            icon: const Icon(Icons.science_outlined, size: 18),
-            iconMargin: const EdgeInsets.only(bottom: 2),
-            // Slightly bolder than the other tab so it stands out.
-            child: Text(
-              _ts({
-                'en': 'Soil Guide',
-                'si': 'පස මාර්ගෝපදේශය',
-                'ta': 'மண் வழிகாட்டி',
-              }),
-              style: const TextStyle(fontWeight: FontWeight.w900),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Details tab — resizes for mobile / tablet / web ────────────────────────
-  Widget _buildDetailsTab(double width) {
-    if (width >= 960) return _buildWebDetails(width);
-    if (width >= 600) return _buildTabletDetails(width);
-    return _buildMobileDetails(width);
-  }
-
-  Widget _buildMobileDetails(double width) {
-    final bool isSmall = width < 340;
-    final double hPad = isSmall ? 12 : 14;
-    return Stack(
-      children: [
-        SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(hPad, 14, hPad, 100),
-          child: _formColumn(),
-        ),
-        _stickyPredict(),
-      ],
-    );
-  }
-
-  // 600–960dp portrait/landscape tablets: content width and side padding
-  // scale with the real viewport instead of one fixed max-width.
-  Widget _buildTabletDetails(double width) {
-    final targetContentW = width < 760 ? width - 32 : 680.0;
-    final hPad = ((width - targetContentW) / 2).clamp(16.0, 220.0);
-    return Stack(
-      children: [
-        SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(hPad, 14, hPad, 100),
-          child: _formColumn(),
-        ),
-        _stickyPredict(),
-      ],
-    );
-  }
-
-  // Web (≥960dp): form on the left, checklist/result on the right — with
-  // the Soil Guide now living in its own tab, this left column is short
-  // enough that it fits without scrolling on most desktop viewports.
-  Widget _buildWebDetails(double width) {
-    final leftW = (width * 0.42).clamp(360.0, 560.0);
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SizedBox(
-          width: leftW,
-          child: Stack(
-            children: [
-              SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(20, 16, 12, 100),
-                child: _formColumn(webLeft: true),
-              ),
-              _stickyPredict(),
-            ],
-          ),
-        ),
-        Container(width: 1, color: const Color(0xFFE4EEE4)),
-        Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(16, 16, 20, 28),
-            child: _rightPanel(),
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ── Soil guide tab — full reference content, its own scroll area ──────────
-  Widget _buildSoilGuideTab(double width) {
-    final bool isWeb = width >= 960;
-    final double maxW = isWeb ? 900 : double.infinity;
-    final double hPad = isWeb
-        ? ((width - maxW) / 2).clamp(16.0, 400.0)
-        : (width < 340 ? 12.0 : (width < 600 ? 16.0 : 24.0));
-    return SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 28),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: maxW),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(
-                  Icons.science,
-                  size: 18,
-                  color: AppTheme.primaryDark,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _ts({
-                      'en': 'Soil & Management Guide',
-                      'si': 'පස හා කළමනාකරණ මාර්ගෝපදේශය',
-                      'ta': 'மண் மற்றும் மேலாண்மை வழிகாட்டி',
-                    }),
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      color: AppTheme.primaryDark,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            _soilCard(),
-          ],
-        ),
-      ),
-    );
-  }
-
   // ── Top bar ────────────────────────────────────────────────────────────────
-  Widget _buildTopBar(BuildContext context, double width) {
-    if (width < 600) return _buildMobileTopBar(width);
-    return _buildFullTopBar(context);
-  }
-
-  // ── Mobile top bar — logo + language pill + profile avatar only. ──────────
-  //    Nav labels (Dashboard/Yield/Price/Weather/Crop Rec./Demand/AI Chat)
-  //    are dropped here — there's no room, and navigation on mobile happens
-  //    through the dashboard's own action grid instead.
-  Widget _buildMobileTopBar(double width) {
-    final bool isSmall = width < 340;
-    return Container(
-      height: 56,
-      padding: EdgeInsets.symmetric(horizontal: isSmall ? 10 : 14),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: Color(0xFFE4EEE4))),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: isSmall ? 34 : 38,
-            height: isSmall ? 34 : 38,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: const Color(0xFF4CAF50).withValues(alpha: 0.15),
-            ),
-            child: Center(
-              child: SvgPicture.string(
-                _cropSphereSvg,
-                width: isSmall ? 22 : 26,
-                height: isSmall ? 22 : 26,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            'CropSphere',
-            style: TextStyle(
-              color: const Color(0xFF1B4D1B),
-              fontSize: isSmall ? 14.5 : 16,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.2,
-            ),
-          ),
-          const Spacer(),
-          _LangPill(),
-          const SizedBox(width: 8),
-          _ProfileAvatar(onTap: () => widget.onNavigate?.call(0)),
-        ],
-      ),
-    );
-  }
-
-  // ── Tablet/web top bar — logo + nav labels + language pill + avatar. ──────
-  Widget _buildFullTopBar(BuildContext context) {
+  Widget _buildTopBar(BuildContext context) {
     final lang = AppLangProvider.lang(context);
     final List<String> navLabels = lang == AppLang.si
         ? ['ඩෑෂ්', 'අස්වැන්න', 'මිල', 'කාලගුණ', 'භෝග', 'ඉල්ලුම', 'AI']
@@ -2263,17 +1966,71 @@ class _YieldScreenState extends State<YieldScreen>
               ),
             ),
           ),
-          _LangPill(),
-          const SizedBox(width: 8),
-          _ProfileAvatar(onTap: () => widget.onNavigate?.call(0)),
+          const _LangPill(),
+          const SizedBox(width: 10),
+          const ProfileAvatarButton(),
         ],
       ),
     );
   }
 
-  // ── Form column — Crop/Location, Area, Weather only; Soil Guide lives in ──
-  //    its own tab now, which is what keeps this column short enough to fit
-  //    without a forced scroll on web/tablet.
+  // ── Layout helpers ─────────────────────────────────────────────────────────
+  Widget _buildMobileLayout() => Stack(
+    children: [
+      SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
+        child: _formColumn(),
+      ),
+      _stickyPredict(),
+    ],
+  );
+
+  Widget _buildTabletLayout() => Stack(
+    children: [
+      LayoutBuilder(
+        builder: (ctx, bc) {
+          final hPad = ((bc.maxWidth - 700) / 2).clamp(0.0, 200.0);
+          return SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(hPad + 16, 14, hPad + 16, 100),
+            child: _formColumn(),
+          );
+        },
+      ),
+      _stickyPredict(),
+    ],
+  );
+
+  Widget _buildWebLayout() => LayoutBuilder(
+    builder: (ctx, bc) {
+      final leftW = (bc.maxWidth * 0.45).clamp(340.0, 520.0);
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: leftW,
+            child: Stack(
+              children: [
+                SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(20, 14, 12, 100),
+                  child: _formColumn(webLeft: true),
+                ),
+                _stickyPredict(),
+              ],
+            ),
+          ),
+          Container(width: 1, color: const Color(0xFFE4EEE4)),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 14, 20, 28),
+              child: _rightPanel(),
+            ),
+          ),
+        ],
+      );
+    },
+  );
+
+  // ── Form column ────────────────────────────────────────────────────────────
   Widget _formColumn({bool webLeft = false}) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
@@ -2313,10 +2070,22 @@ class _YieldScreenState extends State<YieldScreen>
       ),
       const SizedBox(height: 10),
       _weatherCard(),
+      const SizedBox(height: 20),
+      _sectionTitle(
+        _ts({
+          'en': 'Soil & Management Guide',
+          'si': 'පස හා කළමනාකරණ මාර්ගෝපදේශය',
+          'ta': 'மண் மற்றும் மேலாண்மை வழிகாட்டி',
+        }),
+        Icons.science,
+      ),
+      const SizedBox(height: 10),
+      _soilCard(),
       if (!webLeft) ...[
         const SizedBox(height: 16),
         _inputChecklist(),
         const SizedBox(height: 10),
+        if (_isLoading) _resultSkeleton(),
         if (_errorMessage != null) _errorCard(),
         if (_result != null) _resultCard(),
       ],
@@ -2328,9 +2097,11 @@ class _YieldScreenState extends State<YieldScreen>
     children: [
       _inputChecklist(),
       const SizedBox(height: 14),
+      if (_isLoading) ...[_resultSkeleton(), const SizedBox(height: 14)],
       if (_errorMessage != null) ...[_errorCard(), const SizedBox(height: 14)],
       if (_result != null) ...[_resultCard(), const SizedBox(height: 14)],
-      if (_result == null && _errorMessage == null) _emptyResultPlaceholder(),
+      if (_result == null && _errorMessage == null && !_isLoading)
+        _emptyResultPlaceholder(),
     ],
   );
 
@@ -2371,7 +2142,7 @@ class _YieldScreenState extends State<YieldScreen>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
+              AnimatedLangText(
                 _ts({
                   'en': 'Yield Predictor',
                   'si': 'අස්වැන්න පුරෝකථකය',
@@ -2383,7 +2154,7 @@ class _YieldScreenState extends State<YieldScreen>
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              Text(
+              AnimatedLangText(
                 _ts({
                   'en': 'AI-powered harvest estimate',
                   'si': 'AI-ශක්තිමත් අස්වැන්න ඇස්තමේන්තුව',
@@ -2468,7 +2239,7 @@ class _YieldScreenState extends State<YieldScreen>
                     : [],
               ),
               child: Text(
-                '$emoji  ${_cropLabel(crop)}',
+                '$emoji  $crop',
                 style: TextStyle(
                   fontSize: 12.5,
                   fontWeight: FontWeight.w600,
@@ -2495,7 +2266,6 @@ class _YieldScreenState extends State<YieldScreen>
           value: _selectedCrop,
           items: CropSphereConstants.crops,
           icon: Icons.eco,
-          labelBuilder: _cropLabel,
           onChanged: (val) => setState(() {
             _selectedCrop = val;
             _selectedDistrict = null;
@@ -2514,12 +2284,11 @@ class _YieldScreenState extends State<YieldScreen>
           value: _selectedDistrict,
           items: _availableDistricts,
           icon: Icons.location_on,
-          labelBuilder: _districtLabel,
           hint: _selectedCrop != null
               ? _ts({
-                  'en': 'Valid districts for ${_cropLabel(_selectedCrop!)}',
-                  'si': '${_cropLabel(_selectedCrop!)} සඳහා දිස්ත්‍රික්ක',
-                  'ta': '${_cropLabel(_selectedCrop!)}-க்கான மாவட்டங்கள்',
+                  'en': 'Valid districts for $_selectedCrop',
+                  'si': '$_selectedCrop සඳහා දිස්ත්‍රික්ක',
+                  'ta': '$_selectedCrop-க்கான மாவட்டங்கள்',
                 })
               : _ts({
                   'en': 'Select a crop first',
@@ -2671,7 +2440,7 @@ class _YieldScreenState extends State<YieldScreen>
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  //  (ii) Area card — one field, pick your unit from a dropdown
+  //  (ii) Area card — three manual text fields, no slider
   // ──────────────────────────────────────────────────────────────────────────
   Widget _areaCard() => _card(
     child: Column(
@@ -2698,116 +2467,46 @@ class _YieldScreenState extends State<YieldScreen>
         const SizedBox(height: 4),
         Text(
           _ts({
-            'en': 'Choose your preferred unit, then enter the value.',
-            'si': 'ඔබ කැමති ඒකකය තෝරා අගය ඇතුළත් කරන්න.',
+            'en': 'Enter any one — the others update automatically.',
+            'si':
+                'ඕනෑම එකක් ඇතුළු කරන්න — අනිත් ඒවා ස්වයංක්‍රීයව යාවත්කාලීන වේ.',
             'ta':
-                'விருப்பமான அளவீட்டு அலகைத் தேர்ந்தெடுத்து மதிப்பை உள்ளிடவும்.',
+                'ஏதேனும் ஒன்றை உள்ளிடுங்கள் — மற்றவை தானாக புதுப்பிக்கப்படும்.',
           }),
           style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
         ),
         const SizedBox(height: 14),
         Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              flex: 3,
-              child: TextField(
-                controller: _areaValueCtrl,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'[\d.]')),
-                ],
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: AppTheme.primary,
-                ),
-                decoration: InputDecoration(
-                  labelText: _ts(_unitLabelFor(_areaUnit)),
-                  labelStyle: const TextStyle(
-                    fontSize: 11,
-                    color: AppTheme.primary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(
-                      color: AppTheme.primary.withValues(alpha: 0.3),
-                      width: 2,
-                    ),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(
-                      color: AppTheme.primary,
-                      width: 2,
-                    ),
-                  ),
-                  filled: true,
-                  fillColor: AppTheme.primary.withValues(alpha: 0.05),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 12,
-                  ),
-                ),
+              child: _areaField(
+                controller: _perchesCtrl,
+                label: _ts({'en': 'Perches', 'si': 'පර්ච', 'ta': 'பர்ச்'}),
+                color: AppTheme.primary,
+                isMain: true,
               ),
             ),
             const SizedBox(width: 10),
             Expanded(
-              flex: 2,
-              child: DropdownButtonFormField<String>(
-                initialValue: _areaUnit,
-                decoration: InputDecoration(
-                  labelText: _ts({'en': 'Unit', 'si': 'ඒකකය', 'ta': 'அலகு'}),
-                  labelStyle: const TextStyle(
-                    fontSize: 11,
-                    color: AppTheme.textSecondary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 12,
-                  ),
-                ),
-                items: _areaUnits
-                    .map(
-                      (u) => DropdownMenuItem<String>(
-                        value: u['code'] as String,
-                        child: Text(
-                          _ts(u['label'] as Map<String, String>),
-                          style: const TextStyle(fontSize: 13),
-                        ),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (val) {
-                  if (val != null) _onAreaUnitChanged(val);
-                },
+              child: _areaField(
+                controller: _acresCtrl,
+                label: _ts({'en': 'Acres', 'si': 'අක්කර', 'ta': 'ஏக்கர்'}),
+                color: const Color(0xFF1565C0),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _areaField(
+                controller: _hectCtrl,
+                label: _ts({
+                  'en': 'Hectares',
+                  'si': 'හෙක්ටෙයාර්',
+                  'ta': 'ஹெக்டேர்',
+                }),
+                color: const Color(0xFF558B2F),
               ),
             ),
           ],
-        ),
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 14,
-          runSpacing: 4,
-          children: _areaUnits.where((u) => u['code'] != _areaUnit).map((u) {
-            final code = u['code'] as String;
-            final val = _perchesToUnit(_areaPerches, code);
-            return Text(
-              '≈ ${val.toStringAsFixed(_decimalsFor(code))} ${_ts(u['label'] as Map<String, String>).toLowerCase()}',
-              style: const TextStyle(
-                fontSize: 11.5,
-                color: AppTheme.textSecondary,
-                fontWeight: FontWeight.w500,
-              ),
-            );
-          }).toList(),
         ),
         const SizedBox(height: 10),
         _infoBox(
@@ -2820,6 +2519,44 @@ class _YieldScreenState extends State<YieldScreen>
           icon: Icons.info_outline,
         ),
       ],
+    ),
+  );
+
+  Widget _areaField({
+    required TextEditingController controller,
+    required String label,
+    required Color color,
+    bool isMain = false,
+  }) => TextField(
+    controller: controller,
+    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+    inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.]'))],
+    style: TextStyle(
+      fontSize: isMain ? 20 : 15,
+      fontWeight: FontWeight.bold,
+      color: color,
+    ),
+    decoration: InputDecoration(
+      labelText: label,
+      labelStyle: TextStyle(
+        fontSize: 11,
+        color: color,
+        fontWeight: FontWeight.w600,
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(
+          color: color.withValues(alpha: 0.3),
+          width: isMain ? 2 : 1.2,
+        ),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: color, width: 2),
+      ),
+      filled: true,
+      fillColor: color.withValues(alpha: 0.05),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
     ),
   );
 
@@ -3232,9 +2969,9 @@ class _YieldScreenState extends State<YieldScreen>
                 Expanded(
                   child: Text(
                     _ts({
-                      'en': 'Guide for ${_cropLabel(_selectedCrop!)}',
-                      'si': '${_cropLabel(_selectedCrop!)} සඳහා මාර්ගෝපදේශය',
-                      'ta': '${_cropLabel(_selectedCrop!)}-க்கான வழிகாட்டி',
+                      'en': 'Guide for $_selectedCrop',
+                      'si': '$_selectedCrop සඳහා මාර්ගෝපදේශය',
+                      'ta': '$_selectedCrop-க்கான வழிகாட்டி',
                     }),
                     style: const TextStyle(
                       fontSize: 13,
@@ -3732,7 +3469,7 @@ class _YieldScreenState extends State<YieldScreen>
       (
         _selectedCrop != null,
         _ts({'en': 'Crop selected', 'si': 'භෝගය', 'ta': 'பயிர்'}),
-        _selectedCrop != null ? _cropLabel(_selectedCrop!) : '',
+        _selectedCrop ?? '',
       ),
       (
         _selectedDistrict != null,
@@ -3741,7 +3478,7 @@ class _YieldScreenState extends State<YieldScreen>
           'si': 'දිස්ත්‍රික්කය',
           'ta': 'மாவட்டம்',
         }),
-        _selectedDistrict != null ? _districtLabel(_selectedDistrict!) : '',
+        _selectedDistrict ?? '',
       ),
       (
         _selectedSeason != null,
@@ -4240,12 +3977,12 @@ class _YieldScreenState extends State<YieldScreen>
                   children: [
                     _rStat(
                       _ts({'en': 'Crop', 'si': 'භෝගය', 'ta': 'பயிர்'}),
-                      _cropLabel(_selectedCrop!),
+                      _selectedCrop!,
                     ),
                     _vDiv(),
                     _rStat(
                       _ts({'en': 'Area', 'si': 'ප්‍රදේශය', 'ta': 'பரப்பு'}),
-                      '${_perchesToUnit(_areaPerches, _areaUnit).toStringAsFixed(_areaUnit == 'perches' ? 0 : 2)} ${_areaUnitAbbrev()}',
+                      '${_areaPerches.toStringAsFixed(0)} ${_ts({'en': 'p', 'si': 'ප', 'ta': 'ப'})}',
                     ),
                     _vDiv(),
                     _rStat(
@@ -4427,6 +4164,17 @@ class _YieldScreenState extends State<YieldScreen>
     ),
   );
 
+  /// Shown in place of the empty placeholder while a prediction is in
+  /// flight — the result card is text-heavy (headline yield figure +
+  /// narrative breakdown), so Typewriter fits: bars reveal left-to-right
+  /// like the eventual text being "written in".
+  Widget _resultSkeleton() => _card(
+    child: TypewriterSkeleton(
+      lineWidthFractions: const [0.5, 1.0, 0.9, 0.7, 0.85, 0.4],
+      lineHeight: 11,
+    ),
+  );
+
   // ── Reusable primitives ────────────────────────────────────────────────────
   Widget _card({required Widget child}) => Container(
     padding: const EdgeInsets.all(14),
@@ -4442,7 +4190,7 @@ class _YieldScreenState extends State<YieldScreen>
     children: [
       Icon(icon, size: 16, color: AppTheme.primaryDark),
       const SizedBox(width: 6),
-      Text(
+      AnimatedLangText(
         title,
         style: const TextStyle(
           fontSize: 15,
@@ -4543,7 +4291,6 @@ class _YieldScreenState extends State<YieldScreen>
     required ValueChanged<String?> onChanged,
     String? hint,
     bool enabled = true,
-    String Function(String)? labelBuilder,
   }) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
@@ -4566,12 +4313,7 @@ class _YieldScreenState extends State<YieldScreen>
         ),
         items: enabled
             ? items
-                  .map(
-                    (e) => DropdownMenuItem(
-                      value: e,
-                      child: Text(labelBuilder?.call(e) ?? e),
-                    ),
-                  )
+                  .map((e) => DropdownMenuItem(value: e, child: Text(e)))
                   .toList()
             : [],
         onChanged: enabled ? onChanged : null,
@@ -4603,17 +4345,6 @@ class _YieldScreenState extends State<YieldScreen>
   );
 
   Widget _vDiv() => Container(width: 1, height: 28, color: Colors.white24);
-
-  String _areaUnitAbbrev() {
-    switch (_areaUnit) {
-      case 'acres':
-        return _ts({'en': 'ac', 'si': 'අක', 'ta': 'ஏ'});
-      case 'hectares':
-        return _ts({'en': 'ha', 'si': 'හෙ', 'ta': 'ஹெ'});
-      default:
-        return _ts({'en': 'p', 'si': 'ප', 'ta': 'ப'});
-    }
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4655,63 +4386,6 @@ class _LangPill extends StatelessWidget {
             ),
           );
         }).toList(),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  Profile avatar — photo if available, otherwise a colored initial.
-//  Tapping navigates to the Dashboard tab, where the full profile sheet lives.
-// ─────────────────────────────────────────────────────────────────────────────
-class _ProfileAvatar extends StatelessWidget {
-  final VoidCallback onTap;
-  final double size = 34;
-  const _ProfileAvatar({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
-    final photo = user?.photoURL;
-    String initial = 'U';
-    final dn = user?.displayName;
-    final em = user?.email;
-    if (dn != null && dn.trim().isNotEmpty) {
-      initial = dn.trim()[0].toUpperCase();
-    } else if (em != null && em.trim().isNotEmpty) {
-      initial = em.trim()[0].toUpperCase();
-    }
-
-    return Material(
-      color: Colors.transparent,
-      shape: const CircleBorder(),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onTap,
-        child: Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: const Color(0xFF1B5E20),
-            image: (photo != null && photo.isNotEmpty)
-                ? DecorationImage(image: NetworkImage(photo), fit: BoxFit.cover)
-                : null,
-            border: Border.all(color: const Color(0xFFE4EEE4), width: 1.2),
-          ),
-          child: (photo == null || photo.isEmpty)
-              ? Center(
-                  child: Text(
-                    initial,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                      fontSize: size * 0.42,
-                    ),
-                  ),
-                )
-              : null,
-        ),
       ),
     );
   }

@@ -20,12 +20,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../app_lang.dart';
 import '../../models/api_models.dart';
 import '../../services/service_factory.dart';
+import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
+import '../../widgets/profile_avatar_button.dart';
+import '../../widgets/skeleton_loading.dart';
 
 typedef _L = Map<String, String>;
 
@@ -815,7 +817,7 @@ class _PriceScreenState extends State<PriceScreen>
     return _buildFullTopBar(context);
   }
 
-  // ── Mobile top bar — logo + language pill + profile avatar only. ──────────
+  // ── Mobile top bar — logo + language pill only. ────────────────────────────
   //    Nav labels (Dashboard/Yield/Price/Weather/Crop Rec./Demand/AI Chat)
   //    are dropped here — there's no room, and navigation on mobile happens
   //    through the dashboard's own action grid instead.
@@ -857,14 +859,14 @@ class _PriceScreenState extends State<PriceScreen>
           ),
           const Spacer(),
           const _LangPill(),
-          const SizedBox(width: 8),
-          _ProfileAvatar(onTap: () => widget.onNavigate?.call(0)),
+          const SizedBox(width: 10),
+          const ProfileAvatarButton(diameter: 32),
         ],
       ),
     );
   }
 
-  // ── Tablet/web top bar — logo + nav labels + language pill + avatar. ──────
+  // ── Tablet/web top bar — logo + nav labels + language pill. ────────────────
   Widget _buildFullTopBar(BuildContext context) {
     final lang = AppLangProvider.lang(context);
     final List<String> navLabels = lang == AppLang.si
@@ -969,8 +971,8 @@ class _PriceScreenState extends State<PriceScreen>
             ),
           ),
           const _LangPill(),
-          const SizedBox(width: 8),
-          _ProfileAvatar(onTap: () => widget.onNavigate?.call(0)),
+          const SizedBox(width: 10),
+          const ProfileAvatarButton(),
         ],
       ),
     );
@@ -1022,6 +1024,7 @@ class _PriceScreenState extends State<PriceScreen>
         const SizedBox(height: 16),
         _inputChecklist(),
         const SizedBox(height: 10),
+        if (_isLoading) _resultSkeleton(),
         if (_errorMessage != null) _errorCard(),
         if (_result != null) _resultCard(),
       ],
@@ -1033,9 +1036,11 @@ class _PriceScreenState extends State<PriceScreen>
     children: [
       _inputChecklist(),
       const SizedBox(height: 14),
+      if (_isLoading) ...[_resultSkeleton(), const SizedBox(height: 14)],
       if (_errorMessage != null) ...[_errorCard(), const SizedBox(height: 14)],
       if (_result != null) ...[_resultCard(), const SizedBox(height: 14)],
-      if (_result == null && _errorMessage == null) _emptyResultPlaceholder(),
+      if (_result == null && _errorMessage == null && !_isLoading)
+        _emptyResultPlaceholder(),
     ],
   );
 
@@ -1076,7 +1081,7 @@ class _PriceScreenState extends State<PriceScreen>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
+              AnimatedLangText(
                 _t({
                   'en': 'Price Predictor',
                   'si': 'මිල පුරෝකථකය',
@@ -1088,7 +1093,7 @@ class _PriceScreenState extends State<PriceScreen>
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              Text(
+              AnimatedLangText(
                 _t({
                   'en': 'AI-powered market price estimate',
                   'si': 'AI-ශක්තිමත් වෙළඳපොළ මිල ඇස්තමේන්තුව',
@@ -2196,6 +2201,17 @@ class _PriceScreenState extends State<PriceScreen>
     ),
   );
 
+  /// Shown in place of the empty placeholder while a prediction is in
+  /// flight — the result card is text-heavy (headline price figure +
+  /// narrative breakdown), so Typewriter fits: bars reveal left-to-right
+  /// like the eventual text being "written in".
+  Widget _resultSkeleton() => _card(
+    child: TypewriterSkeleton(
+      lineWidthFractions: const [0.5, 1.0, 0.9, 0.7, 0.85, 0.4],
+      lineHeight: 11,
+    ),
+  );
+
   // ── Reusable primitives ────────────────────────────────────────────────────
   Widget _card({required Widget child}) => Container(
     padding: const EdgeInsets.all(14),
@@ -2211,7 +2227,7 @@ class _PriceScreenState extends State<PriceScreen>
     children: [
       Icon(icon, size: 16, color: const Color(0xFFE65100)),
       const SizedBox(width: 6),
-      Text(
+      AnimatedLangText(
         title,
         style: const TextStyle(
           fontSize: 15,
@@ -2360,63 +2376,6 @@ class _LangPill extends StatelessWidget {
             ),
           );
         }).toList(),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  Profile avatar — photo if available, otherwise a colored initial.
-//  Tapping navigates to the Dashboard tab, where the full profile sheet lives.
-// ─────────────────────────────────────────────────────────────────────────────
-class _ProfileAvatar extends StatelessWidget {
-  final VoidCallback onTap;
-  final double size = 34;
-  const _ProfileAvatar({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
-    final photo = user?.photoURL;
-    String initial = 'U';
-    final dn = user?.displayName;
-    final em = user?.email;
-    if (dn != null && dn.trim().isNotEmpty) {
-      initial = dn.trim()[0].toUpperCase();
-    } else if (em != null && em.trim().isNotEmpty) {
-      initial = em.trim()[0].toUpperCase();
-    }
-
-    return Material(
-      color: Colors.transparent,
-      shape: const CircleBorder(),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onTap,
-        child: Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: const Color(0xFF1B5E20),
-            image: (photo != null && photo.isNotEmpty)
-                ? DecorationImage(image: NetworkImage(photo), fit: BoxFit.cover)
-                : null,
-            border: Border.all(color: const Color(0xFFE4EEE4), width: 1.2),
-          ),
-          child: (photo == null || photo.isEmpty)
-              ? Center(
-                  child: Text(
-                    initial,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                      fontSize: size * 0.42,
-                    ),
-                  ),
-                )
-              : null,
-        ),
       ),
     );
   }

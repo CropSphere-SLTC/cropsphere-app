@@ -4,8 +4,7 @@
 // require_admin server-side, so both admin and superadmin can read.
 
 import 'package:dio/dio.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'session_recovery.dart';
+import 'auth_interceptor.dart';
 import '../config/app_config.dart';
 import '../models/admin_models.dart';
 
@@ -27,39 +26,7 @@ class NotificationService {
 
     // JWT interceptor — Firebase handles token refresh automatically. One
     // retry on 401 with a forced-refresh token, matching AdminService.
-    _dio.interceptors.add(
-      InterceptorsWrapper(
-        onRequest: (options, handler) async {
-          final user = FirebaseAuth.instance.currentUser;
-          if (user != null) {
-            final token = await user.getIdToken();
-            options.headers['Authorization'] = 'Bearer $token';
-          }
-          return handler.next(options);
-        },
-        onError: (DioException error, ErrorInterceptorHandler handler) async {
-          if (error.response?.statusCode == 401) {
-            final user = FirebaseAuth.instance.currentUser;
-            if (user != null) {
-              try {
-                final newToken = await user.getIdToken(true);
-                final opts = error.requestOptions;
-                opts.headers['Authorization'] = 'Bearer $newToken';
-                final response = await _dio.fetch(opts);
-                return handler.resolve(response);
-              } catch (e) {
-                // Refresh failed. If that means the session is gone — a
-                // force-logout revoked the refresh token — sign out so the
-                // auth gate routes to login rather than stranding the user
-                // in an app where every request 401s.
-                await endSessionIfRevoked(e);
-              }
-            }
-          }
-          return handler.next(error);
-        },
-      ),
-    );
+    _dio.interceptors.add(firebaseAuthInterceptor(_dio));
   }
 
   Future<List<AdminNotification>> getNotifications({

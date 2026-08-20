@@ -10,6 +10,7 @@ import '../../../../models/conversation_models.dart';
 import '../../../../models/pattern_models.dart';
 import '../../../../services/admin_service.dart';
 import '../../../../widgets/app_theme.dart';
+import '../../../../widgets/skeleton_loading.dart';
 import '../admin_ui.dart';
 import '../widgets/admin_sidebar.dart';
 import '../widgets/stat_card.dart';
@@ -93,6 +94,61 @@ class _GapReportPageState extends State<GapReportPage> {
     );
   }
 
+  /// Cascade pattern — a heterogeneous mix of summary cards, bar charts and
+  /// lists (not a uniform grid), so blocks fade in one after another rather
+  /// than all breathing together as one flat page.
+  Widget _buildSkeleton() {
+    Widget barsCard(String title, int bars) => AdminSectionCard(
+      title: title,
+      child: Column(
+        children: List.generate(
+          bars,
+          (i) => Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Row(
+              children: [
+                const SkeletonBox(width: 90, height: 10),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: SkeletonBox(
+                    height: 10,
+                    width: null,
+                    radius: 6,
+                    alpha: 0.15 + (i.isEven ? 0.15 : 0.05),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: CascadeSkeletonGroup(
+        children: [
+          const AdminStatCardsSkeleton(count: 4),
+          const SizedBox(height: 16),
+          barsCard('Response breakdown', 4),
+          const SizedBox(height: 16),
+          AdminSectionCard(
+            title: 'Top refused questions',
+            child: StaggeredSkeletonList(
+              itemCount: 4,
+              shrinkWrap: true,
+              itemBuilder: (context, i) =>
+                  const AdminTableRowSkeleton(cellCount: 1),
+            ),
+          ),
+          const SizedBox(height: 16),
+          barsCard('Confidence distribution', 3),
+          const SizedBox(height: 16),
+          barsCard('Knowledge level distribution', 3),
+        ],
+      ),
+    );
+  }
+
   Widget _buildDaySelector() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -118,9 +174,7 @@ class _GapReportPageState extends State<GapReportPage> {
 
   Widget _buildBody() {
     if (_loading) {
-      return const Center(
-        child: CircularProgressIndicator(color: AppTheme.primary),
-      );
+      return _buildSkeleton();
     }
     if (_error != null) {
       return _centeredMessage(

@@ -27,7 +27,10 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../../app_lang.dart';
 import '../../models/api_models.dart';
 import '../../services/service_factory.dart';
+import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
+import '../../widgets/profile_avatar_button.dart';
+import '../../widgets/skeleton_loading.dart';
 
 typedef _L = Map<String, String>;
 
@@ -198,17 +201,7 @@ class DemandScreen extends StatefulWidget {
   final ValueChanged<int>? onNavigate;
   final ValueChanged<String>? onAiChatContext;
 
-  /// The signed-in farmer's email, used to personalise the profile avatar
-  /// next to the language pill (shows their initial). Optional — falls
-  /// back to a generic profile icon if not provided.
-  final String? userEmail;
-
-  const DemandScreen({
-    super.key,
-    this.onNavigate,
-    this.onAiChatContext,
-    this.userEmail,
-  });
+  const DemandScreen({super.key, this.onNavigate, this.onAiChatContext});
 
   @override
   State<DemandScreen> createState() => _DemandScreenState();
@@ -614,6 +607,7 @@ class _DemandScreenState extends State<DemandScreen> {
           const SizedBox(height: 20),
           marketDataBlock,
           const SizedBox(height: 20),
+          if (_isLoading) _resultSkeleton(),
           if (_errorMessage != null) _errorCard(),
           if (_result != null) _resultCard(),
           if (_result == null && _errorMessage == null && !_isLoading)
@@ -631,6 +625,7 @@ class _DemandScreenState extends State<DemandScreen> {
       children: [
         _predictButton(),
         const SizedBox(height: 14),
+        if (_isLoading) _resultSkeleton(),
         if (_errorMessage != null) _errorCard(),
         if (_result != null) _resultCard(),
         if (_result == null && _errorMessage == null && !_isLoading)
@@ -717,8 +712,8 @@ class _DemandScreenState extends State<DemandScreen> {
       child: LayoutBuilder(
         builder: (ctx, bc) {
           // Below 600px (mobile) the text nav labels are dropped entirely —
-          // just logo + language pill + profile avatar remain. Tablet/web
-          // (>=600px) keep the full nav bar.
+          // just logo + language pill remain. Tablet/web (>=600px) keep the
+          // full nav bar.
           final isMobile = bc.maxWidth < 600;
           return Row(
             children: [
@@ -798,11 +793,8 @@ class _DemandScreenState extends State<DemandScreen> {
               if (isMobile) const Spacer(),
               const SizedBox(width: 8),
               const _LangPill(),
-              const SizedBox(width: 8),
-              _ProfileAvatar(
-                email: widget.userEmail,
-                onTap: () => widget.onNavigate?.call(0), // Dashboard
-              ),
+              const SizedBox(width: 10),
+              const ProfileAvatarButton(diameter: 32),
             ],
           );
         },
@@ -847,7 +839,7 @@ class _DemandScreenState extends State<DemandScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
+              AnimatedLangText(
                 _t({
                   'en': 'Demand Forecast',
                   'si': 'ඉල්ලුම් පුරෝකථනය',
@@ -859,7 +851,7 @@ class _DemandScreenState extends State<DemandScreen> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              Text(
+              AnimatedLangText(
                 _t({
                   'en': 'Know if demand is rising before you sell',
                   'si': 'විකිණීමට පෙර ඉල්ලුම ඉහළ යනවාදැයි දැනගන්න',
@@ -1656,11 +1648,22 @@ class _DemandScreenState extends State<DemandScreen> {
     child: child,
   );
 
+  /// Shown in place of the empty placeholder while a prediction is in
+  /// flight — the result card is text-heavy (headline demand figure +
+  /// narrative breakdown), so Typewriter fits: bars reveal left-to-right
+  /// like the eventual text being "written in".
+  Widget _resultSkeleton() => _card(
+    child: const TypewriterSkeleton(
+      lineWidthFractions: [0.5, 1.0, 0.9, 0.7, 0.85, 0.4],
+      lineHeight: 11,
+    ),
+  );
+
   Widget _sectionTitle(String title, IconData icon) => Row(
     children: [
       Icon(icon, size: 16, color: AppTheme.primaryDark),
       const SizedBox(width: 6),
-      Text(
+      AnimatedLangText(
         title,
         style: const TextStyle(
           fontSize: 15,
@@ -1774,57 +1777,6 @@ class _DemandScreenState extends State<DemandScreen> {
       ],
     ),
   );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  Profile avatar (matches other screens) — shows the farmer's email initial
-//  when available (tied to their account), otherwise a generic profile icon.
-//  DemandScreen has no profile sheet of its own, so tapping it navigates to
-//  Dashboard, same pattern used elsewhere.
-// ─────────────────────────────────────────────────────────────────────────────
-class _ProfileAvatar extends StatelessWidget {
-  final String? email;
-  final VoidCallback? onTap;
-  const _ProfileAvatar({this.email, this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final trimmed = email?.trim();
-    final hasEmail = trimmed != null && trimmed.isNotEmpty;
-    final initial = hasEmail ? trimmed[0].toUpperCase() : null;
-
-    return GestureDetector(
-      onTap: onTap,
-      child: Tooltip(
-        message: hasEmail ? trimmed : '',
-        child: Container(
-          width: 34,
-          height: 34,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: const Color(0xFF283593).withValues(alpha: 0.12),
-            border: Border.all(color: const Color(0xFF283593), width: 1.2),
-          ),
-          child: Center(
-            child: initial != null
-                ? Text(
-                    initial,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF283593),
-                    ),
-                  )
-                : const Icon(
-                    Icons.person_rounded,
-                    size: 19,
-                    color: Color(0xFF283593),
-                  ),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

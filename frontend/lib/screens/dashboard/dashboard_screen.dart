@@ -35,7 +35,10 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import '../../app_lang.dart';
+import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
+import '../../widgets/profile_avatar_button.dart';
+import '../../widgets/skeleton_loading.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Season helpers
@@ -893,12 +896,7 @@ class _DashIcons {
 class DashboardScreen extends StatefulWidget {
   final ValueChanged<int>? onNavigate;
 
-  /// Called after the user confirms Logout in the profile sheet.
-  /// If not provided, this screen just signs out of FirebaseAuth —
-  /// wire this up to navigate back to your login screen.
-  final VoidCallback? onLogout;
-
-  const DashboardScreen({super.key, this.onNavigate, this.onLogout});
+  const DashboardScreen({super.key, this.onNavigate});
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -1092,199 +1090,6 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   String _t(Map<String, String> map) => map[_langKey] ?? map['en']!;
-
-  // ── Profile bottom sheet ──────────────────────────────────────────────────
-  // NOTE on the fix below: showModalBottomSheet pushes a *separate* route.
-  // Text built from `_t()` (which reads the outer DashboardScreen's own
-  // context) is only ever computed once, at the moment the sheet opens —
-  // tapping the language pill inside the sheet notifies AppLangProvider,
-  // which correctly rebuilds the *background* Dashboard (because that
-  // State's context is a real dependent), but nothing inside the sheet's
-  // own widget subtree was ever registered as a dependent, so its labels
-  // never got the memo. Wrapping the sheet content in a `Builder` that
-  // calls `AppLangProvider.lang(innerCtx)` with its OWN context fixes
-  // this the standard Flutter way — that context becomes a genuine
-  // dependent and rebuilds automatically whenever the language changes.
-  void _openProfileSheet() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-      ),
-      builder: (sheetCtx) {
-        return Builder(
-          builder: (innerCtx) {
-            final lang = AppLangProvider.lang(innerCtx);
-            String tr(Map<String, String> map) {
-              final key = lang == AppLang.si
-                  ? 'si'
-                  : lang == AppLang.ta
-                  ? 'ta'
-                  : 'en';
-              return map[key] ?? map['en']!;
-            }
-
-            final user = FirebaseAuth.instance.currentUser;
-            final name =
-                user?.displayName ?? user?.email?.split('@').first ?? 'User';
-            final email = user?.email ?? '';
-
-            return SafeArea(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(innerCtx).size.height * 0.85,
-                ),
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(18, 20, 18, 12),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          _ProfileAvatar(onTap: () {}, size: 48),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  name,
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w800,
-                                    color: Color(0xFF1B4D1B),
-                                  ),
-                                ),
-                                if (email.isNotEmpty)
-                                  Text(
-                                    email,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade600,
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const Divider(height: 26),
-                      _profileTile(
-                        icon: Icons.person_outline_rounded,
-                        label: tr({
-                          'en': 'Profile',
-                          'si': 'පැතිකඩ',
-                          'ta': 'சுயவிவரம்',
-                        }),
-                        onTap: () => Navigator.of(sheetCtx).pop(),
-                      ),
-                      _profileTile(
-                        icon: Icons.bookmark_border_rounded,
-                        label: tr({
-                          'en': 'Saved Tips',
-                          'si': 'සුරකිනා ලද ඉඟි',
-                          'ta': 'சேமித்த குறிப்புகள்',
-                        }),
-                        onTap: () {
-                          Navigator.of(sheetCtx).pop();
-                          setState(() => _drawerOpen = true);
-                        },
-                      ),
-                      _profileTile(
-                        icon: Icons.language_rounded,
-                        label: tr({
-                          'en': 'Language',
-                          'si': 'භාෂාව',
-                          'ta': 'மொழி',
-                        }),
-                        trailing: _LangPill(onDark: false),
-                        onTap: () {},
-                      ),
-                      _profileTile(
-                        icon: Icons.notifications_none_rounded,
-                        label: tr({
-                          'en': 'Notifications',
-                          'si': 'දැනුම්දීම්',
-                          'ta': 'அறிவிப்புகள்',
-                        }),
-                        onTap: () => Navigator.of(sheetCtx).pop(),
-                      ),
-                      _profileTile(
-                        icon: Icons.help_outline_rounded,
-                        label: tr({
-                          'en': 'Help & Support',
-                          'si': 'උදව් හා සහාය',
-                          'ta': 'உதவி மற்றும் ஆதரவு',
-                        }),
-                        onTap: () => Navigator.of(sheetCtx).pop(),
-                      ),
-                      const Divider(height: 22),
-                      _profileTile(
-                        icon: Icons.logout_rounded,
-                        label: tr({
-                          'en': 'Logout',
-                          'si': 'පිටවීම',
-                          'ta': 'வெளியேறு',
-                        }),
-                        color: const Color(0xFFC62828),
-                        onTap: () async {
-                          Navigator.of(sheetCtx).pop();
-                          await FirebaseAuth.instance.signOut();
-                          widget.onLogout?.call();
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _profileTile({
-    required IconData icon,
-    required String label,
-    Widget? trailing,
-    Color? color,
-    required VoidCallback onTap,
-  }) {
-    final tileColor = color ?? const Color(0xFF1B4D1B);
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
-          child: Row(
-            children: [
-              Icon(icon, size: 22, color: color ?? const Color(0xFF2E7D32)),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: tileColor,
-                  ),
-                ),
-              ),
-              ?trailing,
-              if (trailing == null)
-                Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
   // ─────────────────────────────────────────────────────────────────────────
   //  Build
@@ -1730,7 +1535,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  //  Slim mobile app bar — logo · language pill · profile avatar.
+  //  Slim mobile app bar — logo · saved-tips badge · language pill.
   //  No nav labels here by design (Dashboard/Yield/Price/... only show
   //  on tablet+ where there's room). Navigation on mobile happens via
   //  the action grid / chat / profile sheet.
@@ -1765,12 +1570,14 @@ class _DashboardScreenState extends State<DashboardScreen>
             ),
           ),
           const Spacer(),
-          // Language switcher sits directly beside the profile avatar so
-          // both language and account controls live in one glanceable
-          // cluster on the right of the bar.
-          _LangPill(onDark: false),
+          // Was reachable only via the profile avatar's "Saved Tips" tile
+          // before that avatar was removed — now the same badge used on
+          // tablet/web so mobile doesn't lose the entry point entirely.
+          _buildSavedBadge(),
           const SizedBox(width: 8),
-          _ProfileAvatar(onTap: _openProfileSheet),
+          _LangPill(onDark: false),
+          const SizedBox(width: 10),
+          const ProfileAvatarButton(diameter: 32),
         ],
       ),
     );
@@ -1912,9 +1719,8 @@ class _DashboardScreenState extends State<DashboardScreen>
           const SizedBox(width: 8),
           // Language pill
           _LangPill(onDark: false),
-          const SizedBox(width: 8),
-          // Profile avatar
-          _ProfileAvatar(onTap: _openProfileSheet),
+          const SizedBox(width: 10),
+          const ProfileAvatarButton(),
         ],
       ),
     );
@@ -2063,37 +1869,35 @@ class _DashboardScreenState extends State<DashboardScreen>
   // ─────────────────────────────────────────────────────────────────────────
   Widget _buildWeatherCard({required bool compact}) {
     if (_weatherLoading) {
-      return Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF4F8F4),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFE0EAE0)),
-        ),
-        child: Row(
-          children: [
-            const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                valueColor: AlwaysStoppedAnimation(Color(0xFF4CAF50)),
+      // Pulse pattern — this is the app's most-visited screen, so a static
+      // block risks reading as frozen rather than loading even for a fast
+      // call; the breathing pulse keeps it legibly "in progress". Shaped
+      // like the loaded card (icon + temp line + rain/wind line) so the
+      // layout doesn't jump once data arrives.
+      return PulseFade(
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF4F8F4),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE0EAE0)),
+          ),
+          child: Row(
+            children: [
+              const SkeletonBox(width: 32, height: 32, radius: 16),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const [
+                    SkeletonBox(width: 70, height: 18),
+                    SizedBox(height: 6),
+                    SkeletonBox(height: 12),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(width: 10),
-            Text(
-              _t({
-                'en': 'Getting weather…',
-                'si': 'කාලගුණ දත්ත ලබාගනිමින්…',
-                'ta': 'வானிலை பெறப்படுகிறது…',
-              }),
-              style: const TextStyle(
-                fontSize: 13,
-                color: Color(0xFF3E5E3E),
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       );
     }
@@ -2652,7 +2456,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     children: [
       const Icon(Icons.touch_app_rounded, size: 17, color: Color(0xFF4CAF50)),
       const SizedBox(width: 6),
-      Text(
+      AnimatedLangText(
         text,
         style: const TextStyle(
           fontSize: 13,
@@ -2746,7 +2550,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    AnimatedLangText(
                       chatTitle,
                       style: const TextStyle(
                         fontSize: 13.5,
@@ -2754,7 +2558,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                         color: Color(0xFF1B5E20),
                       ),
                     ),
-                    Text(
+                    AnimatedLangText(
                       chatSub,
                       style: const TextStyle(
                         fontSize: 11.5,
@@ -2778,64 +2582,6 @@ class _DashboardScreenState extends State<DashboardScreen>
             );
           }),
         ],
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  Profile avatar — photo if available, otherwise a colored initial.
-//  Tapping opens the profile bottom sheet (Profile / Saved Tips /
-//  Language / Logout).
-// ─────────────────────────────────────────────────────────────────────────────
-class _ProfileAvatar extends StatelessWidget {
-  final VoidCallback onTap;
-  final double size;
-  const _ProfileAvatar({required this.onTap, this.size = 36});
-
-  @override
-  Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
-    final photo = user?.photoURL;
-    String initial = 'U';
-    final dn = user?.displayName;
-    final em = user?.email;
-    if (dn != null && dn.trim().isNotEmpty) {
-      initial = dn.trim()[0].toUpperCase();
-    } else if (em != null && em.trim().isNotEmpty) {
-      initial = em.trim()[0].toUpperCase();
-    }
-
-    return Material(
-      color: Colors.transparent,
-      shape: const CircleBorder(),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onTap,
-        child: Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: const Color(0xFF1B5E20),
-            image: (photo != null && photo.isNotEmpty)
-                ? DecorationImage(image: NetworkImage(photo), fit: BoxFit.cover)
-                : null,
-            border: Border.all(color: const Color(0xFFE4EEE4), width: 1.4),
-          ),
-          child: (photo == null || photo.isEmpty)
-              ? Center(
-                  child: Text(
-                    initial,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                      fontSize: size * 0.4,
-                    ),
-                  ),
-                )
-              : null,
-        ),
       ),
     );
   }

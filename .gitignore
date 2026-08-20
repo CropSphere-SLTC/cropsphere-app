@@ -25,6 +25,7 @@ htmlcov/
 **/__pycache__/
 **/*.pyc
 backend/.coverage
+backend/.coverage.*
 
 # ── Node ────────────────────────────────────────────────────────────────────
 node_modules/
@@ -59,7 +60,9 @@ frontend/.packages
 frontend/y/
 frontend/public/
 frontend/.firebase/
-
+frontend/applog.txt
+frontend/linux/flutter/generated_plugin_registrant.cc
+frontend/linux/flutter/generated_plugins.cmake
 # ── IDE ──────────────────────────────────────────────────────────────────────
 .vscode/
 .idea/
@@ -88,8 +91,6 @@ frontend/windows/flutter/generated_plugins.cmake
 
 # Local planning / prompt docs — kept on-machine, not shared
 ADMIN_REDESIGN_PROMPT.md
-"frontend/linux/flutter/generated_plugin_registrant.cc" 
-"frontend/linux/flutter/generated_plugins.cmake" 
 
 # Auto-generated per-directory description files — not source
 description.md

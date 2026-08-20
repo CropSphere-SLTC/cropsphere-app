@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import '../../../../models/pattern_models.dart';
 import '../../../../services/admin_service.dart';
 import '../../../../widgets/app_theme.dart';
+import '../../../../widgets/skeleton_loading.dart';
 import '../admin_ui.dart';
 import '../widgets/pattern_ui.dart';
 import 'pattern_detail_screen.dart';
@@ -533,13 +534,16 @@ class _PatternManagementPageState extends State<PatternManagementPage> {
 
   Widget _buildActiveSection() {
     if (_loadingActive) {
-      return const AdminSectionCard(
+      // Staggered pattern — this section resolves to a list of pattern
+      // rows, so the loading state previews that shape rather than a
+      // centered spinner.
+      return AdminSectionCard(
         title: 'Active patterns',
-        child: Center(
-          child: Padding(
-            padding: EdgeInsets.all(12),
-            child: CircularProgressIndicator(color: AppTheme.primary),
-          ),
+        child: StaggeredSkeletonList(
+          itemCount: 4,
+          shrinkWrap: true,
+          itemBuilder: (context, i) =>
+              const AdminTableRowSkeleton(cellCount: 2),
         ),
       );
     }

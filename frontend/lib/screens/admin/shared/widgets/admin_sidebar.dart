@@ -340,12 +340,15 @@ class _AdminSidebarState extends State<AdminSidebar> {
                 color: selected ? AppTheme.primary : AppTheme.textSecondary,
               ),
               const SizedBox(width: 12),
-              Text(
-                item.label,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                  color: selected ? AppTheme.primary : AppTheme.textPrimary,
+              Expanded(
+                child: Text(
+                  item.label,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    color: selected ? AppTheme.primary : AppTheme.textPrimary,
+                  ),
                 ),
               ),
             ],
@@ -361,18 +364,25 @@ class _AdminSidebarState extends State<AdminSidebar> {
     VoidCallback onTap, {
     Color color = AppTheme.textSecondary,
   }) {
-    return ListTile(
-      dense: true,
-      leading: Icon(icon, size: 20, color: color),
-      title: Text(
-        label,
-        style: TextStyle(
-          fontSize: 14,
-          color: color,
-          fontWeight: FontWeight.w600,
+    // Wrapped in its own Material: an ancestor ColoredBox further up paints a
+    // solid background, which hides ListTile's own background/ink splashes
+    // since it paints onto the nearest Material ancestor — this gives it one
+    // to paint onto instead of that ColoredBox.
+    return Material(
+      color: Colors.transparent,
+      child: ListTile(
+        dense: true,
+        leading: Icon(icon, size: 20, color: color),
+        title: Text(
+          label,
+          style: TextStyle(
+            fontSize: 14,
+            color: color,
+            fontWeight: FontWeight.w600,
+          ),
         ),
+        onTap: onTap,
       ),
-      onTap: onTap,
     );
   }
 }

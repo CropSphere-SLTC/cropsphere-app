@@ -22,7 +22,10 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../../app_lang.dart';
 import '../../models/api_models.dart';
 import '../../services/service_factory.dart';
+import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
+import '../../widgets/profile_avatar_button.dart';
+import '../../widgets/skeleton_loading.dart';
 
 typedef _L = Map<String, String>;
 
@@ -255,12 +258,7 @@ String _navSvg(int i, Color color) {
 class WeatherScreen extends StatefulWidget {
   final ValueChanged<int>? onNavigate;
 
-  /// The signed-in farmer's email, used to personalise the profile avatar
-  /// next to the language pill (shows their initial). Optional — falls
-  /// back to a generic profile icon if not provided.
-  final String? userEmail;
-
-  const WeatherScreen({super.key, this.onNavigate, this.userEmail});
+  const WeatherScreen({super.key, this.onNavigate});
 
   @override
   State<WeatherScreen> createState() => _WeatherScreenState();
@@ -448,8 +446,8 @@ class _WeatherScreenState extends State<WeatherScreen> {
       child: LayoutBuilder(
         builder: (ctx, bc) {
           // Below 600px (mobile) the text nav labels are dropped entirely —
-          // just logo + language pill + profile avatar remain. Tablet/web
-          // (>=600px) keep the full nav bar. Same pattern as other screens.
+          // just logo + language pill remain. Tablet/web (>=600px) keep the
+          // full nav bar. Same pattern as other screens.
           final isMobile = bc.maxWidth < 600;
           return Row(
             children: [
@@ -529,11 +527,8 @@ class _WeatherScreenState extends State<WeatherScreen> {
               if (isMobile) const Spacer(),
               const SizedBox(width: 8),
               const _LangPill(),
-              const SizedBox(width: 8),
-              _ProfileAvatar(
-                email: widget.userEmail,
-                onTap: () => widget.onNavigate?.call(0), // Dashboard
-              ),
+              const SizedBox(width: 10),
+              const ProfileAvatarButton(diameter: 32),
             ],
           );
         },
@@ -646,9 +641,10 @@ class _WeatherScreenState extends State<WeatherScreen> {
           const SizedBox(height: 20),
           tipsBlock,
           const SizedBox(height: 16),
+          if (_isLoading) _resultSkeleton(),
           if (_errorMessage != null) _errorCard(),
           if (_result != null) _resultSection(),
-          if (_result == null && _errorMessage == null)
+          if (_result == null && _errorMessage == null && !_isLoading)
             _emptyResultPlaceholder(),
         ],
       );
@@ -715,9 +711,11 @@ class _WeatherScreenState extends State<WeatherScreen> {
           ),
         ),
         const SizedBox(height: 16),
+        if (_isLoading) _resultSkeleton(),
         if (_errorMessage != null) _errorCard(),
         if (_result != null) _resultSection(),
-        if (_result == null && _errorMessage == null) _emptyResultPlaceholder(),
+        if (_result == null && _errorMessage == null && !_isLoading)
+          _emptyResultPlaceholder(),
       ],
     );
   }
@@ -758,7 +756,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
+              AnimatedLangText(
                 _t({
                   'en': 'Weather Forecast',
                   'si': 'කාලගුණ අනාවැකිය',
@@ -770,7 +768,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              Text(
+              AnimatedLangText(
                 _t({
                   'en': 'AI-powered weekly forecast',
                   'si': 'AI-ශක්තිමත් සතිපතා අනාවැකිය',
@@ -1407,11 +1405,22 @@ class _WeatherScreenState extends State<WeatherScreen> {
     child: child,
   );
 
+  /// Shown in place of the empty placeholder while a forecast is in
+  /// flight — the result card is text-heavy (headline conditions +
+  /// narrative breakdown), so Typewriter fits: bars reveal left-to-right
+  /// like the eventual text being "written in".
+  Widget _resultSkeleton() => _card(
+    child: const TypewriterSkeleton(
+      lineWidthFractions: [0.5, 1.0, 0.9, 0.7, 0.85, 0.4],
+      lineHeight: 11,
+    ),
+  );
+
   Widget _sectionTitle(String title, IconData icon) => Row(
     children: [
       Icon(icon, size: 16, color: const Color(0xFF1565C0)),
       const SizedBox(width: 6),
-      Text(
+      AnimatedLangText(
         title,
         style: const TextStyle(
           fontSize: 15,
@@ -1421,56 +1430,6 @@ class _WeatherScreenState extends State<WeatherScreen> {
       ),
     ],
   );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  Profile avatar (matches other screens) — shows the farmer's email initial
-//  when available, otherwise a generic profile icon. WeatherScreen has no
-//  profile sheet of its own, so tapping it navigates to Dashboard.
-// ─────────────────────────────────────────────────────────────────────────────
-class _ProfileAvatar extends StatelessWidget {
-  final String? email;
-  final VoidCallback? onTap;
-  const _ProfileAvatar({this.email, this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final trimmed = email?.trim();
-    final hasEmail = trimmed != null && trimmed.isNotEmpty;
-    final initial = hasEmail ? trimmed[0].toUpperCase() : null;
-
-    return GestureDetector(
-      onTap: onTap,
-      child: Tooltip(
-        message: hasEmail ? trimmed : '',
-        child: Container(
-          width: 34,
-          height: 34,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: const Color(0xFF1565C0).withValues(alpha: 0.12),
-            border: Border.all(color: const Color(0xFF1565C0), width: 1.2),
-          ),
-          child: Center(
-            child: initial != null
-                ? Text(
-                    initial,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF1565C0),
-                    ),
-                  )
-                : const Icon(
-                    Icons.person_rounded,
-                    size: 19,
-                    color: Color(0xFF1565C0),
-                  ),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 class _LangPill extends StatelessWidget {

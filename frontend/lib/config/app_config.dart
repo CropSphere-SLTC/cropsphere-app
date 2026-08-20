@@ -5,7 +5,7 @@
 // from any non-localhost host already targets Railway.
 
 import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 
 class AppConfig {
   static String get baseUrl {
@@ -17,13 +17,22 @@ class AppConfig {
       if (host == 'localhost' || host == '127.0.0.1') {
         return 'http://localhost:8000';
       }
-      // Any other host (Firebase Hosting, custom domain, etc.)
-      // defaults to production Railway backend
       return 'https://cropsphere.up.railway.app';
     }
-    // Android emulator routes host machine via 10.0.2.2, not localhost
-    if (!kIsWeb && Platform.isAndroid) return 'http://10.0.2.2:8000';
-    return 'http://localhost:8000';
+
+    // Only use 10.0.2.2 for Android emulator during local debug testing,
+    // and only when explicitly opted in — most debug runs are on a
+    // physical device, which can't reach the host machine via 10.0.2.2.
+    const useEmulatorLoopback = bool.fromEnvironment(
+      'USE_EMULATOR_LOOPBACK',
+      defaultValue: false,
+    );
+    if (kDebugMode && Platform.isAndroid && useEmulatorLoopback) {
+      return 'http://10.0.2.2:8000';
+    }
+
+    // Everything else (release builds, real devices, iOS, etc.) uses Railway
+    return 'https://cropsphere.up.railway.app';
   }
 
   // Set to false when Shifan deploys — switches all services to real API

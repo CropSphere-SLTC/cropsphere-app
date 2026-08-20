@@ -540,6 +540,18 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   // ── Auth ───────────────────────────────────────────────────────────────────
+  // google_sign_in 7.x: GoogleSignIn is a singleton (.instance) that must be
+  // initialize()'d exactly once before any other call — this guard makes
+  // repeated sign-in attempts (e.g. cancel then retry) only pay that cost
+  // the first time.
+  bool _googleSignInInitialized = false;
+
+  Future<void> _ensureGoogleSignInInitialized() async {
+    if (_googleSignInInitialized) return;
+    await GoogleSignIn.instance.initialize();
+    _googleSignInInitialized = true;
+  }
+
   Future<void> _signInWithGoogle() async {
     _setLoading(true);
     _setError(null);
@@ -552,17 +564,42 @@ class _LoginScreenState extends State<LoginScreen>
           ..setCustomParameters({'prompt': 'select_account'});
         await FirebaseAuth.instance.signInWithPopup(p);
       } else {
-        // Android / iOS: use google_sign_in package + credential
-        final googleSignIn = GoogleSignIn(scopes: ['email', 'profile']);
-        final googleUser = await googleSignIn.signIn();
-        if (googleUser == null) {
-          _setLoading(false);
-          return; // user cancelled
+        // Android / iOS: use google_sign_in package + credential.
+        // v7 splits "authentication" (identity — the idToken) from
+        // "authorization" (access to scopes — the accessToken), where
+        // the old 6.x API returned both together off one .authentication
+        // call.
+        await _ensureGoogleSignInInitialized();
+        final signIn = GoogleSignIn.instance;
+        if (!signIn.supportsAuthenticate()) {
+          _setError(_s.errSignInFail);
+          return;
         }
-        final googleAuth = await googleUser.authentication;
+
+        const scopes = ['email', 'profile'];
+        GoogleSignInAccount googleUser;
+        try {
+          googleUser = await signIn.authenticate(scopeHint: scopes);
+        } on GoogleSignInException catch (e) {
+          if (e.code == GoogleSignInExceptionCode.canceled) {
+            return; // user cancelled — same as the old null-return case
+          }
+          rethrow;
+        }
+
+        final idToken = googleUser.authentication.idToken;
+        // 'email'/'profile' are non-sensitive scopes almost always already
+        // granted by authenticate() above — authorizationForScopes() checks
+        // that silently, so this only falls through to authorizeScopes()
+        // (which can show its own prompt) if that comes back empty.
+        final authorization =
+            await googleUser.authorizationClient.authorizationForScopes(
+              scopes,
+            ) ??
+            await googleUser.authorizationClient.authorizeScopes(scopes);
         final credential = GoogleAuthProvider.credential(
-          accessToken: googleAuth.accessToken,
-          idToken: googleAuth.idToken,
+          accessToken: authorization.accessToken,
+          idToken: idToken,
         );
         await FirebaseAuth.instance.signInWithCredential(credential);
       }
@@ -574,6 +611,11 @@ class _LoginScreenState extends State<LoginScreen>
         'network-request-failed' => _s.errNetwork,
         _ => _s.errSignInFail,
       });
+    } on GoogleSignInException catch (e) {
+      debugPrint(
+        'GOOGLE SIGNIN ERROR: code=${e.code} description=${e.description}',
+      );
+      _setError(_s.errSignInFail);
     } catch (e) {
       _setError('${_s.errUnexpected} ${e.toString()}');
     } finally {

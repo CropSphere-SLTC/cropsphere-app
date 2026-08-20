@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../../../../models/admin_models.dart';
 import '../../../../services/admin_service.dart';
 import '../../../../widgets/app_theme.dart';
+import '../../../../widgets/skeleton_loading.dart';
 import '../admin_ui.dart';
 import '../widgets/admin_sidebar.dart';
 import '../widgets/email_alerts_card.dart';
@@ -79,9 +80,7 @@ class _DashboardPageState extends State<DashboardPage> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Center(
-        child: CircularProgressIndicator(color: AppTheme.primary),
-      );
+      return _buildSkeleton();
     }
     return RefreshIndicator(
       color: AppTheme.primary,
@@ -108,6 +107,86 @@ class _DashboardPageState extends State<DashboardPage> {
           const EmailAlertsCard(),
         ],
       ),
+    );
+  }
+
+  /// Layered pattern — this page is a card-based dashboard grid (stat
+  /// cards, server/model-pill cards, activity/alerts cards), so each block
+  /// gets a raised, shadowed placeholder rather than a flat list skeleton.
+  Widget _buildSkeleton() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        const AdminStatCardsSkeleton(count: 4),
+        const SizedBox(height: 16),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final narrow = constraints.maxWidth < 700;
+            final server = LayeredSkeletonCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  SkeletonBox(width: 60, height: 14),
+                  SizedBox(height: 14),
+                  SkeletonBox(height: 10),
+                  SizedBox(height: 10),
+                  SkeletonBox(height: 10),
+                ],
+              ),
+            );
+            final pills = LayeredSkeletonCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  SkeletonBox(width: 90, height: 14),
+                  SizedBox(height: 14),
+                  SkeletonBox(height: 28, radius: 14),
+                  SizedBox(height: 8),
+                  SkeletonBox(height: 28, radius: 14),
+                ],
+              ),
+            );
+            if (narrow) {
+              return Column(
+                children: [server, const SizedBox(height: 12), pills],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(width: 240, child: server),
+                const SizedBox(width: 12),
+                Expanded(child: pills),
+              ],
+            );
+          },
+        ),
+        const SizedBox(height: 16),
+        LayeredSkeletonCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: const [
+              SkeletonBox(width: 120, height: 14),
+              SizedBox(height: 14),
+              SkeletonBox(height: 10),
+              SizedBox(height: 10),
+              SkeletonBox(height: 10),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        LayeredSkeletonCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: const [
+              SkeletonBox(width: 140, height: 14),
+              SizedBox(height: 14),
+              SkeletonBox(height: 10),
+              SizedBox(height: 10),
+            ],
+          ),
+        ),
+      ],
     );
   }
 

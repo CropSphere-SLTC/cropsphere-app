@@ -5,6 +5,7 @@ import '../../app_lang.dart';
 import '../../models/profile_models.dart';
 import '../../services/profile_service.dart';
 import '../../widgets/app_theme.dart';
+import '../../widgets/skeleton_loading.dart';
 
 class AccountSettingsScreen extends StatefulWidget {
   const AccountSettingsScreen({super.key});
@@ -101,15 +102,40 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
     }
   }
 
+  /// Outline pattern — a toggle/dropdown settings form on a single fast
+  /// doc fetch; a bordered-only placeholder per field is low-emphasis
+  /// enough not to overstate how long this actually takes.
+  Widget _buildSkeleton() {
+    Widget field() => const Padding(
+      padding: EdgeInsets.only(bottom: 12),
+      child: OutlineSkeletonBox(height: 44),
+    );
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const OutlineSkeletonBox(width: 120, height: 18),
+          const SizedBox(height: 12),
+          field(),
+          const SizedBox(height: 20),
+          const OutlineSkeletonBox(width: 160, height: 18),
+          const SizedBox(height: 12),
+          field(),
+          field(),
+          field(),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.background,
       appBar: AppBar(title: const Text('Account Settings')),
       body: _loading
-          ? const Center(
-              child: CircularProgressIndicator(color: AppTheme.primary),
-            )
+          ? _buildSkeleton()
           : SingleChildScrollView(
               padding: const EdgeInsets.all(16),
               child: Column(

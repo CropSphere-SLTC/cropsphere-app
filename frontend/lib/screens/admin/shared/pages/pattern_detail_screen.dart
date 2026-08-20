@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import '../../../../models/pattern_models.dart';
 import '../../../../services/admin_service.dart';
 import '../../../../widgets/app_theme.dart';
+import '../../../../widgets/skeleton_loading.dart';
 import '../admin_ui.dart';
 import '../widgets/pattern_ui.dart';
 
@@ -124,9 +125,7 @@ class _PatternDetailScreenState extends State<PatternDetailScreen> {
 
   Widget _buildBody() {
     if (_loading) {
-      return const Center(
-        child: CircularProgressIndicator(color: AppTheme.primary),
-      );
+      return _buildSkeleton();
     }
     if (_error != null) {
       return Padding(
@@ -157,6 +156,42 @@ class _PatternDetailScreenState extends State<PatternDetailScreen> {
             _buildRevokeButton(),
           ],
           const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+
+  /// Layered pattern — single-record detail rendered as a stack of metric
+  /// cards (header, stats, example hits, false positives, history), so the
+  /// loading state is that same stack of raised placeholders.
+  Widget _buildSkeleton() {
+    Widget metricCard({int lines = 3}) => LayeredSkeletonCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SkeletonBox(width: 130, height: 14),
+          const SizedBox(height: 14),
+          for (var i = 0; i < lines; i++) ...[
+            SkeletonBox(height: 10, width: i.isEven ? null : 180),
+            const SizedBox(height: 8),
+          ],
+        ],
+      ),
+    );
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          metricCard(lines: 2),
+          const SizedBox(height: 16),
+          metricCard(),
+          const SizedBox(height: 16),
+          metricCard(),
+          const SizedBox(height: 16),
+          metricCard(),
+          const SizedBox(height: 16),
+          metricCard(),
         ],
       ),
     );

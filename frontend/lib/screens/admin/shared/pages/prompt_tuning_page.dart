@@ -11,6 +11,7 @@ import '../../../../models/admin_models.dart';
 import '../../../../services/admin_service.dart';
 import '../../../../services/superadmin_service.dart';
 import '../../../../widgets/app_theme.dart';
+import '../../../../widgets/skeleton_loading.dart';
 import '../../../super_admin/pages/adjustment_detail_screen.dart';
 import '../admin_ui.dart';
 import '../widgets/tuning_ui.dart';
@@ -497,13 +498,11 @@ class _PromptTuningPageState extends State<PromptTuningPage> {
               style: TextButton.styleFrom(foregroundColor: AppTheme.error),
             )
           : null,
+      // Staggered pattern — this resolves to a list of adjustment rows, so
+      // the loading state previews that shape rather than a centered
+      // spinner.
       child: _loadingActive
-          ? const Padding(
-              padding: EdgeInsets.symmetric(vertical: 16),
-              child: Center(
-                child: CircularProgressIndicator(color: AppTheme.primary),
-              ),
-            )
+          ? const AdminTableSkeleton(rowCount: 4, cellCount: 2)
           : (active == null || active.adjustments.isEmpty)
           ? const Padding(
               padding: EdgeInsets.symmetric(vertical: 4),

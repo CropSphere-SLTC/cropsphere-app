@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../../../models/admin_models.dart';
 import '../../../../services/admin_service.dart';
 import '../../../../widgets/app_theme.dart';
+import '../../../../widgets/skeleton_loading.dart';
 import '../admin_ui.dart';
 import '../widgets/data_table_card.dart';
 import '../widgets/model_status.dart';
@@ -69,9 +70,7 @@ class _SystemHealthPageState extends State<SystemHealthPage> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Center(
-        child: CircularProgressIndicator(color: AppTheme.primary),
-      );
+      return _buildSkeleton();
     }
     return RefreshIndicator(
       color: AppTheme.primary,
@@ -101,6 +100,70 @@ class _SystemHealthPageState extends State<SystemHealthPage> {
           ],
         ],
       ),
+    );
+  }
+
+  /// Layered pattern — CPU/RAM/model-status/endpoints all render as raised
+  /// cards, so the loading state mirrors that with shadowed placeholders
+  /// instead of a flat list.
+  Widget _buildSkeleton() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final narrow = constraints.maxWidth < 600;
+            final metric = LayeredSkeletonCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  SkeletonBox(width: 80, height: 12),
+                  SizedBox(height: 12),
+                  SkeletonBox(width: 70, height: 26),
+                  SizedBox(height: 12),
+                  SkeletonBox(height: 10, radius: 6),
+                ],
+              ),
+            );
+            if (narrow) {
+              return Column(
+                children: [metric, const SizedBox(height: 12), metric],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(child: metric),
+                const SizedBox(width: 12),
+                Expanded(child: metric),
+              ],
+            );
+          },
+        ),
+        const SizedBox(height: 16),
+        LayeredSkeletonCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: const [
+              SkeletonBox(width: 100, height: 14),
+              SizedBox(height: 14),
+              SkeletonBox(height: 40, radius: 8),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        LayeredSkeletonCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: const [
+              SkeletonBox(width: 150, height: 14),
+              SizedBox(height: 14),
+              SkeletonBox(height: 10),
+              SizedBox(height: 10),
+              SkeletonBox(height: 10),
+            ],
+          ),
+        ),
+      ],
     );
   }
 

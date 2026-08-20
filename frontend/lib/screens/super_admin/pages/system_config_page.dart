@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import '../../../models/admin_models.dart';
 import '../../../services/superadmin_service.dart';
 import '../../../widgets/app_theme.dart';
+import '../../../widgets/skeleton_loading.dart';
 import '../../admin/shared/admin_ui.dart';
 
 class SystemConfigPage extends StatefulWidget {
@@ -221,12 +222,36 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
     }
   }
 
+  /// Outline pattern — a toggle/number-field-heavy settings form on a
+  /// single fast doc fetch; a bordered-only placeholder per field is
+  /// low-emphasis enough not to overstate how long this actually takes.
+  Widget _buildSkeleton() {
+    Widget field() => const Padding(
+      padding: EdgeInsets.only(bottom: 12),
+      child: OutlineSkeletonBox(height: 44),
+    );
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        const OutlineSkeletonBox(width: 160, height: 22),
+        const SizedBox(height: 20),
+        field(),
+        field(),
+        const SizedBox(height: 8),
+        const OutlineSkeletonBox(height: 60),
+        const SizedBox(height: 20),
+        field(),
+        field(),
+        field(),
+        field(),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Center(
-        child: CircularProgressIndicator(color: AppTheme.primary),
-      );
+      return _buildSkeleton();
     }
     return ListView(
       padding: const EdgeInsets.all(16),

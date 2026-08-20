@@ -35,8 +35,10 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import '../../app_lang.dart';
+import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
 import '../../widgets/profile_avatar_button.dart';
+import '../../widgets/skeleton_loading.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Season helpers
@@ -1867,37 +1869,35 @@ class _DashboardScreenState extends State<DashboardScreen>
   // ─────────────────────────────────────────────────────────────────────────
   Widget _buildWeatherCard({required bool compact}) {
     if (_weatherLoading) {
-      return Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF4F8F4),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFE0EAE0)),
-        ),
-        child: Row(
-          children: [
-            const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                valueColor: AlwaysStoppedAnimation(Color(0xFF4CAF50)),
+      // Pulse pattern — this is the app's most-visited screen, so a static
+      // block risks reading as frozen rather than loading even for a fast
+      // call; the breathing pulse keeps it legibly "in progress". Shaped
+      // like the loaded card (icon + temp line + rain/wind line) so the
+      // layout doesn't jump once data arrives.
+      return PulseFade(
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF4F8F4),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE0EAE0)),
+          ),
+          child: Row(
+            children: [
+              const SkeletonBox(width: 32, height: 32, radius: 16),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const [
+                    SkeletonBox(width: 70, height: 18),
+                    SizedBox(height: 6),
+                    SkeletonBox(height: 12),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(width: 10),
-            Text(
-              _t({
-                'en': 'Getting weather…',
-                'si': 'කාලගුණ දත්ත ලබාගනිමින්…',
-                'ta': 'வானிலை பெறப்படுகிறது…',
-              }),
-              style: const TextStyle(
-                fontSize: 13,
-                color: Color(0xFF3E5E3E),
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       );
     }
@@ -2456,7 +2456,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     children: [
       const Icon(Icons.touch_app_rounded, size: 17, color: Color(0xFF4CAF50)),
       const SizedBox(width: 6),
-      Text(
+      AnimatedLangText(
         text,
         style: const TextStyle(
           fontSize: 13,
@@ -2550,7 +2550,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    AnimatedLangText(
                       chatTitle,
                       style: const TextStyle(
                         fontSize: 13.5,
@@ -2558,7 +2558,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                         color: Color(0xFF1B5E20),
                       ),
                     ),
-                    Text(
+                    AnimatedLangText(
                       chatSub,
                       style: const TextStyle(
                         fontSize: 11.5,

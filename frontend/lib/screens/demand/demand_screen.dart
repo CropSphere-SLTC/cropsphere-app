@@ -27,8 +27,10 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../../app_lang.dart';
 import '../../models/api_models.dart';
 import '../../services/service_factory.dart';
+import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
 import '../../widgets/profile_avatar_button.dart';
+import '../../widgets/skeleton_loading.dart';
 
 typedef _L = Map<String, String>;
 
@@ -605,6 +607,7 @@ class _DemandScreenState extends State<DemandScreen> {
           const SizedBox(height: 20),
           marketDataBlock,
           const SizedBox(height: 20),
+          if (_isLoading) _resultSkeleton(),
           if (_errorMessage != null) _errorCard(),
           if (_result != null) _resultCard(),
           if (_result == null && _errorMessage == null && !_isLoading)
@@ -622,6 +625,7 @@ class _DemandScreenState extends State<DemandScreen> {
       children: [
         _predictButton(),
         const SizedBox(height: 14),
+        if (_isLoading) _resultSkeleton(),
         if (_errorMessage != null) _errorCard(),
         if (_result != null) _resultCard(),
         if (_result == null && _errorMessage == null && !_isLoading)
@@ -835,7 +839,7 @@ class _DemandScreenState extends State<DemandScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
+              AnimatedLangText(
                 _t({
                   'en': 'Demand Forecast',
                   'si': 'ඉල්ලුම් පුරෝකථනය',
@@ -847,7 +851,7 @@ class _DemandScreenState extends State<DemandScreen> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              Text(
+              AnimatedLangText(
                 _t({
                   'en': 'Know if demand is rising before you sell',
                   'si': 'විකිණීමට පෙර ඉල්ලුම ඉහළ යනවාදැයි දැනගන්න',
@@ -1644,11 +1648,22 @@ class _DemandScreenState extends State<DemandScreen> {
     child: child,
   );
 
+  /// Shown in place of the empty placeholder while a prediction is in
+  /// flight — the result card is text-heavy (headline demand figure +
+  /// narrative breakdown), so Typewriter fits: bars reveal left-to-right
+  /// like the eventual text being "written in".
+  Widget _resultSkeleton() => _card(
+    child: const TypewriterSkeleton(
+      lineWidthFractions: [0.5, 1.0, 0.9, 0.7, 0.85, 0.4],
+      lineHeight: 11,
+    ),
+  );
+
   Widget _sectionTitle(String title, IconData icon) => Row(
     children: [
       Icon(icon, size: 16, color: AppTheme.primaryDark),
       const SizedBox(width: 6),
-      Text(
+      AnimatedLangText(
         title,
         style: const TextStyle(
           fontSize: 15,

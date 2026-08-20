@@ -22,8 +22,10 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../../app_lang.dart';
 import '../../models/api_models.dart';
 import '../../services/service_factory.dart';
+import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
 import '../../widgets/profile_avatar_button.dart';
+import '../../widgets/skeleton_loading.dart';
 
 typedef _L = Map<String, String>;
 
@@ -639,9 +641,10 @@ class _WeatherScreenState extends State<WeatherScreen> {
           const SizedBox(height: 20),
           tipsBlock,
           const SizedBox(height: 16),
+          if (_isLoading) _resultSkeleton(),
           if (_errorMessage != null) _errorCard(),
           if (_result != null) _resultSection(),
-          if (_result == null && _errorMessage == null)
+          if (_result == null && _errorMessage == null && !_isLoading)
             _emptyResultPlaceholder(),
         ],
       );
@@ -708,9 +711,11 @@ class _WeatherScreenState extends State<WeatherScreen> {
           ),
         ),
         const SizedBox(height: 16),
+        if (_isLoading) _resultSkeleton(),
         if (_errorMessage != null) _errorCard(),
         if (_result != null) _resultSection(),
-        if (_result == null && _errorMessage == null) _emptyResultPlaceholder(),
+        if (_result == null && _errorMessage == null && !_isLoading)
+          _emptyResultPlaceholder(),
       ],
     );
   }
@@ -751,7 +756,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
+              AnimatedLangText(
                 _t({
                   'en': 'Weather Forecast',
                   'si': 'කාලගුණ අනාවැකිය',
@@ -763,7 +768,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              Text(
+              AnimatedLangText(
                 _t({
                   'en': 'AI-powered weekly forecast',
                   'si': 'AI-ශක්තිමත් සතිපතා අනාවැකිය',
@@ -1400,11 +1405,22 @@ class _WeatherScreenState extends State<WeatherScreen> {
     child: child,
   );
 
+  /// Shown in place of the empty placeholder while a forecast is in
+  /// flight — the result card is text-heavy (headline conditions +
+  /// narrative breakdown), so Typewriter fits: bars reveal left-to-right
+  /// like the eventual text being "written in".
+  Widget _resultSkeleton() => _card(
+    child: const TypewriterSkeleton(
+      lineWidthFractions: [0.5, 1.0, 0.9, 0.7, 0.85, 0.4],
+      lineHeight: 11,
+    ),
+  );
+
   Widget _sectionTitle(String title, IconData icon) => Row(
     children: [
       Icon(icon, size: 16, color: const Color(0xFF1565C0)),
       const SizedBox(width: 6),
-      Text(
+      AnimatedLangText(
         title,
         style: const TextStyle(
           fontSize: 15,

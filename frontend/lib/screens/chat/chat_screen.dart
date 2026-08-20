@@ -21,6 +21,8 @@ import '../../models/api_models.dart';
 import '../../models/chat_history_models.dart';
 import '../../widgets/app_theme.dart';
 import '../../widgets/profile_avatar_button.dart';
+import '../../widgets/growth_logo.dart';
+import '../../widgets/skeleton_loading.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
@@ -81,6 +83,10 @@ class _ChatScreenState extends State<ChatScreen> {
   String? _conversationId; // null = new chat
   List<ConversationSummary> _conversations = [];
   bool _conversationsLoading = false;
+  // True while _openConversation's getConversation() call is in flight —
+  // drives the message-list skeleton so switching conversations shows
+  // something immediately instead of a blank pane until messages arrive.
+  bool _openingConversation = false;
   // Conversation ids mid-delete — kept in the list one more frame so the
   // fade+collapse animation has something to animate before it's gone.
   final Set<String> _deletingIds = {};
@@ -219,6 +225,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
       Navigator.of(context).pop();
     }
+    setState(() => _openingConversation = true);
     try {
       final detail = await _historyService.getConversation(summary.id);
       if (!mounted) return;
@@ -262,6 +269,8 @@ class _ChatScreenState extends State<ChatScreen> {
           const SnackBar(content: Text('Failed to load conversation')),
         );
       }
+    } finally {
+      if (mounted) setState(() => _openingConversation = false);
     }
   }
 
@@ -596,7 +605,14 @@ class _ChatScreenState extends State<ChatScreen> {
                   (bubble['content'] as String) +
                   (event['content'] as String? ?? '');
             });
-            _scrollToBottom();
+            // No scroll call here — network chunks arrive in bursty,
+            // irregular batches, and animating to bottom on each one used to
+            // restart an in-flight 400ms scroll animation before it settled,
+            // reading as a stutter. The buffered reveal timer below now
+            // owns auto-scroll: it advances on a steady 16ms tick that
+            // matches what's actually growing on screen, and jumps rather
+            // than animates while live so the view tracks the caret exactly
+            // instead of chasing it in restarted bursts.
           case 'metadata':
             final convId = event['conversation_id'] as String? ?? '';
             final isNewConversation =
@@ -786,6 +802,12 @@ class _ChatScreenState extends State<ChatScreen> {
             content.length,
           );
         });
+        // Auto-scroll paced to the same 16ms tick that grows the bubble, so
+        // the view tracks the caret smoothly instead of chasing it in
+        // restarted animateTo bursts (see the removed per-chunk call above).
+        // A plain jump, not an animation — at this cadence an eased
+        // animateTo would just be restarting itself every frame.
+        _scrollToBottom(animate: false);
       } else if (networkDone) {
         // Caught up AND the network is finished — nothing left to type.
         timer.cancel();
@@ -1108,54 +1130,54 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// Skeleton placeholder rows shown during the initial conversation fetch —
   /// replaces the old bare spinner so the sidebar shape is visible right
-  /// away.
+  /// away. Staggered pattern: rows fade/slide in one after another instead
+  /// of all appearing at once, which reads better for list content than a
+  /// flat block-level pulse.
   Widget _buildSidebarSkeleton() {
-    return ListView(
-      physics: const NeverScrollableScrollPhysics(),
-      children: List.generate(5, (_) => _skeletonRow()),
+    return StaggeredSkeletonList(
+      itemCount: 5,
+      itemBuilder: (context, i) => _skeletonRow(),
     );
   }
 
   Widget _skeletonRow() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: _PulseFade(
-        child: Row(
-          children: [
-            Container(
-              width: 18,
-              height: 18,
-              decoration: BoxDecoration(
-                color: AppTheme.textMuted.withValues(alpha: 0.3),
-                shape: BoxShape.circle,
-              ),
+      child: Row(
+        children: [
+          Container(
+            width: 18,
+            height: 18,
+            decoration: BoxDecoration(
+              color: AppTheme.textMuted.withValues(alpha: 0.3),
+              shape: BoxShape.circle,
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    height: 10,
-                    decoration: BoxDecoration(
-                      color: AppTheme.textMuted.withValues(alpha: 0.3),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: AppTheme.textMuted.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(4),
                   ),
-                  const SizedBox(height: 6),
-                  Container(
-                    height: 8,
-                    width: 60,
-                    decoration: BoxDecoration(
-                      color: AppTheme.textMuted.withValues(alpha: 0.25),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
+                ),
+                const SizedBox(height: 6),
+                Container(
+                  height: 8,
+                  width: 60,
+                  decoration: BoxDecoration(
+                    color: AppTheme.textMuted.withValues(alpha: 0.25),
+                    borderRadius: BorderRadius.circular(4),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -1506,6 +1528,9 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildMessageList() {
+    if (_openingConversation) {
+      return _buildMessageListSkeleton();
+    }
     if (_displayMessages.isEmpty) {
       return _buildEmptyState();
     }
@@ -1538,6 +1563,49 @@ class _ChatScreenState extends State<ChatScreen> {
         return RepaintBoundary(
           key: ObjectKey(msg),
           child: _entranceAnimate(msg, _buildMessageBubble(msg, i)),
+        );
+      },
+    );
+  }
+
+  /// Shown while `_openConversation` is fetching the selected conversation's
+  /// messages — alternating user/assistant bubble shapes so the pane's
+  /// eventual layout is recognisable immediately, instead of staying blank
+  /// until the request resolves. Staggered pattern: each row fades/slides in
+  /// with a short delay after the last, then breathes in place.
+  Widget _buildMessageListSkeleton() {
+    return StaggeredSkeletonList(
+      itemCount: 6,
+      physics: const ClampingScrollPhysics(),
+      itemBuilder: (context, i) {
+        final isUser = i.isOdd;
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Align(
+            alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: isUser ? 220 : 320),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppTheme.textMuted.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SkeletonBox(height: 10, width: isUser ? 160 : 280),
+                    const SizedBox(height: 8),
+                    SkeletonBox(height: 10, width: isUser ? 100 : 220),
+                    if (!isUser) ...[
+                      const SizedBox(height: 8),
+                      const SkeletonBox(height: 10, width: 140),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
         );
       },
     );
@@ -1630,7 +1698,12 @@ class _ChatScreenState extends State<ChatScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _logo(72),
+              // Fully-bloomed GrowthLogo (progress: 1.0) instead of the
+              // static PNG — visual consistency with the launch animation,
+              // same 72px size as the old _logo(72) call. _logo() itself
+              // (used elsewhere for small avatar-style logos in bubbles/
+              // header) is untouched.
+              const GrowthLogo(progress: 1.0, size: 72),
               const SizedBox(height: 16),
               Text(
                 'CropSphere',
@@ -2833,51 +2906,6 @@ class _BlinkingCursorState extends State<_BlinkingCursor>
         height: 14,
         color: AppTheme.textPrimary,
       ),
-    );
-  }
-}
-
-/// Wraps [child] in a slow opacity pulse (0.3 → 0.6, ~1s, ease-in-out,
-/// looping) — used for skeleton placeholders while content is loading.
-class _PulseFade extends StatefulWidget {
-  final Widget child;
-  const _PulseFade({required this.child});
-
-  @override
-  State<_PulseFade> createState() => _PulseFadeState();
-}
-
-class _PulseFadeState extends State<_PulseFade>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final Animation<double> _opacity;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1000),
-    )..repeat(reverse: true);
-    _opacity = Tween<double>(
-      begin: 0.3,
-      end: 0.6,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _opacity,
-      builder: (context, child) =>
-          Opacity(opacity: _opacity.value, child: child),
-      child: widget.child,
     );
   }
 }

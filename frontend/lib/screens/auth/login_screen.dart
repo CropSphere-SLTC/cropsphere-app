@@ -14,10 +14,8 @@ const _lastSignInEmailPrefsKey = 'login_last_signin_email';
 // ── Colour tokens ──────────────────────────────────────────────────────────────
 const _bgOutside = Color(0xFFDFE6CE);
 const _footerPrimary = Color(0xFF4A5E30);
-const _footerSecondary = Color(0xFF6B7A52);
 const _logoName = Color(0xFF1B4D1B);
 const _taglineMain = Color(0xFF2E4A1E);
-const _taglineSub = Color(0xFF6B7A52);
 
 // ── Strings model ──────────────────────────────────────────────────────────────
 class _L {
@@ -356,6 +354,12 @@ class _LoginScreenState extends State<LoginScreen>
   int _tabIndex = 0;
   int _prevTab = 0;
   AppLang _lang = AppLang.en;
+
+  // Set at the top of build() from screenW ≥ 1024 — read by the card's own
+  // builder methods below so the whole sign-in card (not just the header)
+  // scales up a little on desktop/web, without threading an isDesktop
+  // parameter through every one of them individually.
+  bool _isDesktop = false;
 
   // Sign-in controllers
   final _siEmailCtrl = TextEditingController();
@@ -741,7 +745,8 @@ class _LoginScreenState extends State<LoginScreen>
     // Dynamic max-width: interpolates smoothly between breakpoints.
     //   mobile  (<600)  → full width (no constraint)
     //   tablet  (600–1023) → 400–440 px, centred
-    //   web     (≥1024) → 460 px, centred
+    //   web     (≥1024) → 520 px, centred — bumped from 460 so the whole
+    //     sign-in card reads a little bigger on desktop/web specifically.
     final double cardMaxW;
     if (screenW < 600) {
       cardMaxW = double.infinity;
@@ -750,14 +755,16 @@ class _LoginScreenState extends State<LoginScreen>
       final t = ((screenW - 600) / (1024 - 600)).clamp(0.0, 1.0);
       cardMaxW = 400 + (40 * t);
     } else {
-      cardMaxW = 460;
+      cardMaxW = 520;
     }
 
-    // Desktop/web (≥1024px) gets a slightly larger logo/wordmark/tagline —
-    // same step as cardMaxW's own mobile/tablet/desktop breakpoints above,
-    // rather than a continuous scale, since the design calls out exactly
-    // these three discrete tiers.
+    // Desktop/web (≥1024px) gets a slightly larger logo/wordmark/tagline,
+    // and — via _isDesktop — a slightly larger card (inputs, buttons, tab
+    // bar, card text) too. Same step as cardMaxW's own mobile/tablet/desktop
+    // breakpoints above, rather than a continuous scale, since the design
+    // calls out exactly these three discrete tiers.
     final isDesktop = screenW >= 1024;
+    _isDesktop = isDesktop;
     final logoSize = isDesktop ? 46.0 : 40.0;
     final wordmarkSize = isDesktop ? 22.0 : 20.0;
     final taglineMainSize = isDesktop ? 18.0 : 16.0;
@@ -960,7 +967,11 @@ class _LoginScreenState extends State<LoginScreen>
         Text(
           _s.taglineSub,
           textAlign: TextAlign.center,
-          style: TextStyle(color: _taglineSub, fontSize: subSize, height: 1.5),
+          style: TextStyle(
+            color: AppTheme.login.outsideMutedText,
+            fontSize: subSize,
+            height: 1.5,
+          ),
         ),
       ],
     );
@@ -1013,7 +1024,12 @@ class _LoginScreenState extends State<LoginScreen>
           // the active tab's indicator reads as "part of" a track rather
           // than floating.
           Container(
-            padding: const EdgeInsets.fromLTRB(15, 13, 15, 0),
+            padding: EdgeInsets.fromLTRB(
+              _isDesktop ? 18 : 15,
+              _isDesktop ? 15 : 13,
+              _isDesktop ? 18 : 15,
+              0,
+            ),
             decoration: BoxDecoration(
               border: Border(
                 bottom: BorderSide(color: AppTheme.login.borderSubtle),
@@ -1025,12 +1041,14 @@ class _LoginScreenState extends State<LoginScreen>
                   label: _s.tabSignIn,
                   selected: _tabIndex == 0,
                   onTap: () => _switchTab(0),
+                  isDesktop: _isDesktop,
                 ),
                 const SizedBox(width: 8),
                 _TabBtn(
                   label: _s.tabRegister,
                   selected: _tabIndex == 1,
                   onTap: () => _switchTab(1),
+                  isDesktop: _isDesktop,
                 ),
               ],
             ),
@@ -1080,7 +1098,12 @@ class _LoginScreenState extends State<LoginScreen>
   // ── Form dispatcher ────────────────────────────────────────────────────────
   Widget _formContent(int tab) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+      padding: EdgeInsets.fromLTRB(
+        _isDesktop ? 22 : 18,
+        _isDesktop ? 16 : 14,
+        _isDesktop ? 22 : 18,
+        _isDesktop ? 20 : 18,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1089,14 +1112,17 @@ class _LoginScreenState extends State<LoginScreen>
             tab == 0 ? _s.siTitle : _s.suTitle,
             style: TextStyle(
               color: AppTheme.login.textPrimary,
-              fontSize: 16,
+              fontSize: _isDesktop ? 18 : 16,
               fontWeight: FontWeight.w800,
             ),
           ),
           const SizedBox(height: 3),
           Text(
             tab == 0 ? _s.siSub : _s.suSub,
-            style: TextStyle(color: AppTheme.login.textSecondary, fontSize: 11),
+            style: TextStyle(
+              color: AppTheme.login.textSecondary,
+              fontSize: _isDesktop ? 12 : 11,
+            ),
           ),
           const SizedBox(height: 13),
           // Error banner
@@ -1303,19 +1329,29 @@ class _LoginScreenState extends State<LoginScreen>
       maxLength: maxLength,
       textInputAction: textInputAction,
       onFieldSubmitted: onSubmitted,
-      style: TextStyle(color: AppTheme.login.textPrimary, fontSize: 13),
+      style: TextStyle(
+        color: AppTheme.login.textPrimary,
+        fontSize: _isDesktop ? 14 : 13,
+      ),
       validator: validator,
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: TextStyle(color: AppTheme.login.textSecondary, fontSize: 12),
-        prefixIcon: Icon(icon, color: AppTheme.login.textSecondary, size: 18),
+        labelStyle: TextStyle(
+          color: AppTheme.login.textSecondary,
+          fontSize: _isDesktop ? 13 : 12,
+        ),
+        prefixIcon: Icon(
+          icon,
+          color: AppTheme.login.textSecondary,
+          size: _isDesktop ? 19 : 18,
+        ),
         suffixIcon: suffix,
         filled: true,
         fillColor: Colors.white,
         isDense: true,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: 12,
+        contentPadding: EdgeInsets.symmetric(
+          horizontal: _isDesktop ? 16 : 14,
+          vertical: _isDesktop ? 14 : 12,
         ),
         counterText: '', // hide the maxLength counter — not part of this design
         enabledBorder: OutlineInputBorder(
@@ -1347,7 +1383,7 @@ class _LoginScreenState extends State<LoginScreen>
         icon: Icon(
           obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined,
           color: AppTheme.login.textSecondary,
-          size: 18,
+          size: _isDesktop ? 19 : 18,
         ),
         onPressed: onTap,
       ),
@@ -1367,7 +1403,7 @@ class _LoginScreenState extends State<LoginScreen>
       0.18,
     )!;
     return SizedBox(
-      height: 44,
+      height: _isDesktop ? 50 : 44,
       child: ElevatedButton(
         onPressed: _isLoading ? null : onPressed,
         style: ButtonStyle(
@@ -1386,9 +1422,9 @@ class _LoginScreenState extends State<LoginScreen>
             RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
           elevation: const WidgetStatePropertyAll(0),
-          textStyle: const WidgetStatePropertyAll(
+          textStyle: WidgetStatePropertyAll(
             TextStyle(
-              fontSize: 14,
+              fontSize: _isDesktop ? 15 : 14,
               fontWeight: FontWeight.w800,
               letterSpacing: 0.2,
             ),
@@ -1414,7 +1450,7 @@ class _LoginScreenState extends State<LoginScreen>
     // it reads clearly apart from the filled primary Sign In button (the
     // old version shared the card's own dark-green fill and blended in).
     return SizedBox(
-      height: 44,
+      height: _isDesktop ? 50 : 44,
       child: OutlinedButton(
         onPressed: _isLoading ? null : _signInWithGoogle,
         style: OutlinedButton.styleFrom(
@@ -1428,14 +1464,18 @@ class _LoginScreenState extends State<LoginScreen>
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            SvgPicture.string(_googleSvg, width: 16, height: 16),
+            SvgPicture.string(
+              _googleSvg,
+              width: _isDesktop ? 17 : 16,
+              height: _isDesktop ? 17 : 16,
+            ),
             const SizedBox(width: 10),
             Flexible(
               child: Text(
                 _s.continueGoogle,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 13,
+                style: TextStyle(
+                  fontSize: _isDesktop ? 14 : 13,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -1454,7 +1494,10 @@ class _LoginScreenState extends State<LoginScreen>
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Text(
             label,
-            style: TextStyle(color: AppTheme.login.dividerText, fontSize: 13),
+            style: TextStyle(
+              color: AppTheme.login.dividerText,
+              fontSize: _isDesktop ? 14 : 13,
+            ),
           ),
         ),
         Expanded(child: Divider(color: AppTheme.login.borderSubtle, height: 1)),
@@ -1469,7 +1512,7 @@ class _LoginScreenState extends State<LoginScreen>
       child: Column(
         children: [
           Divider(
-            color: _taglineSub.withValues(alpha: 0.25),
+            color: AppTheme.login.outsideMutedText.withValues(alpha: 0.25),
             height: 1,
             indent: 24,
             endIndent: 24,
@@ -1488,8 +1531,8 @@ class _LoginScreenState extends State<LoginScreen>
           Text(
             _s.developedBy,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: _footerSecondary,
+            style: TextStyle(
+              color: AppTheme.login.outsideMutedText,
               fontSize: 10,
               height: 1.5,
             ),
@@ -1576,10 +1619,12 @@ class _TabBtn extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
+  final bool isDesktop;
   const _TabBtn({
     required this.label,
     required this.selected,
     required this.onTap,
+    this.isDesktop = false,
   });
 
   @override
@@ -1596,8 +1641,8 @@ class _TabBtn extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(8),
           child: Container(
-            // 44px minimum touch target height per HCI requirements.
-            constraints: const BoxConstraints(minHeight: 44),
+            // 44/48px minimum touch target height per HCI requirements.
+            constraints: BoxConstraints(minHeight: isDesktop ? 48 : 44),
             alignment: Alignment.center,
             decoration: BoxDecoration(
               border: Border(
@@ -1617,7 +1662,7 @@ class _TabBtn extends StatelessWidget {
                     ? AppTheme.login.textPrimary
                     : AppTheme.login.textSecondary,
                 fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                fontSize: 13,
+                fontSize: isDesktop ? 14 : 13,
               ),
               child: Text(label, textAlign: TextAlign.center),
             ),

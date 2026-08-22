@@ -144,6 +144,12 @@ class AppLoginTheme {
   // divider labels like "or" on the light card background (~8:1 at full
   // opacity here vs. well under 4.5:1 for the old faded textMuted usage).
   Color get dividerText => const Color(0xFF455245);
+  // Muted text sitting directly on the outer page background (_bgOutside,
+  // not the white card) — tagline subtitle, footer's second line. Computed
+  // independently against that different backdrop (~6.43:1 here) since it's
+  // not the same background dividerText was checked against; happens to
+  // land on the same tone.
+  Color get outsideMutedText => const Color(0xFF455245);
   Color get errorMuted => const Color(0xFFC0473F); // muted validation errors
   Color get focusRing => const Color(0xFF80B080); // Muted Olive — input focus
 }

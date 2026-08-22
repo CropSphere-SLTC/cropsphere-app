@@ -30,6 +30,9 @@ class AppTheme {
   static const Color error = Color(0xFFC62828);
   static const Color info = Color(0xFF01579B);
 
+  // Login/auth screen palette — see AppLoginTheme below.
+  static const AppLoginTheme login = AppLoginTheme._();
+
   // Confidence colors
   static Color confidenceColor(String confidence) {
     switch (confidence.toLowerCase()) {
@@ -117,6 +120,32 @@ class AppTheme {
       elevation: 8,
     ),
   );
+}
+
+// ─── LOGIN / AUTH SCREEN TOKENS ────────────────────────────────────────────
+// Scoped palette for the light, warm login/sign-in restyle (2026-08). Kept
+// separate from AppTheme's own primary/surface/text tokens above — those
+// are still used by other screens' cardTheme/inputDecorationTheme and must
+// not shift. Nest under AppTheme.login.* so call sites read as
+// AppTheme.login.background, etc.
+class AppLoginTheme {
+  const AppLoginTheme._();
+
+  // Instance getters (not static) so callers can write AppTheme.login.background
+  // through the single const AppTheme.login instance above.
+  Color get background => const Color(0xFFFCFBF6); // warm off-white card bg
+  Color get primaryGreen => const Color(0xFF3A8943); // Sea Green — primary actions
+  Color get primaryDark => const Color(0xFF306534); // Hunter Green — hover/pressed
+  Color get borderSubtle => const Color(0xFFE4E8E0); // soft input borders/dividers
+  Color get textPrimary => const Color(0xFF1F2A1F); // main text on light bg
+  Color get textSecondary => const Color(0xFF6B7A6B); // subtitles/placeholders
+  // Midpoint between textSecondary and textPrimary — textSecondary alone,
+  // especially with alpha applied, fell short of AA contrast for small
+  // divider labels like "or" on the light card background (~8:1 at full
+  // opacity here vs. well under 4.5:1 for the old faded textMuted usage).
+  Color get dividerText => const Color(0xFF455245);
+  Color get errorMuted => const Color(0xFFC0473F); // muted validation errors
+  Color get focusRing => const Color(0xFF80B080); // Muted Olive — input focus
 }
 
 // ─── REUSABLE WIDGETS ────────────────────────────────────────────────────────

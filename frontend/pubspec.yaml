@@ -44,6 +44,9 @@ dependencies:
   http: ^1.2.2
   url_launcher: ^6.3.2
   flutter_markdown_plus: ^1.0.12
+  forui: ^0.22.0
+  getwidget: ^7.0.1
+  shared_preferences: ^2.5.3
 
 dev_dependencies:
   flutter_test:

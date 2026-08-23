@@ -38,6 +38,7 @@ import '../../app_lang.dart';
 import '../../services/profile_service.dart';
 import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
+import '../../widgets/brand_wordmark.dart';
 import '../../widgets/language_control.dart';
 import '../../widgets/price_comparison_card.dart';
 import '../../widgets/profile_avatar_button.dart';
@@ -1369,7 +1370,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     final lang = AppLangProvider.lang(context);
     final List<String> navLabels;
     if (lang == AppLang.si) {
-      navLabels = ['ඩෑෂ්', 'අස්වැන්න', 'මිල', 'කාලගුණ', 'භෝග', 'ඉල්ලුම', 'AI'];
+      navLabels = ['මුල', 'අස්වැන්න', 'මිල', 'කාලගුණ', 'භෝග', 'ඉල්ලුම', 'AI'];
     } else if (lang == AppLang.ta) {
       navLabels = [
         'முகப்பு',
@@ -1382,18 +1383,18 @@ class _DashboardScreenState extends State<DashboardScreen>
       ];
     } else {
       navLabels = [
-        'Dashboard',
+        'Home',
         'Yield',
         'Price',
         'Weather',
-        'Crop Rec.',
+        'Crop',
         'Demand',
-        'AI Chat',
+        'Chat',
       ];
     }
 
     return Container(
-      height: 60,
+      height: 66,
       decoration: const BoxDecoration(
         color: Color(0xFFFAFDFA),
         border: Border(bottom: BorderSide(color: Color(0xFFE4EEE4))),
@@ -1428,16 +1429,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                   ),
                 ),
               ),
-              const SizedBox(width: 10),
-              const Text(
-                'CropSphere',
-                style: TextStyle(
-                  color: Color(0xFF1B4D1B),
-                  fontSize: 17,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.3,
-                ),
-              ),
+              const BrandWordmark(),
             ],
           ),
           // Nav links
@@ -1453,7 +1445,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                       children: List.generate(navLabels.length, (i) {
                         final active = i == 0;
                         return Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 2),
+                          padding: const EdgeInsets.symmetric(horizontal: 3),
                           child: TextButton(
                             onPressed: navigate == null
                                 ? null
@@ -1466,8 +1458,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                                   ? const Color(0xFF1B5E20)
                                   : const Color(0xFF555555),
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 11,
-                                vertical: 6,
+                                horizontal: 15,
+                                vertical: 9,
                               ),
                               minimumSize: Size.zero,
                               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -1478,7 +1470,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                             child: Text(
                               navLabels[i],
                               style: TextStyle(
-                                fontSize: 12.5,
+                                fontSize: 13,
                                 fontWeight: active
                                     ? FontWeight.w700
                                     : FontWeight.w500,

@@ -30,6 +30,7 @@ import '../../services/service_factory.dart';
 import '../../utils/farm_context.dart';
 import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
+import '../../widgets/brand_wordmark.dart';
 import '../../widgets/language_control.dart';
 import '../../widgets/profile_avatar_button.dart';
 import '../../widgets/skeleton_loading.dart';
@@ -1033,17 +1034,17 @@ class _RecommendScreenState extends State<RecommendScreen> {
   Widget _buildTopBar(BuildContext context) {
     final lang = AppLangProvider.lang(context);
     final List<String> navLabels = lang == AppLang.si
-        ? ['ඩෑෂ්', 'අස්වැන්න', 'මිල', 'කාලගුණ', 'භෝග', 'ඉල්ලුම', 'AI']
+        ? ['මුල', 'අස්වැන්න', 'මිල', 'කාලගුණ', 'භෝග', 'ඉල්ලුම', 'AI']
         : lang == AppLang.ta
         ? ['முகப்பு', 'விளைச்சல்', 'விலை', 'வானிலை', 'பயிர்', 'தேவை', 'AI']
         : [
-            'Dashboard',
+            'Home',
             'Yield',
             'Price',
             'Weather',
-            'Crop Rec.',
+            'Crop',
             'Demand',
-            'AI Chat',
+            'Chat',
           ];
 
     const activeBg = Color(0xFFE8F5E9);
@@ -1051,7 +1052,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
     const activeIndex = 4; // Crop Rec.
 
     return Container(
-      height: 60,
+      height: 66,
       decoration: const BoxDecoration(
         color: Colors.white,
         border: Border(bottom: BorderSide(color: Color(0xFFE4EEE4))),
@@ -1087,16 +1088,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
                   ),
                 ),
               ),
-              const SizedBox(width: 10),
-              const Text(
-                'CropSphere',
-                style: TextStyle(
-                  color: Color(0xFF1B4D1B),
-                  fontSize: 17,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.3,
-                ),
-              ),
+              const BrandWordmark(),
               if (!isMobile)
                 Expanded(
                   child: Center(
@@ -1107,7 +1099,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
                         children: List.generate(navLabels.length, (i) {
                           final active = i == activeIndex;
                           return Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 2),
+                            padding: const EdgeInsets.symmetric(horizontal: 3),
                             child: TextButton(
                               onPressed: widget.onNavigate == null
                                   ? null
@@ -1120,8 +1112,8 @@ class _RecommendScreenState extends State<RecommendScreen> {
                                     ? activeColor
                                     : const Color(0xFF555555),
                                 padding: const EdgeInsets.symmetric(
-                                  horizontal: 11,
-                                  vertical: 6,
+                                  horizontal: 15,
+                                  vertical: 9,
                                 ),
                                 minimumSize: Size.zero,
                                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -1132,7 +1124,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
                               child: Text(
                                 navLabels[i],
                                 style: TextStyle(
-                                  fontSize: 11.5,
+                                  fontSize: 13,
                                   fontWeight: active
                                       ? FontWeight.w700
                                       : FontWeight.w500,

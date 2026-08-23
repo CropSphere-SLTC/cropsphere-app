@@ -19,7 +19,16 @@ class ThemeToggleButton extends StatelessWidget {
   final double size;
   final Color? color;
 
-  const ThemeToggleButton({super.key, this.size = 20, this.color});
+  /// Box height, supplied by the top bar so the button lines up with the
+  /// nav labels. Null keeps the compact default used by mobile app bars.
+  final double? height;
+
+  const ThemeToggleButton({
+    super.key,
+    this.size = 20,
+    this.color,
+    this.height,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -60,7 +69,10 @@ class ThemeToggleButton extends StatelessWidget {
         tooltip: isDark ? 'Switch to light mode' : 'Switch to dark mode',
         padding: EdgeInsets.zero,
         visualDensity: VisualDensity.compact,
-        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+        constraints: BoxConstraints(
+          minWidth: height ?? 36,
+          minHeight: height ?? 36,
+        ),
       ),
     );
   }

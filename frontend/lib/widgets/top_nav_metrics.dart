@@ -56,6 +56,9 @@ class TopNavMetrics {
   /// widening this never affects the compact mobile app bars.
   final double clusterGap;
 
+  /// Font size for the language control's label.
+  final double langLabelSize;
+
   const TopNavMetrics({
     required this.labelSize,
     required this.itemPadH,
@@ -67,9 +70,15 @@ class TopNavMetrics {
     required this.avatarSize,
     required this.toggleIconSize,
     required this.clusterGap,
+    required this.langLabelSize,
   });
 
-  /// 1024–1200px — the band where the nav row is tightest and is also the
+  /// Height shared by the nav items and every control in the right-hand
+  /// cluster, so the language control, theme toggle and avatar line up
+  /// with the nav labels instead of each sitting at its own height.
+  double get controlHeight => labelSize + itemPadV * 2;
+
+  /// 1024–1280px — the band where the nav row is tightest and is also the
   /// only navigation available.
   static const compact = TopNavMetrics(
     labelSize: 14,
@@ -79,27 +88,29 @@ class TopNavMetrics {
     logoSize: 44,
     logoGlyphSize: 32,
     barHeight: 68,
-    avatarSize: 34,
-    toggleIconSize: 20,
+    avatarSize: 36,
+    toggleIconSize: 22,
     clusterGap: 14,
+    langLabelSize: 12.5,
   );
 
-  /// ≥1200px — room to breathe on real desktop monitors.
+  /// ≥1280px — room to breathe on real desktop monitors.
   static const comfortable = TopNavMetrics(
     labelSize: 16,
-    itemPadH: 15,
+    itemPadH: 13,
     itemPadV: 11,
     itemGap: 4,
     logoSize: 56,
     logoGlyphSize: 40,
     barHeight: 78,
-    avatarSize: 40,
-    toggleIconSize: 24,
+    avatarSize: 44,
+    toggleIconSize: 28,
     clusterGap: 20,
+    langLabelSize: 14,
   );
 
   /// Width at which the comfortable step becomes affordable.
-  static const double comfortableFrom = 1200;
+  static const double comfortableFrom = 1280;
 
   static TopNavMetrics of(BuildContext context) =>
       MediaQuery.of(context).size.width >= comfortableFrom

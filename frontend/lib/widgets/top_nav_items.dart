@@ -15,24 +15,24 @@
 //
 //  ANIMATION
 //  • Active indicator: one AnimatedPositioned pill that slides behind the
-//    active item — 220ms easeInOutCubic. A single moving shape rather than
-//    per-item backgrounds fading in and out, so it reads as one indicator
-//    travelling, matching the floating bottom nav's pill.
-//  • Hover: a very light tint fading in over 110ms, pointer devices only.
-//    Never applied to the active item, whose pill already fills that space.
+//    active item — see kTopNavIndicatorDuration. A single moving shape
+//    rather than per-item backgrounds fading in and out, so it reads as
+//    one indicator travelling, matching the floating bottom nav's pill.
+//  • Hover: a light tint fading in over kTopNavHoverDuration, pointer
+//    devices only. Never on the active item, whose pill already fills it.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'package:flutter/material.dart';
 
 import 'top_nav_metrics.dart';
 
-/// Slide timing for the active indicator. Sits beside the floating bottom
-/// nav's 230ms pill so the two navigations feel related.
-const Duration kTopNavIndicatorDuration = Duration(milliseconds: 220);
+/// Slide timing for the active indicator, shared with the floating bottom
+/// nav's pill so both navigations move at the same pace.
+const Duration kTopNavIndicatorDuration = Duration(milliseconds: 300);
 const Curve kTopNavIndicatorCurve = Curves.easeInOutCubic;
 
 /// Hover tint fade — matches the chat screen's message-hover action rows.
-const Duration kTopNavHoverDuration = Duration(milliseconds: 110);
+const Duration kTopNavHoverDuration = Duration(milliseconds: 140);
 
 class TopNavItems extends StatefulWidget {
   final List<String> labels;

@@ -561,10 +561,11 @@ class _MainShellState extends State<MainShell>
   // bounded correction instead of an unbounded block.
   static const _adminCheckMaxWait = Duration(milliseconds: 600);
 
-  // Tab-switch transition — a true 150ms crossfade: the outgoing screen
-  // fades out while the incoming one fades in, both visible at once.
-  // Matches the chat screen's AnimatedSwitcher timing so page changes feel
-  // the same wherever they happen.
+  // Tab-switch transition — a true crossfade: the outgoing screen fades
+  // out while the incoming one fades in, both visible at once. Runs longer
+  // than the chat screen's 150ms AnimatedSwitcher because a whole page
+  // changing wants a more gradual hand-off than a message list swapping;
+  // the two navs' indicators are paced to match (kTopNavIndicatorDuration).
   //
   // NOT an actual AnimatedSwitcher, deliberately. AnimatedSwitcher swaps
   // its child, which would rebuild the destination screen from scratch and
@@ -579,7 +580,7 @@ class _MainShellState extends State<MainShell>
   // identical, so a slide would make the header visibly jump sideways on
   // every switch; a crossfade between two near-identical headers is
   // invisible, leaving only the content change on screen.
-  static const pageFadeDuration = Duration(milliseconds: 150);
+  static const pageFadeDuration = Duration(milliseconds: 250);
 
   late final AnimationController _pageFadeCtrl = AnimationController(
     vsync: this,

@@ -313,7 +313,7 @@ class _NavItemState extends State<_NavItem> {
           onTapCancel: () => _setPressed(false),
           child: AnimatedScale(
             scale: _pressed ? 0.96 : 1.0,
-            duration: const Duration(milliseconds: 90),
+            duration: const Duration(milliseconds: 120),
             curve: Curves.easeOut,
             child: Center(
               // Drives the icon's pop + the icon/label color crossfade off

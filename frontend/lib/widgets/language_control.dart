@@ -15,26 +15,45 @@
 import 'package:flutter/material.dart';
 
 import '../app_lang.dart';
+import 'top_nav_metrics.dart';
 
 class LanguageControl extends StatelessWidget {
-  const LanguageControl({super.key});
+  /// Label size and control height, supplied by the top bar so the control
+  /// lines up with the nav labels. Null keeps the compact defaults used by
+  /// the mobile app bars, which have no nav row to align to.
+  final double? labelSize;
+  final double? height;
+
+  const LanguageControl({super.key, this.labelSize, this.height});
 
   @override
   Widget build(BuildContext context) {
-    final isDesktop = MediaQuery.of(context).size.width >= 1024;
-    return isDesktop ? const _LanguagePills() : const _LanguageDropdown();
+    // Pills need ~185px at the larger label size — more than three nav
+    // items — so they appear only where the bar can afford them. Below
+    // that the same control renders as its compact dropdown, which costs
+    // about a third as much.
+    final roomForPills =
+        MediaQuery.of(context).size.width >= TopNavMetrics.comfortableFrom;
+    return roomForPills
+        ? _LanguagePills(labelSize: labelSize, height: height)
+        : _LanguageDropdown(labelSize: labelSize, height: height);
   }
 }
 
 // ── Desktop: 3-pill row (unchanged presentation from the old _LangPill) ────
 class _LanguagePills extends StatelessWidget {
-  const _LanguagePills();
+  final double? labelSize;
+  final double? height;
+  const _LanguagePills({this.labelSize, this.height});
 
   @override
   Widget build(BuildContext context) {
     final notifier = AppLangProvider.of(context);
     final current = notifier.lang;
+    final fs = labelSize ?? 9.5;
     return Container(
+      height: height,
+      alignment: Alignment.center,
       decoration: BoxDecoration(
         color: const Color(0xFFF0F4F0),
         borderRadius: BorderRadius.circular(20),
@@ -65,7 +84,7 @@ class _LanguagePills extends StatelessWidget {
                 child: Text(
                   l.label,
                   style: TextStyle(
-                    fontSize: 9.5,
+                    fontSize: fs,
                     fontWeight: active ? FontWeight.w800 : FontWeight.w500,
                     color: active ? Colors.white : const Color(0xFF888888),
                   ),
@@ -81,7 +100,9 @@ class _LanguagePills extends StatelessWidget {
 
 // ── Mobile/tablet: single dropdown showing the current language ───────────
 class _LanguageDropdown extends StatelessWidget {
-  const _LanguageDropdown();
+  final double? labelSize;
+  final double? height;
+  const _LanguageDropdown({this.labelSize, this.height});
 
   @override
   Widget build(BuildContext context) {
@@ -126,6 +147,8 @@ class _LanguageDropdown extends StatelessWidget {
           );
         }).toList(),
         child: Container(
+          height: height,
+          alignment: Alignment.center,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
             color: const Color(0xFFF0F4F0),
@@ -136,10 +159,10 @@ class _LanguageDropdown extends StatelessWidget {
             children: [
               Text(
                 current.label,
-                style: const TextStyle(
-                  fontSize: 11.5,
+                style: TextStyle(
+                  fontSize: labelSize ?? 11.5,
                   fontWeight: FontWeight.w800,
-                  color: Color(0xFF1B5E20),
+                  color: const Color(0xFF1B5E20),
                 ),
               ),
               const SizedBox(width: 2),

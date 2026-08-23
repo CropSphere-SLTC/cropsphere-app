@@ -14,6 +14,7 @@ import 'package:flutter/services.dart'
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../config/app_config.dart';
+import '../../services/prediction_handoff.dart';
 import '../../services/service_factory.dart';
 import '../../services/chat_history_service.dart';
 import '../../services/profile_service.dart';
@@ -22,6 +23,7 @@ import '../../models/chat_history_models.dart';
 import '../../widgets/app_theme.dart';
 import '../../widgets/language_control.dart';
 import '../../widgets/profile_avatar_button.dart';
+import '../../widgets/followup_chip.dart';
 import '../../widgets/growth_logo.dart';
 import '../../widgets/skeleton_loading.dart';
 import '../../widgets/theme_toggle_button.dart';
@@ -108,6 +110,19 @@ class _ChatScreenState extends State<ChatScreen> {
   String? _selectedCrop;
   String _selectedModel = 'accurate';
 
+  /// The yield prediction this conversation is about, published by the yield
+  /// screen through [predictionHandoff] when the farmer taps "Ask AI about
+  /// this".
+  ///
+  /// HOW IT PERSISTS FOR FOLLOW-UPS: it lives here, in the screen's state, for
+  /// the whole lifetime of the conversation — every ChatRequest built while it
+  /// is non-null carries it, not just the first. So a farmer who taps
+  /// "Explain this prediction" and then types "and what about fertiliser?"
+  /// still has the AI grounded in the same numbers. It is cleared only when
+  /// the conversation ends: "New Chat" (_startNewChat) or opening a different
+  /// conversation from the sidebar (_openConversation).
+  PredictionContext? _predictionCtx;
+
   // Saved profile context — used only to personalize the empty state (starter
   // cards + welcome subtitle). The backend applies saved context to answers.
   String? _savedDistrict;
@@ -136,10 +151,57 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _scrollController.addListener(_handleScroll);
+    predictionHandoff.addListener(_onPredictionHandoff);
+    // A prediction can already be waiting when this screen first mounts (the
+    // yield screen published one before the chat tab had ever been built).
+    // Adopted by direct assignment, NOT through _onPredictionHandoff: there
+    // is no conversation to reset yet, and setState() must not run inside
+    // initState.
+    final pending = predictionHandoff.value;
+    if (pending != null) {
+      predictionHandoff.value = null;
+      _predictionCtx = pending.context;
+      _sendHandoffQuestion(pending.question);
+    }
     if (!AppConfig.useMockServices) {
       _loadConversations();
       _loadSavedPreferences();
     }
+  }
+
+  /// Picks up a prediction published by the yield screen: opens a FRESH
+  /// conversation for it, then holds the context for that conversation's
+  /// lifetime.
+  ///
+  /// Consume-once — the channel is reset to null immediately, so returning to
+  /// the chat tab later doesn't replay a stale prediction into a new
+  /// conversation. _startNewChat() clears `_predictionCtx`, so the assignment
+  /// has to come after it.
+  void _onPredictionHandoff() {
+    final handoff = predictionHandoff.value;
+    if (handoff == null) return;
+    // Cleared BEFORE any work. Assigning here re-enters this listener
+    // synchronously, and that re-entrant call must find null and return
+    // immediately rather than handling the same prediction twice.
+    predictionHandoff.value = null;
+    if (!mounted) return;
+    _startNewChat();
+    setState(() => _predictionCtx = handoff.context);
+    _sendHandoffQuestion(handoff.question);
+  }
+
+  /// Sends the question the farmer already picked on the yield result card.
+  ///
+  /// Deferred to after the frame: this runs from initState on a cold open,
+  /// and from inside a setState-bearing handler otherwise, so _sendMessage's
+  /// own setState must not land mid-build. By the time it fires,
+  /// `_predictionCtx` is set, so the very first request already carries the
+  /// prediction.
+  void _sendHandoffQuestion(String? question) {
+    if (question == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _sendMessage(question);
+    });
   }
 
   /// Gives the message list a brand-new ScrollController on every
@@ -256,6 +318,9 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           );
         _suggestedFollowups = [];
+        // Stored conversations carry no prediction context — dropping it
+        // stops an unrelated older chat inheriting the last prediction.
+        _predictionCtx = null;
         _chatSwitchGen++;
         _swapScrollController();
       });
@@ -305,6 +370,9 @@ class _ChatScreenState extends State<ChatScreen> {
       _displayMessages.clear();
       _history.clear();
       _suggestedFollowups = [];
+      // A new conversation is not about the old prediction. The handoff path
+      // re-sets this straight after calling us — see _onPredictionHandoff.
+      _predictionCtx = null;
       _chatSwitchGen++;
       _swapScrollController();
     });
@@ -468,6 +536,9 @@ class _ChatScreenState extends State<ChatScreen> {
           model: _selectedModel,
           language: 'auto',
           conversationId: _conversationId,
+          // Non-null for every turn of a prediction conversation, not just
+          // the first — see _predictionCtx.
+          predictionContext: _predictionCtx,
         ),
       );
 
@@ -593,6 +664,9 @@ class _ChatScreenState extends State<ChatScreen> {
       model: _selectedModel,
       language: 'auto',
       conversationId: _conversationId,
+      // Non-null for every turn of a prediction conversation, not just the
+      // first — see _predictionCtx.
+      predictionContext: _predictionCtx,
     );
 
     var completed = false;
@@ -870,6 +944,7 @@ class _ChatScreenState extends State<ChatScreen> {
       timer.cancel();
     }
     _scrollController.removeListener(_handleScroll);
+    predictionHandoff.removeListener(_onPredictionHandoff);
     _controller.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -1541,7 +1616,10 @@ class _ChatScreenState extends State<ChatScreen> {
       return _buildMessageListSkeleton();
     }
     if (_displayMessages.isEmpty) {
-      return _buildEmptyState();
+      final ctx = _predictionCtx;
+      return ctx != null
+          ? _buildPredictionEmptyState(ctx)
+          : _buildEmptyState();
     }
     return ListView.builder(
       controller: _scrollController,
@@ -1696,6 +1774,73 @@ class _ChatScreenState extends State<ChatScreen> {
       'Best season for $c in $d',
       'What crops do you cover?',
     ];
+  }
+
+  /// Shown when the farmer arrived from a yield prediction via the free-form
+  /// "Ask something else about this" button, i.e. without having picked a
+  /// question yet.
+  ///
+  /// It carries NO starter chips: the four quick questions live on the yield
+  /// result card now, and tapping one there is auto-sent on arrival — so this
+  /// state is only ever reached when the farmer wants to type their own.
+  Widget _buildPredictionEmptyState(PredictionContext ctx) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 600),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const GrowthLogo(progress: 1.0, size: 72),
+              const SizedBox(height: 16),
+              Text(
+                'About your yield prediction',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.primary,
+                ),
+              ),
+              if (ctx.summary.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    ctx.summary,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.primaryDark,
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 10),
+              const Text(
+                'Ask anything about it — I have your crop, district, '
+                'season, area and weather.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13.5,
+                  color: AppTheme.textSecondary,
+                  height: 1.45,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildEmptyState() {
@@ -2593,24 +2738,9 @@ class _ChatScreenState extends State<ChatScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 16),
         itemCount: _suggestedFollowups.length,
         separatorBuilder: (_, _) => const SizedBox(width: 8),
-        itemBuilder: (ctx, i) => GestureDetector(
+        itemBuilder: (ctx, i) => FollowupChip(
+          text: _suggestedFollowups[i],
           onTap: () => _sendMessage(_suggestedFollowups[i]),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(
-              color: AppTheme.primary.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: AppTheme.primary.withValues(alpha: 0.3),
-              ),
-            ),
-            child: Text(
-              _suggestedFollowups[i],
-              style: TextStyle(fontSize: 12, color: AppTheme.primaryDark),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
         ),
       ),
     );

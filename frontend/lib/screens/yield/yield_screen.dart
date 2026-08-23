@@ -38,10 +38,12 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:http/http.dart' as http;
 import '../../app_lang.dart';
 import '../../models/api_models.dart';
+import '../../services/prediction_handoff.dart';
 import '../../services/service_factory.dart';
 import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
 import '../../widgets/brand_wordmark.dart';
+import '../../widgets/followup_chip.dart';
 import '../../widgets/top_nav_items.dart';
 import '../../widgets/top_nav_metrics.dart';
 import '../../widgets/language_control.dart';
@@ -70,6 +72,13 @@ const Map<String, List<double>> _districtCoords = {
 double _haToPerches(double ha) => ha * 395.3686;
 double _haToAcres(double ha) => ha * 2.47105;
 double _perchesToHa(double p) => p / 395.3686;
+
+/// Thousands-separated whole kilograms — "19612" reads as "19,612". Yield
+/// figures run to five digits, which is exactly where an unseparated number
+/// stops being scannable at a glance.
+String _fmtKg(double v) => v
+    .toStringAsFixed(0)
+    .replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+$)'), (m) => '${m[1]},');
 double _acresToHa(double a) => a / 2.47105;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1439,18 +1448,6 @@ final List<Map<String, _L>> _seasons = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Crop quick-select emoji
-// ─────────────────────────────────────────────────────────────────────────────
-const Map<String, String> _cropEmoji = {
-  'Carrot': '🥕',
-  'Maize': '🌽',
-  'Green gram': '🫘',
-  'Cowpea': '🟤',
-  'Finger millet': '🌾',
-  'Groundnut': '🥜',
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
 //  SVG icon strings (matching Dashboard)
 // ─────────────────────────────────────────────────────────────────────────────
 const String _cropSphereSvg =
@@ -1571,6 +1568,17 @@ class _YieldScreenState extends State<YieldScreen> {
   String? _selectedSeason;
   String? _selectedIrrigation; // raw value key e.g. 'drip'
 
+  // ── Searchable dropdown text state ─────────────────────────────────────────
+  // Crop and District are type-to-filter (RawAutocomplete). Their controllers
+  // are owned HERE rather than left to RawAutocomplete so this screen can
+  // force-clear the district field when the crop changes — the existing
+  // "district resets when crop changes" rule needs to reach into the text
+  // field, which the widget's own internal controller wouldn't allow.
+  final _cropSearchCtrl = TextEditingController();
+  final _districtSearchCtrl = TextEditingController();
+  final _cropFocus = FocusNode();
+  final _districtFocus = FocusNode();
+
   // ── Area — stored in perches internally ────────────────────────────────────
   double _areaPerches = 160.0;
   final _perchesCtrl = TextEditingController(text: '160');
@@ -1638,6 +1646,16 @@ class _YieldScreenState extends State<YieldScreen> {
     _perchesCtrl.addListener(_onPerchesChanged);
     _acresCtrl.addListener(_onAcresChanged);
     _hectCtrl.addListener(_onHectChanged);
+    _cropFocus.addListener(
+      () => _syncSearchField(_cropFocus, _cropSearchCtrl, _selectedCrop),
+    );
+    _districtFocus.addListener(
+      () => _syncSearchField(
+        _districtFocus,
+        _districtSearchCtrl,
+        _selectedDistrict,
+      ),
+    );
   }
 
   @override
@@ -1645,7 +1663,57 @@ class _YieldScreenState extends State<YieldScreen> {
     _perchesCtrl.dispose();
     _acresCtrl.dispose();
     _hectCtrl.dispose();
+    _cropSearchCtrl.dispose();
+    _districtSearchCtrl.dispose();
+    _cropFocus.dispose();
+    _districtFocus.dispose();
     super.dispose();
+  }
+
+  /// Keeps a searchable dropdown honest across focus changes.
+  ///
+  /// ON FOCUS — force the option list to be rebuilt so the field opens showing
+  /// EVERY option, like a dropdown should.
+  ///
+  /// This is the fix for "District doesn't work like Crop". RawAutocomplete
+  /// recomputes its options only when the field's TEXT changes — see
+  /// `_onChangedField` in the framework's autocomplete.dart:
+  ///
+  ///     if (value.text != _lastFieldText) { shouldUpdateOptions = true; }
+  ///
+  /// It never calls optionsBuilder on focus. So tapping a field whose text
+  /// hasn't changed opens onto a stale list, or — before anything has ever
+  /// been typed — onto no list at all. District hit that hardest: choosing a
+  /// crop enables the field and swaps its options, but changes no text, so
+  /// tapping it showed nothing until you blind-typed a matching letter.
+  ///
+  /// The nudge below drives a real text transition so the builder re-runs
+  /// with an empty query, which returns the full list. Both writes land in
+  /// the same synchronous turn, so no intermediate value is ever painted
+  /// (Flutter only rebuilds at a frame boundary), and RawAutocomplete's own
+  /// `_onChangedCallId` discards the first, superseded result.
+  ///
+  /// ON BLUR — snap the text back to the committed selection, so typing a
+  /// partial query and tapping away can't leave the field displaying
+  /// something that isn't actually selected.
+  void _syncSearchField(
+    FocusNode node,
+    TextEditingController ctrl,
+    String? selected,
+  ) {
+    if (node.hasFocus) {
+      if (ctrl.text.isNotEmpty) {
+        ctrl.clear(); // real change: "Badulla" -> "" -> full list
+      } else {
+        // Already empty, so clear() alone would notify nobody (a
+        // ValueNotifier drops a write equal to its current value).
+        ctrl.value = const TextEditingValue(text: ' ');
+        ctrl.clear();
+      }
+      return;
+    }
+    final want = selected ?? '';
+    if (ctrl.text != want) ctrl.text = want;
   }
 
   // ── Area text field listeners ──────────────────────────────────────────────
@@ -1809,6 +1877,50 @@ class _YieldScreenState extends State<YieldScreen> {
     });
   }
 
+  /// The headline comparison: predicted yield and the district average side
+  /// by side, e.g. "19,612 kg/ha — about 2% below the district average of
+  /// 19,961 kg/ha". The average comes straight from the backend's
+  /// `average_yield_kg_per_ha`; when it is absent (0.0) there is nothing to
+  /// compare against, so only the prediction is stated.
+  String _comparisonLine(double yieldVal) {
+    final avg = _result!['average'] as double? ?? 0.0;
+    final y = _fmtKg(yieldVal);
+    if (avg <= 0) {
+      return _ts({
+        'en': '$y kg/ha predicted for this field.',
+        'si': 'මෙම කුඹුර සඳහා $y kg/ha පුරෝකථනය කර ඇත.',
+        'ta': 'இந்த வயலுக்கு $y kg/ha கணிக்கப்பட்டுள்ளது.',
+      });
+    }
+    final a = _fmtKg(avg);
+    final pct = ((yieldVal - avg) / avg * 100).round();
+    if (pct == 0) {
+      return _ts({
+        'en': '$y kg/ha — in line with the district average of $a kg/ha.',
+        'si': '$y kg/ha — දිස්ත්‍රික් සාමාන්‍යය වන $a kg/ha ට සමානයි.',
+        'ta': '$y kg/ha — மாவட்ட சராசரியான $a kg/ha உடன் ஒத்துள்ளது.',
+      });
+    }
+    final n = pct.abs();
+    return pct > 0
+        ? _ts({
+            'en':
+                '$y kg/ha — about $n% above the district average of $a kg/ha.',
+            'si':
+                '$y kg/ha — දිස්ත්‍රික් සාමාන්‍යය වන $a kg/ha ට වඩා ආසන්න වශයෙන් $n%ක් වැඩියි.',
+            'ta':
+                '$y kg/ha — மாவட்ட சராசரியான $a kg/ha ஐ விட சுமார் $n% அதிகம்.',
+          })
+        : _ts({
+            'en':
+                '$y kg/ha — about $n% below the district average of $a kg/ha.',
+            'si':
+                '$y kg/ha — දිස්ත්‍රික් සාමාන්‍යය වන $a kg/ha ට වඩා ආසන්න වශයෙන් $n%ක් අඩුයි.',
+            'ta':
+                '$y kg/ha — மாவட்ட சராசரியான $a kg/ha ஐ விட சுமார் $n% குறைவு.',
+          });
+  }
+
   bool get _isAboveAverage {
     if (_result == null) return true;
     final avg = _result!['average'] as double? ?? 0.0;
@@ -1829,17 +1941,69 @@ class _YieldScreenState extends State<YieldScreen> {
     _ => AppTheme.error,
   };
 
-  // ── AI Chat context string ─────────────────────────────────────────────────
-  String _buildAiContext() {
-    final yieldVal = (_result!['yield'] as double).toStringAsFixed(0);
-    final avg = (_result!['average'] as double? ?? 0.0).toStringAsFixed(0);
-    final conf = _result!['confidence'] as String;
-    return 'My yield prediction for $_selectedCrop in $_selectedDistrict '
-        '($_selectedSeason season, $_selectedIrrigation irrigation, '
-        '${_areaPerches.toStringAsFixed(0)} perches): '
-        '$yieldVal kg/ha predicted vs $avg kg/ha average. '
-        'Confidence: $conf. '
-        'Please give me detailed advice to improve my yield and explain what factors are affecting it.';
+  // ── AI Chat handoff ────────────────────────────────────────────────────────
+  /// Package the current prediction as structured context for the chat
+  /// screen and the backend.
+  ///
+  /// Replaces the old `_buildAiContext()` free-text sentence, which was
+  /// stuffed into the user's message. Two problems with that: the farmer's
+  /// visible message became a wall of generated prose, and chat analytics
+  /// logged that prose as their "question". The structured form rides in
+  /// `prediction_context` on the request body instead, so the visible
+  /// message stays whatever short thing the farmer actually tapped or typed.
+  PredictionContext _predictionContext() {
+    final w = _effectiveWeather;
+    return PredictionContext(
+      crop: _selectedCrop,
+      district: _selectedDistrict,
+      season: _selectedSeason,
+      irrigation: _selectedIrrigation,
+      areaPerches: _areaPerches,
+      areaHectares: _areaHa,
+      predictedYieldKgPerHa: _result?['yield'] as double?,
+      averageYieldKgPerHa: _result?['average'] as double?,
+      // Backend ConfidenceEnum is lowercase; the API already returns it that
+      // way, but normalise so a stray "High" can't 422 the whole chat call.
+      confidence: (_result?['confidence'] as String?)?.toLowerCase(),
+      weather: PredictionWeather(
+        rainfallMm: w.rainfallMm,
+        tempMinC: w.tempMinC,
+        tempMaxC: w.tempMaxC,
+        humidityPct: w.humidityPct,
+        windSpeedKmh: w.windSpeedKmh,
+        solarRadiationMj: w.solarRadMj,
+      ),
+    );
+  }
+
+  /// Styling shared by every action in the "Ask AI about this" block — the
+  /// four quick questions and the free-form button. They all do the same
+  /// thing (open a grounded chat about this prediction), so they read as one
+  /// class of action rather than pale chips next to a solid button.
+  ///
+  /// Deliberately NOT the chat FollowupChip styling used for reply
+  /// suggestions: these are a primary call to action on the result card, not
+  /// a trailing hint under an answer.
+  ButtonStyle get _askAiButtonStyle => ElevatedButton.styleFrom(
+    backgroundColor: const Color(0xFF1B5E20),
+    foregroundColor: Colors.white,
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    elevation: 2,
+  );
+
+  /// Publish the prediction to the chat screen and switch to the AI Chat tab.
+  ///
+  /// [question] is the quick-question chip the farmer tapped, if any; the chat
+  /// screen sends it as the conversation's first message. Omitted for the
+  /// free-form button, which just opens the conversation.
+  void _askAi({String? question}) {
+    final ctx = _predictionContext();
+    predictionHandoff.value = PredictionHandoff(ctx, question: question);
+    // Kept for callers that still supply the older text callback (none in the
+    // app today — main.dart never wired it up).
+    widget.onAiChatContext?.call(question ?? ctx.summary);
+    widget.onNavigate?.call(6); // navigate to AI Chat tab
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -1855,7 +2019,11 @@ class _YieldScreenState extends State<YieldScreen> {
           children: [
             _buildTopBar(context),
             Expanded(
-              child: w >= 960
+              // 1024 is the two-column threshold: below it the page stacks
+              // into ONE column (header -> progress -> inputs -> Predict ->
+              // Weather -> Soil Guide -> Result) rather than squeezing the
+              // context panel alongside the form.
+              child: w >= 1024
                   ? _buildWebLayout()
                   : w >= 600
                   ? _buildTabletLayout()
@@ -1945,54 +2113,50 @@ class _YieldScreenState extends State<YieldScreen> {
   }
 
   // ── Layout helpers ─────────────────────────────────────────────────────────
-  Widget _buildMobileLayout() => Stack(
-    children: [
-      SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
-        child: _formColumn(),
-      ),
-      _stickyPredict(),
-    ],
+  // Bottom padding 100, matching every other screen: below 1024px MainShell
+  // shows the FloatingBottomNav (64px capsule + 10px margin + safe area) over
+  // a body with extendBody:true, so content scrolls UNDERNEATH it. Without
+  // the clearance the last element — here the "Ask something else" button —
+  // sits permanently behind the nav capsule and can't be reached.
+  Widget _buildMobileLayout() => SingleChildScrollView(
+    padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
+    child: _stackedColumn(),
   );
 
-  Widget _buildTabletLayout() => Stack(
-    children: [
-      LayoutBuilder(
-        builder: (ctx, bc) {
-          final hPad = ((bc.maxWidth - 700) / 2).clamp(0.0, 200.0);
-          return SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(hPad + 16, 14, hPad + 16, 100),
-            child: _formColumn(),
-          );
-        },
-      ),
-      _stickyPredict(),
-    ],
+  Widget _buildTabletLayout() => LayoutBuilder(
+    builder: (ctx, bc) {
+      final hPad = ((bc.maxWidth - 700) / 2).clamp(0.0, 200.0);
+      return SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(hPad + 16, 14, hPad + 16, 100),
+        child: _stackedColumn(),
+      );
+    },
   );
 
+  /// Two columns: inputs on the left, context + results on the right.
+  ///
+  /// The split is closer to even than it used to be (was 45% capped at
+  /// 520px) because the left column no longer carries Weather and the Soil
+  /// Guide — those are the two tallest sections on the page and they now
+  /// live on the right, alongside the result they inform.
   Widget _buildWebLayout() => LayoutBuilder(
     builder: (ctx, bc) {
-      final leftW = (bc.maxWidth * 0.45).clamp(340.0, 520.0);
+      final leftW = (bc.maxWidth * 0.44).clamp(360.0, 560.0);
       return Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           SizedBox(
             width: leftW,
-            child: Stack(
-              children: [
-                SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(20, 14, 12, 100),
-                  child: _formColumn(webLeft: true),
-                ),
-                _stickyPredict(),
-              ],
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 14, 12, 28),
+              child: _inputsColumn(),
             ),
           ),
           Container(width: 1, color: const Color(0xFFE4EEE4)),
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(16, 14, 20, 28),
-              child: _rightPanel(),
+              child: _contextColumn(),
             ),
           ),
         ],
@@ -2000,80 +2164,115 @@ class _YieldScreenState extends State<YieldScreen> {
     },
   );
 
-  // ── Form column ────────────────────────────────────────────────────────────
-  Widget _formColumn({bool webLeft = false}) => Column(
+  // ── Column compositions ────────────────────────────────────────────────────
+  //
+  // The page is assembled from four section builders below rather than two
+  // hand-written column bodies, so the wide (two-column) and narrow
+  // (stacked) arrangements can never drift apart — each section is defined
+  // exactly once and merely appears in a different order.
+
+  /// LEFT column on wide screens: inputs only.
+  Widget _inputsColumn() => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       _pageHeader(),
       const SizedBox(height: 16),
-      _cropQuickChips(),
-      const SizedBox(height: 16),
-      _sectionTitle(
-        _ts({
-          'en': 'Crop & Location',
-          'si': 'භෝගය හා ස්ථානය',
-          'ta': 'பயிர் மற்றும் இடம்',
-        }),
-        Icons.eco,
-      ),
-      const SizedBox(height: 10),
-      _cropLocationCard(),
+      ..._inputSections(),
       const SizedBox(height: 20),
-      _sectionTitle(
-        _ts({
-          'en': 'Farm Area',
-          'si': 'ගොවිපොළ ප්‍රමාණය',
-          'ta': 'பண்ணை பரப்பளவு',
-        }),
-        Icons.crop_square,
-      ),
-      const SizedBox(height: 10),
-      _areaCard(),
-      const SizedBox(height: 20),
-      _sectionTitle(
-        _ts({
-          'en': 'Weather Conditions',
-          'si': 'කාලගුණ තත්ත්වය',
-          'ta': 'வானிலை நிலைமைகள்',
-        }),
-        Icons.cloud,
-      ),
-      const SizedBox(height: 10),
-      _weatherCard(),
-      const SizedBox(height: 20),
-      _sectionTitle(
-        _ts({
-          'en': 'Soil & Management Guide',
-          'si': 'පස හා කළමනාකරණ මාර්ගෝපදේශය',
-          'ta': 'மண் மற்றும் மேலாண்மை வழிகாட்டி',
-        }),
-        Icons.science,
-      ),
-      const SizedBox(height: 10),
-      _soilCard(),
-      if (!webLeft) ...[
-        const SizedBox(height: 16),
-        _inputChecklist(),
-        const SizedBox(height: 10),
-        if (_isLoading) _resultSkeleton(),
-        if (_errorMessage != null) _errorCard(),
-        if (_result != null) _resultCard(),
-      ],
+      _predictButton(),
     ],
   );
 
-  Widget _rightPanel() => Column(
+  /// RIGHT column on wide screens: progress, the two context sections that
+  /// populate as the form is filled, then the result.
+  Widget _contextColumn() => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      _inputChecklist(),
-      const SizedBox(height: 14),
-      if (_isLoading) ...[_resultSkeleton(), const SizedBox(height: 14)],
-      if (_errorMessage != null) ...[_errorCard(), const SizedBox(height: 14)],
-      if (_result != null) ...[_resultCard(), const SizedBox(height: 14)],
-      if (_result == null && _errorMessage == null && !_isLoading)
-        _emptyResultPlaceholder(),
+      ..._weatherSection(),
+      const SizedBox(height: 20),
+      ..._soilSection(),
+      const SizedBox(height: 20),
+      ..._resultSections(),
     ],
   );
+
+  /// Single column below 1024px — same sections, ordered so the farmer
+  /// fills the form, predicts, and then scrolls into the supporting context
+  /// and the result.
+  Widget _stackedColumn() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _pageHeader(),
+      const SizedBox(height: 16),
+      ..._inputSections(),
+      const SizedBox(height: 20),
+      _predictButton(),
+      const SizedBox(height: 20),
+      ..._weatherSection(),
+      const SizedBox(height: 20),
+      ..._soilSection(),
+      const SizedBox(height: 20),
+      ..._resultSections(),
+    ],
+  );
+
+  List<Widget> _inputSections() => [
+    _sectionTitle(
+      _ts({
+        'en': 'Crop & Location',
+        'si': 'භෝගය හා ස්ථානය',
+        'ta': 'பயிர் மற்றும் இடம்',
+      }),
+      Icons.eco,
+    ),
+    const SizedBox(height: 10),
+    _cropLocationCard(),
+    const SizedBox(height: 20),
+    _sectionTitle(
+      _ts({
+        'en': 'Farm Area',
+        'si': 'ගොවිපොළ ප්‍රමාණය',
+        'ta': 'பண்ணை பரப்பளவு',
+      }),
+      Icons.crop_square,
+    ),
+    const SizedBox(height: 10),
+    _areaCard(),
+  ];
+
+  List<Widget> _weatherSection() => [
+    _sectionTitle(
+      _ts({
+        'en': 'Weather Conditions',
+        'si': 'කාලගුණ තත්ත්වය',
+        'ta': 'வானிலை நிலைமைகள்',
+      }),
+      Icons.cloud,
+    ),
+    const SizedBox(height: 10),
+    _weatherCard(),
+  ];
+
+  List<Widget> _soilSection() => [
+    _sectionTitle(
+      _ts({
+        'en': 'Soil & Management Guide',
+        'si': 'පස හා කළමනාකරණ මාර්ගෝපදේශය',
+        'ta': 'மண் மற்றும் மேலாண்மை வழிகாட்டி',
+      }),
+      Icons.science,
+    ),
+    const SizedBox(height: 10),
+    _soilCard(),
+  ];
+
+  List<Widget> _resultSections() => [
+    if (_isLoading) _resultSkeleton(),
+    if (_errorMessage != null) _errorCard(),
+    if (_result != null) _resultCard(),
+    if (_result == null && _errorMessage == null && !_isLoading)
+      _emptyResultPlaceholder(),
+  ];
 
   // ── Page header ────────────────────────────────────────────────────────────
   Widget _pageHeader() => Container(
@@ -2157,77 +2356,31 @@ class _YieldScreenState extends State<YieldScreen> {
     ),
   );
 
-  // ── Crop quick chips ───────────────────────────────────────────────────────
-  Widget _cropQuickChips() => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        _ts({
-          'en': 'Quick select:',
-          'si': 'ඉක්මන් තේරීම:',
-          'ta': 'விரைவு தேர்வு:',
-        }),
-        style: const TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: AppTheme.textMuted,
-        ),
-      ),
-      const SizedBox(height: 7),
-      Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: CropSphereConstants.crops.map((crop) {
-          final active = _selectedCrop == crop;
-          final emoji = _cropEmoji[crop] ?? '🌿';
-          return GestureDetector(
-            onTap: () => setState(() {
-              _selectedCrop = crop;
-              _selectedDistrict = null;
-              _result = null;
-              _fertExpanded = false;
-              _pestExpanded = false;
-            }),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-              decoration: BoxDecoration(
-                color: active ? AppTheme.primary : Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: active ? AppTheme.primary : const Color(0xFFD0E8C8),
-                  width: active ? 2 : 1.5,
-                ),
-                boxShadow: active
-                    ? [
-                        BoxShadow(
-                          color: AppTheme.primary.withValues(alpha: 0.2),
-                          blurRadius: 6,
-                          offset: const Offset(0, 2),
-                        ),
-                      ]
-                    : [],
-              ),
-              child: Text(
-                '$emoji  $crop',
-                style: TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w600,
-                  color: active ? Colors.white : AppTheme.textPrimary,
-                ),
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    ],
-  );
+  /// Green tick shown inside a required field once it has been answered.
+  ///
+  /// Replaces the standalone "N of 4 complete" bar: the same four booleans,
+  /// but reported on the field they belong to instead of summarised in a
+  /// separate strip the farmer has to map back onto the form. `null` when
+  /// unanswered, so the decoration simply has no suffix.
+  ///
+  /// The Predict button keeps its own disabled state and its "Complete 4
+  /// steps above first" label — that is what still names the count.
+  Widget? _fieldCheck(bool done) => done
+      ? const Padding(
+          padding: EdgeInsets.only(right: 10),
+          child: Icon(
+            Icons.check_circle,
+            size: 19,
+            color: AppTheme.success,
+          ),
+        )
+      : null;
 
   // ── Crop & location card ───────────────────────────────────────────────────
   Widget _cropLocationCard() => _card(
     child: Column(
       children: [
-        _nullDropdown(
+        _searchableDropdown(
           label: _ts({
             'en': 'Select Crop',
             'si': 'භෝගය තෝරන්න',
@@ -2236,16 +2389,25 @@ class _YieldScreenState extends State<YieldScreen> {
           value: _selectedCrop,
           items: CropSphereConstants.crops,
           icon: Icons.eco,
-          onChanged: (val) => setState(() {
-            _selectedCrop = val;
-            _selectedDistrict = null;
-            _result = null;
-            _fertExpanded = false;
-            _pestExpanded = false;
-          }),
+          controller: _cropSearchCtrl,
+          focusNode: _cropFocus,
+          onChanged: (val) {
+            // Same reset as before. The district's TEXT has to be cleared
+            // too now, not just its value — the searchable field would
+            // otherwise keep displaying a district that no longer applies
+            // to the newly-chosen crop.
+            _districtSearchCtrl.clear();
+            setState(() {
+              _selectedCrop = val;
+              _selectedDistrict = null;
+              _result = null;
+              _fertExpanded = false;
+              _pestExpanded = false;
+            });
+          },
         ),
         const SizedBox(height: 12),
-        _nullDropdown(
+        _searchableDropdown(
           label: _ts({
             'en': 'Select District',
             'si': 'දිස්ත්‍රික්කය',
@@ -2254,6 +2416,8 @@ class _YieldScreenState extends State<YieldScreen> {
           value: _selectedDistrict,
           items: _availableDistricts,
           icon: Icons.location_on,
+          controller: _districtSearchCtrl,
+          focusNode: _districtFocus,
           hint: _selectedCrop != null
               ? _ts({
                   'en': 'Valid districts for $_selectedCrop',
@@ -2307,6 +2471,11 @@ class _YieldScreenState extends State<YieldScreen> {
               color: AppTheme.primary,
               size: 20,
             ),
+            suffixIconConstraints: const BoxConstraints(
+              minWidth: 0,
+              minHeight: 0,
+            ),
+            suffixIcon: _fieldCheck(_selectedSeason != null),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 12,
@@ -2375,6 +2544,11 @@ class _YieldScreenState extends State<YieldScreen> {
               color: AppTheme.primary,
               size: 20,
             ),
+            suffixIconConstraints: const BoxConstraints(
+              minWidth: 0,
+              minHeight: 0,
+            ),
+            suffixIcon: _fieldCheck(_selectedIrrigation != null),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 12,
@@ -2827,47 +3001,70 @@ class _YieldScreenState extends State<YieldScreen> {
         Colors.amber,
       ),
     ];
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        crossAxisSpacing: 8,
-        mainAxisSpacing: 8,
-        childAspectRatio: 1.6,
-      ),
-      itemCount: tiles.length,
-      itemBuilder: (_, i) {
-        final t = tiles[i];
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-          decoration: BoxDecoration(
-            color: t.color.withValues(alpha: 0.07),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: t.color.withValues(alpha: 0.2)),
+    // Tile HEIGHT is fixed (mainAxisExtent), not derived from tile width.
+    //
+    // It used to be `childAspectRatio: 1.6` over 3 columns, which was fine
+    // while this card lived in the ~500px left form column (~100px tall
+    // tiles) but blew up once it moved to the wide right column — 3 columns
+    // of a 1300px pane is a 430px-wide tile, so 1.6 made each one ~270px
+    // tall and the six of them ate a whole screen of mostly empty space.
+    //
+    // Column count is 6 / 3 / 2 — all divisors of the six tiles, so the last
+    // row is never left with an orphan.
+    return LayoutBuilder(
+      builder: (ctx, bc) {
+        final cols = bc.maxWidth >= 560
+            ? 6
+            : bc.maxWidth >= 380
+            ? 3
+            : 2;
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: cols,
+            crossAxisSpacing: 8,
+            mainAxisSpacing: 8,
+            mainAxisExtent: 72,
           ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(t.emoji, style: const TextStyle(fontSize: 16)),
-              const SizedBox(height: 3),
-              Text(
-                t.value,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: t.color,
-                ),
+          itemCount: tiles.length,
+          itemBuilder: (_, i) {
+            final t = tiles[i];
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              decoration: BoxDecoration(
+                color: t.color.withValues(alpha: 0.07),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: t.color.withValues(alpha: 0.2)),
               ),
-              Text(
-                t.label,
-                style: TextStyle(
-                  fontSize: 9,
-                  color: t.color.withValues(alpha: 0.8),
-                ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(t.emoji, style: const TextStyle(fontSize: 15)),
+                  const SizedBox(height: 2),
+                  Text(
+                    t.value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: t.color,
+                    ),
+                  ),
+                  Text(
+                    t.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 9,
+                      color: t.color.withValues(alpha: 0.8),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
@@ -3433,194 +3630,55 @@ class _YieldScreenState extends State<YieldScreen> {
         ),
       );
 
-  // ── Input checklist ────────────────────────────────────────────────────────
-  Widget _inputChecklist() {
-    final items = [
-      (
-        _selectedCrop != null,
-        _ts({'en': 'Crop selected', 'si': 'භෝගය', 'ta': 'பயிர்'}),
-        _selectedCrop ?? '',
-      ),
-      (
-        _selectedDistrict != null,
-        _ts({
-          'en': 'District selected',
-          'si': 'දිස්ත්‍රික්කය',
-          'ta': 'மாவட்டம்',
-        }),
-        _selectedDistrict ?? '',
-      ),
-      (
-        _selectedSeason != null,
-        _ts({'en': 'Season selected', 'si': 'කන්නය', 'ta': 'பருவம்'}),
-        _selectedSeason ?? '',
-      ),
-      (
-        _selectedIrrigation != null,
-        _ts({'en': 'Irrigation selected', 'si': 'ජලනය', 'ta': 'நீர்ப்பாசனம்'}),
-        _selectedIrrigation ?? '',
-      ),
-    ];
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: _canPredict
-            ? AppTheme.success.withValues(alpha: 0.06)
-            : const Color(0xFFFFF8E1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: _canPredict
-              ? AppTheme.success.withValues(alpha: 0.2)
-              : const Color(0xFFFFE082),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                _canPredict ? Icons.check_circle : Icons.checklist,
-                size: 15,
-                color: _canPredict ? AppTheme.success : AppTheme.warning,
+  // ── Predict button ─────────────────────────────────────────────────────────
+  //
+  // Now an inline element at the end of the inputs column rather than a
+  // sticky bottom overlay: the stacked layout orders it between the inputs
+  // and the Weather / Soil Guide context sections, which a fixed footer
+  // can't express. The button itself — the disabled state driven by
+  // `_canPredict`, the loading spinner, and the three label variants
+  // including the "Complete 4 steps above first" explanation — is unchanged.
+  Widget _predictButton() => SizedBox(
+    width: double.infinity,
+    height: 52,
+    child: ElevatedButton.icon(
+      onPressed: (_isLoading || !_canPredict) ? null : _predict,
+      icon: _isLoading
+          ? const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
               ),
-              const SizedBox(width: 7),
-              Text(
-                _canPredict
-                    ? _ts({
-                        'en': 'Ready to predict!',
-                        'si': 'පුරෝකථනයට සූදානම්!',
-                        'ta': 'கணிக்க தயார்!',
-                      })
-                    : _ts({
-                        'en': 'Complete these to predict:',
-                        'si': 'පුරෝකථනය සඳහා සම්පූර්ණ කරන්න:',
-                        'ta': 'கணிக்க இவற்றை நிறைவு செய்யுங்கள்:',
-                      }),
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: _canPredict ? AppTheme.success : AppTheme.warning,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          ...items.map(
-            (item) => Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: Row(
-                children: [
-                  Icon(
-                    item.$1 ? Icons.check_circle : Icons.radio_button_unchecked,
-                    size: 15,
-                    color: item.$1 ? AppTheme.success : const Color(0xFFBDBDBD),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    item.$2,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: item.$1
-                          ? AppTheme.textPrimary
-                          : AppTheme.textMuted,
-                    ),
-                  ),
-                  if (item.$1 && item.$3.isNotEmpty) ...[
-                    const SizedBox(width: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 7,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppTheme.success.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        item.$3,
-                        style: const TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.success,
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        ],
+            )
+          : const Icon(Icons.analytics),
+      label: Text(
+        _isLoading
+            ? _ts({
+                'en': 'Predicting...',
+                'si': 'පුරෝකථනය...',
+                'ta': 'கணிக்கிறோம்...',
+              })
+            : _canPredict
+            ? _ts({
+                'en': 'Predict My Yield',
+                'si': 'මගේ අස්වැන්න පුරෝකථනය',
+                'ta': 'எனது விளைச்சலை கணிக்கவும்',
+              })
+            : _ts({
+                'en': 'Complete 4 steps above first',
+                'si': 'ඉහළ පියවර 4 සම්පූර්ණ කරන්න',
+                'ta': 'மேலே 4 படிகள் முடிக்கவும்',
+              }),
+        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
       ),
-    );
-  }
-
-  // ── Sticky predict button ──────────────────────────────────────────────────
-  Widget _stickyPredict() => Positioned(
-    bottom: 0,
-    left: 0,
-    right: 0,
-    child: Container(
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 12,
-            offset: const Offset(0, -3),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        top: false,
-        child: SizedBox(
-          height: 52,
-          child: ElevatedButton.icon(
-            onPressed: (_isLoading || !_canPredict) ? null : _predict,
-            icon: _isLoading
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
-                : const Icon(Icons.analytics),
-            label: Text(
-              _isLoading
-                  ? _ts({
-                      'en': 'Predicting...',
-                      'si': 'පුරෝකථනය...',
-                      'ta': 'கணிக்கிறோம்...',
-                    })
-                  : _canPredict
-                  ? _ts({
-                      'en': 'Predict My Yield',
-                      'si': 'මගේ අස්වැන්න පුරෝකථනය',
-                      'ta': 'எனது விளைச்சலை கணிக்கவும்',
-                    })
-                  : _ts({
-                      'en': 'Complete 4 steps above first',
-                      'si': 'ඉහළ පියවර 4 සම්පූර්ණ කරන්න',
-                      'ta': 'மேலே 4 படிகள் முடிக்கவும்',
-                    }),
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _canPredict
-                  ? AppTheme.primaryDark
-                  : Colors.grey.shade400,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          ),
-        ),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: _canPredict
+            ? AppTheme.primaryDark
+            : Colors.grey.shade400,
+        foregroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     ),
   );
@@ -3845,7 +3903,7 @@ class _YieldScreenState extends State<YieldScreen> {
               ),
               const SizedBox(height: 12),
               Text(
-                '${yieldVal.toStringAsFixed(0)} kg/ha',
+                '${_fmtKg(yieldVal)} kg/ha',
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 42,
@@ -3910,9 +3968,9 @@ class _YieldScreenState extends State<YieldScreen> {
                       ),
                       Text(
                         _ts({
-                          'en': 'Avg: ${avg.toStringAsFixed(0)} kg/ha',
-                          'si': 'සාමාන්‍ය: ${avg.toStringAsFixed(0)} kg/ha',
-                          'ta': 'சராசரி: ${avg.toStringAsFixed(0)} kg/ha',
+                          'en': 'Avg: ${_fmtKg(avg)} kg/ha',
+                          'si': 'සාමාන්‍ය: ${_fmtKg(avg)} kg/ha',
+                          'ta': 'சராசரி: ${_fmtKg(avg)} kg/ha',
                         }),
                         style: const TextStyle(
                           color: Colors.white60,
@@ -3962,7 +4020,7 @@ class _YieldScreenState extends State<YieldScreen> {
                     _vDiv(),
                     _rStat(
                       _ts({'en': 'Total', 'si': 'සම්පූර්ණ', 'ta': 'மொத்தம்'}),
-                      '${totalKg.toStringAsFixed(0)} kg',
+                      '${_fmtKg(totalKg)} kg',
                     ),
                   ],
                 ),
@@ -4003,6 +4061,19 @@ class _YieldScreenState extends State<YieldScreen> {
                 ],
               ),
               const SizedBox(height: 8),
+              // Predicted vs district average, both figures spelled out —
+              // the percentage-only line below it says what to DO about the
+              // gap, but not what the two numbers actually are.
+              Text(
+                _comparisonLine(yieldVal),
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w700,
+                  color: resultColor,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 6),
               Text(
                 _interpretation(yieldVal),
                 style: const TextStyle(
@@ -4015,11 +4086,11 @@ class _YieldScreenState extends State<YieldScreen> {
               Text(
                 _ts({
                   'en':
-                      'Total expected harvest: ${totalKg.toStringAsFixed(0)} kg from ${_areaPerches.toStringAsFixed(0)} perches (${_haToAcres(_areaHa).toStringAsFixed(2)} ac)',
+                      'Total expected harvest: ${_fmtKg(totalKg)} kg from ${_areaPerches.toStringAsFixed(0)} perches (${_haToAcres(_areaHa).toStringAsFixed(2)} ac)',
                   'si':
-                      'සම්පූර්ණ අස්වැන්න: ${totalKg.toStringAsFixed(0)} kg — ${_areaPerches.toStringAsFixed(0)} පර්ච (${_haToAcres(_areaHa).toStringAsFixed(2)} ac)',
+                      'සම්පූර්ණ අස්වැන්න: ${_fmtKg(totalKg)} kg — ${_areaPerches.toStringAsFixed(0)} පර්ච (${_haToAcres(_areaHa).toStringAsFixed(2)} ac)',
                   'ta':
-                      'மொத்த அறுவடை: ${totalKg.toStringAsFixed(0)} kg — ${_areaPerches.toStringAsFixed(0)} பர்ச் (${_haToAcres(_areaHa).toStringAsFixed(2)} ஏக்கர்)',
+                      'மொத்த அறுவடை: ${_fmtKg(totalKg)} kg — ${_areaPerches.toStringAsFixed(0)} பர்ச் (${_haToAcres(_areaHa).toStringAsFixed(2)} ஏக்கர்)',
                 }),
                 style: const TextStyle(
                   fontSize: 13,
@@ -4033,15 +4104,46 @@ class _YieldScreenState extends State<YieldScreen> {
 
         const SizedBox(height: 14),
 
-        // ── (v) Ask AI for More Info button ───────────────────────────────────
+        // ── (v) Ask AI about this ─────────────────────────────────────────────
+        // The four quick questions live HERE, on the result, not on an
+        // otherwise-blank chat screen — the farmer picks what they want to
+        // know while still looking at the numbers, and the answer is already
+        // being written by the time the chat tab finishes opening.
+        _sectionTitle(
+          _ts({
+            'en': 'Ask AI about this',
+            'si': 'මේ ගැන AI වෙතින් අසන්න',
+            'ta': 'இதைப் பற்றி AI-இடம் கேளுங்கள்',
+          }),
+          Icons.auto_awesome,
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final q in kPredictionStarters)
+              ElevatedButton(
+                onPressed: () => _askAi(question: q),
+                style: _askAiButtonStyle,
+                child: Text(
+                  q,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+
+        // Free-form entry: same handoff, no pre-chosen question, so the chat
+        // opens on the prediction empty state waiting for the farmer to type.
         SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
-            onPressed: () {
-              final ctx = _buildAiContext();
-              widget.onAiChatContext?.call(ctx);
-              widget.onNavigate?.call(6); // navigate to AI Chat tab
-            },
+            onPressed: _askAi,
             icon: SvgPicture.string(
               _navSvg(6, Colors.white),
               width: 18,
@@ -4049,22 +4151,13 @@ class _YieldScreenState extends State<YieldScreen> {
             ),
             label: Text(
               _ts({
-                'en': 'Ask AI for More Info & Tips',
-                'si': 'AI වෙතින් තව තොරතුරු හා උපදෙස් ලබා ගන්න',
-                'ta':
-                    'AI-இடம் கூடுதல் தகவல் மற்றும் உதவிக்குறிப்புகள் கேளுங்கள்',
+                'en': 'Ask something else about this',
+                'si': 'මේ ගැන වෙනත් දෙයක් අසන්න',
+                'ta': 'இதைப் பற்றி வேறு ஏதாவது கேளுங்கள்',
               }),
               style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
             ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF1B5E20),
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              elevation: 2,
-            ),
+            style: _askAiButtonStyle,
           ),
         ),
       ],
@@ -4253,50 +4346,181 @@ class _YieldScreenState extends State<YieldScreen> {
     ),
   );
 
-  Widget _nullDropdown({
+  /// Type-to-filter dropdown used by Crop and District.
+  ///
+  /// Built on `RawAutocomplete` rather than a package: it needs no new
+  /// dependency and no app-root theme wiring, and it carries the same
+  /// `InputDecoration` the plain Season/Irrigation dropdowns use, so all
+  /// four fields in the Crop & Location card stay visually flush.
+  ///
+  /// `RawAutocomplete` (not `Autocomplete`) because the caller must own the
+  /// `TextEditingController` — clearing the district field when the crop
+  /// changes is existing behaviour that reaches into the text, which
+  /// `Autocomplete`'s private internal controller wouldn't permit.
+  ///
+  /// An empty query lists EVERY option. That alone is NOT enough to make a
+  /// tap behave like opening a dropdown — RawAutocomplete only re-runs
+  /// optionsBuilder on a text change — so [_syncSearchField] forces the
+  /// rebuild on focus. See the long note there.
+  Widget _searchableDropdown({
     required String label,
     required String? value,
     required List<String> items,
     required IconData icon,
     required ValueChanged<String?> onChanged,
+    required TextEditingController controller,
+    required FocusNode focusNode,
     String? hint,
     bool enabled = true,
-  }) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      DropdownButtonFormField<String>(
-        initialValue: value,
-        hint: Text(label, style: const TextStyle(color: AppTheme.textMuted)),
-        decoration: InputDecoration(
-          labelText: label,
-          prefixIcon: Icon(
-            icon,
-            color: enabled ? AppTheme.primary : AppTheme.textMuted,
-            size: 20,
+  }) => LayoutBuilder(
+    // Captures the field's own width so the options overlay below it lines
+    // up edge-to-edge instead of sizing itself to its content.
+    builder: (ctx, bc) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        RawAutocomplete<String>(
+          textEditingController: controller,
+          focusNode: focusNode,
+          optionsBuilder: (TextEditingValue v) {
+            if (!enabled) return const Iterable<String>.empty();
+            final q = v.text.trim().toLowerCase();
+            // Empty, or still showing the committed selection (i.e. the user
+            // reopened the field to change their mind) -> offer everything.
+            if (q.isEmpty || q == (value ?? '').toLowerCase()) return items;
+            return items.where((e) => e.toLowerCase().contains(q));
+          },
+          onSelected: (sel) {
+            onChanged(sel);
+            focusNode.unfocus();
+          },
+          fieldViewBuilder: (ctx, ctrl, fn, onFieldSubmitted) => TextFormField(
+            controller: ctrl,
+            focusNode: fn,
+            enabled: enabled,
+            onFieldSubmitted: (_) => onFieldSubmitted(),
+            style: const TextStyle(fontSize: 14),
+            decoration: InputDecoration(
+              labelText: label,
+              hintText: enabled
+                  ? _ts({
+                      'en': 'Type to search',
+                      'si': 'සෙවීමට ටයිප් කරන්න',
+                      'ta': 'தேட தட்டச்சு செய்க',
+                    })
+                  : null,
+              hintStyle: const TextStyle(
+                color: AppTheme.textMuted,
+                fontSize: 13,
+              ),
+              prefixIcon: Icon(
+                icon,
+                color: enabled ? AppTheme.primary : AppTheme.textMuted,
+                size: 20,
+              ),
+              // Tick + caret together. mainAxisSize.min keeps the Row from
+              // trying to fill the field, and the loosened constraints stop
+              // InputDecoration squeezing two icons into one icon's width.
+              suffixIconConstraints: const BoxConstraints(
+                minWidth: 0,
+                minHeight: 0,
+              ),
+              suffixIcon: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ?_fieldCheck(value != null),
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Icon(
+                      Icons.arrow_drop_down,
+                      color: enabled ? AppTheme.primary : AppTheme.textMuted,
+                    ),
+                  ),
+                ],
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 10,
+              ),
+              filled: !enabled,
+              fillColor: enabled ? null : Colors.grey.withValues(alpha: 0.04),
+            ),
           ),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: 10,
+          optionsViewBuilder: (ctx, onSelected, options) => Align(
+            alignment: Alignment.topLeft,
+            child: Material(
+              elevation: 4,
+              borderRadius: BorderRadius.circular(8),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: 240,
+                  maxWidth: bc.maxWidth,
+                ),
+                child: SizedBox(
+                  width: bc.maxWidth,
+                  child: ListView.builder(
+                    padding: EdgeInsets.zero,
+                    shrinkWrap: true,
+                    itemCount: options.length,
+                    itemBuilder: (c, i) {
+                      final opt = options.elementAt(i);
+                      final isSelected = opt == value;
+                      return InkWell(
+                        onTap: () => onSelected(opt),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 11,
+                          ),
+                          color: isSelected
+                              ? AppTheme.primary.withValues(alpha: 0.08)
+                              : null,
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  opt,
+                                  style: TextStyle(
+                                    fontSize: 13.5,
+                                    fontWeight: isSelected
+                                        ? FontWeight.w700
+                                        : FontWeight.w500,
+                                    color: isSelected
+                                        ? AppTheme.primaryDark
+                                        : AppTheme.textPrimary,
+                                  ),
+                                ),
+                              ),
+                              if (isSelected)
+                                const Icon(
+                                  Icons.check,
+                                  size: 16,
+                                  color: AppTheme.primary,
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
           ),
-          fillColor: enabled ? null : Colors.grey.withValues(alpha: 0.04),
         ),
-        items: enabled
-            ? items
-                  .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                  .toList()
-            : [],
-        onChanged: enabled ? onChanged : null,
-      ),
-      if (hint != null)
-        Padding(
-          padding: const EdgeInsets.only(top: 4, left: 4),
-          child: Text(
-            hint,
-            style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
+        if (hint != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 4, left: 4),
+            child: Text(
+              hint,
+              style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
+            ),
           ),
-        ),
-    ],
+      ],
+    ),
   );
 
   Widget _rStat(String l, String v) => Column(

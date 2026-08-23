@@ -479,6 +479,97 @@ class ChatMessage {
   Map<String, dynamic> toJson() => {'role': role, 'content': content};
 }
 
+/// Weather snapshot a yield prediction was run against. Field names match
+/// the backend's `PredictionWeather` schema exactly.
+class PredictionWeather {
+  final double? rainfallMm;
+  final double? tempMinC;
+  final double? tempMaxC;
+  final double? humidityPct;
+  final double? windSpeedKmh;
+  final double? solarRadiationMj;
+
+  const PredictionWeather({
+    this.rainfallMm,
+    this.tempMinC,
+    this.tempMaxC,
+    this.humidityPct,
+    this.windSpeedKmh,
+    this.solarRadiationMj,
+  });
+
+  Map<String, dynamic> toJson() => {
+    if (rainfallMm != null) 'rainfall_mm': rainfallMm,
+    if (tempMinC != null) 'temp_min_c': tempMinC,
+    if (tempMaxC != null) 'temp_max_c': tempMaxC,
+    if (humidityPct != null) 'humidity_pct': humidityPct,
+    if (windSpeedKmh != null) 'wind_speed_kmh': windSpeedKmh,
+    if (solarRadiationMj != null) 'solar_radiation_mj': solarRadiationMj,
+  };
+}
+
+/// A yield prediction the farmer is asking the AI about.
+///
+/// Sent on [ChatRequest.predictionContext] so the backend can inject these
+/// specific figures into the LLM's context (see the backend's
+/// `chatbot_service._format_prediction_context`). It rides ALONGSIDE the
+/// user's message and is never merged into it — the visible message stays the
+/// farmer's own short question, which is what chat analytics records.
+///
+/// crop/district/season/irrigation/confidence must match the backend enums —
+/// they come straight from the yield screen's own constant lists, which are
+/// the same values.
+class PredictionContext {
+  final String? crop;
+  final String? district;
+  final String? season;
+  final String? irrigation;
+  final double? areaPerches;
+  final double? areaHectares;
+  final double? predictedYieldKgPerHa;
+  final double? averageYieldKgPerHa;
+  final String? confidence;
+  final PredictionWeather? weather;
+
+  const PredictionContext({
+    this.crop,
+    this.district,
+    this.season,
+    this.irrigation,
+    this.areaPerches,
+    this.areaHectares,
+    this.predictedYieldKgPerHa,
+    this.averageYieldKgPerHa,
+    this.confidence,
+    this.weather,
+  });
+
+  /// One-line "Carrot · Badulla · 19612 kg/ha" summary for the chat screen's
+  /// prediction empty state, so the farmer can see which prediction the
+  /// conversation is about.
+  String get summary => [
+    ?crop,
+    ?district,
+    if (predictedYieldKgPerHa != null)
+      '${predictedYieldKgPerHa!.toStringAsFixed(0)} kg/ha',
+  ].join(' · ');
+
+  Map<String, dynamic> toJson() => {
+    if (crop != null) 'crop': crop,
+    if (district != null) 'district': district,
+    if (season != null) 'season': season,
+    if (irrigation != null) 'irrigation': irrigation,
+    if (areaPerches != null) 'area_perches': areaPerches,
+    if (areaHectares != null) 'area_hectares': areaHectares,
+    if (predictedYieldKgPerHa != null)
+      'predicted_yield_kg_per_ha': predictedYieldKgPerHa,
+    if (averageYieldKgPerHa != null)
+      'average_yield_kg_per_ha': averageYieldKgPerHa,
+    if (confidence != null) 'confidence': confidence,
+    if (weather != null) 'weather': weather!.toJson(),
+  };
+}
+
 class ChatRequest {
   final String message;
   final List<ChatMessage> conversationHistory;
@@ -489,6 +580,11 @@ class ChatRequest {
   final String language;
   final String? conversationId;
 
+  /// Optional yield prediction this conversation is about. Passed invisibly
+  /// in the request body — it is NOT part of [message], so the backend keeps
+  /// logging only the farmer's own short question to chat analytics.
+  final PredictionContext? predictionContext;
+
   ChatRequest({
     required this.message,
     required this.conversationHistory,
@@ -498,6 +594,7 @@ class ChatRequest {
     this.model = 'accurate',
     this.language = 'auto',
     this.conversationId,
+    this.predictionContext,
   });
 
   Map<String, dynamic> toJson() => {
@@ -509,6 +606,8 @@ class ChatRequest {
     'model': model,
     'language': language,
     if (conversationId != null) 'conversation_id': conversationId,
+    if (predictionContext != null)
+      'prediction_context': predictionContext!.toJson(),
   };
 }
 

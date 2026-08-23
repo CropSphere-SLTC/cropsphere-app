@@ -548,7 +548,8 @@ class MainShell extends StatefulWidget {
   State<MainShell> createState() => _MainShellState();
 }
 
-class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
+class _MainShellState extends State<MainShell>
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   // Bounds the initial render's wait on checkAdminAccess() — long enough
   // that the common (fast, non-rate-limited) case never shows a flash of
   // the wrong shell, short enough that a slow/rate-limited check (see
@@ -559,6 +560,30 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   // AdminShell then if it turns out this account is admin — a rare,
   // bounded correction instead of an unbounded block.
   static const _adminCheckMaxWait = Duration(milliseconds: 600);
+
+  // Tab-switch transition — a fade-through (fast out, slower in), applied
+  // to the whole IndexedStack rather than swapping its children, because
+  // those children hold live state (the recommend screen's form, chat's
+  // conversation, the dashboard's fetched results) that an AnimatedSwitcher
+  // would destroy.
+  //
+  // Fade rather than slide: each screen renders its OWN top bar, so the
+  // animated subtree includes the header. All seven headers are nearly
+  // identical, so a slide would make the header visibly jump sideways on
+  // every switch; a crossfade between two near-identical headers is
+  // invisible, leaving only the content change on screen — which is what
+  // actually happened.
+  late final AnimationController _pageFadeCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 200),
+    reverseDuration: const Duration(milliseconds: 110),
+    value: 1.0,
+  );
+  late final Animation<double> _pageFade = CurvedAnimation(
+    parent: _pageFadeCtrl,
+    curve: Curves.easeOut,
+    reverseCurve: Curves.easeIn,
+  );
 
   late int _selectedIndex = widget.initialIndex;
   bool _isAdmin = false;
@@ -635,6 +660,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _pageFadeCtrl.dispose();
     super.dispose();
   }
 
@@ -662,8 +688,15 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     }
   }
 
-  void _navigateTo(int index) {
-    setState(() => _selectedIndex = index);
+  Future<void> _navigateTo(int index) async {
+    // Re-tapping the current tab is a refresh gesture, not a navigation —
+    // skip the transition so Home's refresh still feels immediate.
+    if (index != _selectedIndex) {
+      await _pageFadeCtrl.reverse();
+      if (!mounted) return;
+      setState(() => _selectedIndex = index);
+      _pageFadeCtrl.forward();
+    }
     if (index == 0) {
       _checkAdminAccess();
       _loadProfile();
@@ -709,7 +742,10 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       // margins instead of being clipped above it — required for the
       // frosted-glass blur to actually have something to blur.
       extendBody: true,
-      body: IndexedStack(index: safeIndex, children: _screens),
+      body: FadeTransition(
+        opacity: _pageFade,
+        child: IndexedStack(index: safeIndex, children: _screens),
+      ),
       bottomNavigationBar: showFloatingNav
           ? FloatingBottomNav(
               selectedIndex: safeIndex,

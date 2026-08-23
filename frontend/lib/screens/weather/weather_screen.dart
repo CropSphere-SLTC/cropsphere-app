@@ -25,6 +25,7 @@ import '../../services/service_factory.dart';
 import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
 import '../../widgets/brand_wordmark.dart';
+import '../../widgets/top_nav_metrics.dart';
 import '../../widgets/language_control.dart';
 import '../../widgets/profile_avatar_button.dart';
 import '../../widgets/skeleton_loading.dart';
@@ -414,6 +415,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
   }
 
   Widget _buildTopBar(BuildContext context) {
+    final m = TopNavMetrics.of(context);
     final lang = AppLangProvider.lang(context);
     final List<String> navLabels = lang == AppLang.si
         ? ['මුල', 'අස්වැන්න', 'මිල', 'කාලගුණ', 'භෝග', 'ඉල්ලුම', 'AI']
@@ -433,7 +435,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
     const activeColor = Color(0xFF1565C0);
 
     return Container(
-      height: 66,
+      height: m.barHeight,
       decoration: const BoxDecoration(
         color: Colors.white,
         border: Border(bottom: BorderSide(color: Color(0xFFE4EEE4))),
@@ -455,8 +457,8 @@ class _WeatherScreenState extends State<WeatherScreen> {
           return Row(
             children: [
               Container(
-                width: 44,
-                height: 44,
+                width: m.logoSize,
+                height: m.logoSize,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: const Color(0xFF4CAF50).withValues(alpha: 0.15),
@@ -464,8 +466,8 @@ class _WeatherScreenState extends State<WeatherScreen> {
                 child: Center(
                   child: SvgPicture.string(
                     _cropSphereSvg,
-                    width: 32,
-                    height: 32,
+                    width: m.logoGlyphSize,
+                    height: m.logoGlyphSize,
                   ),
                 ),
               ),
@@ -480,7 +482,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
                         children: List.generate(navLabels.length, (i) {
                           final active = i == 3;
                           return Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 3),
+                            padding: EdgeInsets.symmetric(horizontal: m.itemGap),
                             child: TextButton(
                               onPressed: widget.onNavigate == null
                                   ? null
@@ -492,9 +494,9 @@ class _WeatherScreenState extends State<WeatherScreen> {
                                 foregroundColor: active
                                     ? activeColor
                                     : const Color(0xFF555555),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 15,
-                                  vertical: 9,
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: m.itemPadH,
+                                  vertical: m.itemPadV,
                                 ),
                                 minimumSize: Size.zero,
                                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -505,7 +507,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
                               child: Text(
                                 navLabels[i],
                                 style: TextStyle(
-                                  fontSize: 13,
+                                  fontSize: m.labelSize,
                                   fontWeight: active
                                       ? FontWeight.w700
                                       : FontWeight.w500,
@@ -522,9 +524,9 @@ class _WeatherScreenState extends State<WeatherScreen> {
               const SizedBox(width: 8),
               const LanguageControl(),
               const SizedBox(width: 8),
-              const ThemeToggleButton(),
+              ThemeToggleButton(size: m.toggleIconSize),
               const SizedBox(width: 8),
-              const ProfileAvatarButton(diameter: 32),
+              ProfileAvatarButton(diameter: m.avatarSize),
             ],
           );
         },

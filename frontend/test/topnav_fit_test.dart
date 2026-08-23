@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:cropsphere_app/widgets/top_nav_metrics.dart';
 
 // The desktop top nav is the ONLY navigation from 1024px up (the floating
 // bottom nav is hidden there), so a tab scrolled out of the row's
@@ -21,16 +22,18 @@ double _textWidth(String s, double size) {
   return tp.width;
 }
 
-/// Laid-out width of the 7-item nav row.
-double navRowWidth(List<String> labels) => labels.fold(
+/// Laid-out width of the 7-item nav row for a given TopNavMetrics step.
+double navRowWidth(List<String> labels, TopNavMetrics m) => labels.fold(
       0.0,
-      (a, l) => a + _textWidth(l, 13) + 15 * 2 /*button pad*/ + 3 * 2 /*gap*/,
+      (a, l) =>
+          a + _textWidth(l, m.labelSize) + m.itemPadH * 2 + m.itemGap * 2,
     );
 
 void main() {
   // Everything sharing the bar besides the nav row, with the wordmark
   // hidden: logo + language control + theme toggle + avatar + gaps + pad.
-  const chromeNoWordmark = 44 + 92 + 44 + 34 + 24 + 28;
+  double chromeNoWordmark(TopNavMetrics m) =>
+      m.logoSize + 92 + (m.toggleIconSize + 24) + m.avatarSize + 24 + 28;
 
   const labels = {
     'en': ['Home', 'Yield', 'Price', 'Weather', 'Crop', 'Demand', 'Chat'],
@@ -38,23 +41,44 @@ void main() {
     'ta': ['முகப்பு', 'விளைச்சல்', 'விலை', 'வானிலை', 'பயிர்', 'தேவை', 'AI'],
   };
 
-  for (final e in labels.entries) {
-    test('all 7 tabs fit at the 1024px breakpoint — ${e.key}', () {
-      final available = 1024 - chromeNoWordmark;
-      expect(
-        navRowWidth(e.value),
-        lessThan(available.toDouble()),
-        reason: 'nav items would scroll out of reach where the top bar is '
-            'the only navigation',
-      );
-    });
+  // Each responsive step is checked at the narrowest width it can appear
+  // at: compact from 1024, comfortable from TopNavMetrics.comfortableFrom.
+  final steps = {
+    'compact @1024': (TopNavMetrics.compact, 1024.0),
+    'comfortable @${TopNavMetrics.comfortableFrom.toInt()}':
+        (TopNavMetrics.comfortable, TopNavMetrics.comfortableFrom),
+  };
+
+  for (final step in steps.entries) {
+    final (m, width) = step.value;
+    for (final e in labels.entries) {
+      test('all 7 tabs fit — ${step.key} — ${e.key}', () {
+        final available = width - chromeNoWordmark(m);
+        expect(
+          navRowWidth(e.value, m),
+          lessThan(available),
+          reason: 'nav items would scroll out of reach where the top bar '
+              'is the only navigation',
+        );
+      });
+    }
   }
+
+  test('the comfortable step would NOT fit at 1024px', () {
+    // Documents why the metrics step up at 1200 rather than applying the
+    // larger sizes everywhere.
+    final available = 1024 - chromeNoWordmark(TopNavMetrics.comfortable);
+    expect(navRowWidth(labels['ta']!, TopNavMetrics.comfortable),
+        greaterThan(available));
+  });
 
   test('wordmark would not fit alongside the labels at 1024px', () {
     // Documents why BrandWordmark hides in this band — if this ever starts
     // passing, the wordmark could be shown again.
     const wordmarkWidth = 185.0 + 10; // measured at 18.5px w800, plus gap
-    final available = 1024 - chromeNoWordmark - wordmarkWidth;
-    expect(navRowWidth(labels['en']!), greaterThan(available));
+    final available =
+        1024 - chromeNoWordmark(TopNavMetrics.compact) - wordmarkWidth;
+    expect(navRowWidth(labels['en']!, TopNavMetrics.compact),
+        greaterThan(available));
   });
 }

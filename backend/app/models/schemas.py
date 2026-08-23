@@ -266,9 +266,7 @@ class PredictionContext(BaseModel):
     irrigation: Optional[IrrigationEnum] = None
     area_perches: Optional[float] = Field(default=None, ge=0, le=200000)
     area_hectares: Optional[float] = Field(default=None, ge=0, le=500)
-    predicted_yield_kg_per_ha: Optional[float] = Field(
-        default=None, ge=0, le=1000000
-    )
+    predicted_yield_kg_per_ha: Optional[float] = Field(default=None, ge=0, le=1000000)
     average_yield_kg_per_ha: Optional[float] = Field(default=None, ge=0, le=1000000)
     confidence: Optional[ConfidenceEnum] = None
     weather: Optional[PredictionWeather] = None

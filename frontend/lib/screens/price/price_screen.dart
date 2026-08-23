@@ -508,8 +508,7 @@ class _PriceScreenState extends State<PriceScreen>
   /// so the two screens can't disagree about whether today's price is above
   /// or below average; falls back to the local _kRecentPrice table only
   /// when the backend reported no baseline at all.
-  double get _comparisonBaseline =>
-      _result?.hasAverage == true
+  double get _comparisonBaseline => _result?.hasAverage == true
       ? _result!.averageFarmgatePriceLkrKg
       : _recentPrice;
 
@@ -900,15 +899,7 @@ class _PriceScreenState extends State<PriceScreen>
         ? ['මුල', 'අස්වැන්න', 'මිල', 'කාලගුණ', 'භෝග', 'ඉල්ලුම', 'AI']
         : lang == AppLang.ta
         ? ['முகப்பு', 'விளைச்சல்', 'விலை', 'வானிலை', 'பயிர்', 'தேவை', 'AI']
-        : [
-            'Home',
-            'Yield',
-            'Price',
-            'Weather',
-            'Crop',
-            'Demand',
-            'Chat',
-          ];
+        : ['Home', 'Yield', 'Price', 'Weather', 'Crop', 'Demand', 'Chat'];
 
     const activeBg = Color(0xFFFFF8E1);
     const activeColor = Color(0xFFE65100);
@@ -956,10 +947,7 @@ class _PriceScreenState extends State<PriceScreen>
               ),
             ),
           ),
-          LanguageControl(
-              labelSize: m.langLabelSize,
-              height: m.controlHeight,
-            ),
+          LanguageControl(labelSize: m.langLabelSize, height: m.controlHeight),
           SizedBox(width: m.clusterGap),
           ThemeToggleButton(size: m.toggleIconSize, height: m.controlHeight),
           SizedBox(width: m.clusterGap),

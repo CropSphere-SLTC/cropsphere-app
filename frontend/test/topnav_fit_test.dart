@@ -65,8 +65,10 @@ void main() {
   // at: compact from 1024, comfortable from TopNavMetrics.comfortableFrom.
   final steps = {
     'compact @1024': (TopNavMetrics.compact, 1024.0),
-    'comfortable @${TopNavMetrics.comfortableFrom.toInt()}':
-        (TopNavMetrics.comfortable, TopNavMetrics.comfortableFrom),
+    'comfortable @${TopNavMetrics.comfortableFrom.toInt()}': (
+      TopNavMetrics.comfortable,
+      TopNavMetrics.comfortableFrom,
+    ),
   };
 
   for (final step in steps.entries) {
@@ -77,7 +79,8 @@ void main() {
         expect(
           navRowWidth(e.value, m),
           lessThan(available),
-          reason: 'nav items would scroll out of reach where the top bar '
+          reason:
+              'nav items would scroll out of reach where the top bar '
               'is the only navigation',
         );
       });
@@ -88,8 +91,10 @@ void main() {
     // Documents why the metrics step up at 1200 rather than applying the
     // larger sizes everywhere.
     final available = 1024 - chromeNoWordmark(TopNavMetrics.comfortable, 1024);
-    expect(navRowWidth(labels['ta']!, TopNavMetrics.comfortable),
-        greaterThan(available));
+    expect(
+      navRowWidth(labels['ta']!, TopNavMetrics.comfortable),
+      greaterThan(available),
+    );
   });
 
   test('wordmark would not fit alongside the labels at 1024px', () {
@@ -98,7 +103,9 @@ void main() {
     const wordmarkWidth = 185.0 + 10; // measured at 18.5px w800, plus gap
     final available =
         1024 - chromeNoWordmark(TopNavMetrics.compact, 1024) - wordmarkWidth;
-    expect(navRowWidth(labels['en']!, TopNavMetrics.compact),
-        greaterThan(available));
+    expect(
+      navRowWidth(labels['en']!, TopNavMetrics.compact),
+      greaterThan(available),
+    );
   });
 }

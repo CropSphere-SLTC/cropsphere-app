@@ -6,12 +6,12 @@ import 'package:cropsphere_app/models/api_models.dart';
 // Renders the real card with a stubbed result so the meter geometry is
 // exercised at the widths and languages it actually ships to.
 Widget harness(double width, Widget child) => MaterialApp(
-      home: Scaffold(
-        body: Center(
-          child: SizedBox(width: width, child: child),
-        ),
-      ),
-    );
+  home: Scaffold(
+    body: Center(
+      child: SizedBox(width: width, child: child),
+    ),
+  ),
+);
 
 void main() {
   // Widths: smallest supported phone -> tablet column cap.
@@ -20,8 +20,9 @@ void main() {
 
   for (final w in widths) {
     for (final lang in langs) {
-      testWidgets('meter renders without overflow @${w}px lang=$lang',
-          (tester) async {
+      testWidgets('meter renders without overflow @${w}px lang=$lang', (
+        tester,
+      ) async {
         await tester.pumpWidget(
           harness(
             w,

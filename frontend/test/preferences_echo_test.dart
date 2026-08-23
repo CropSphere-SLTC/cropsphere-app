@@ -9,7 +9,8 @@ List<PreferenceField> unconfirmedFor({
   required Map<String, dynamic> serverEcho,
 }) {
   final out = <PreferenceField>[];
-  if (sentDistrict != null && serverEcho['preferred_district'] != sentDistrict) {
+  if (sentDistrict != null &&
+      serverEcho['preferred_district'] != sentDistrict) {
     out.add(PreferenceField.district);
   }
   if (sentCrop != null && serverEcho['preferred_crop'] != sentCrop) {

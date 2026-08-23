@@ -113,7 +113,8 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
         // stored rather than showing values that will vanish on reload.
         final names = result.unconfirmed
             .map(
-              (f) => f == PreferenceField.district ? 'home district' : 'main crop',
+              (f) =>
+                  f == PreferenceField.district ? 'home district' : 'main crop',
             )
             .join(' and ');
         setState(() {

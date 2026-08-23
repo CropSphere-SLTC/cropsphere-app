@@ -422,15 +422,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
         ? ['මුල', 'අස්වැන්න', 'මිල', 'කාලගුණ', 'භෝග', 'ඉල්ලුම', 'AI']
         : lang == AppLang.ta
         ? ['முகப்பு', 'விளைச்சல்', 'விலை', 'வானிலை', 'பயிர்', 'தேவை', 'AI']
-        : [
-            'Home',
-            'Yield',
-            'Price',
-            'Weather',
-            'Crop',
-            'Demand',
-            'Chat',
-          ];
+        : ['Home', 'Yield', 'Price', 'Weather', 'Crop', 'Demand', 'Chat'];
 
     const activeBg = Color(0xFFE3F2FD);
     const activeColor = Color(0xFF1565C0);
@@ -492,11 +484,14 @@ class _WeatherScreenState extends State<WeatherScreen> {
               if (isMobile) const Spacer(),
               const SizedBox(width: 8),
               LanguageControl(
-              labelSize: m.langLabelSize,
-              height: m.controlHeight,
-            ),
+                labelSize: m.langLabelSize,
+                height: m.controlHeight,
+              ),
               SizedBox(width: m.clusterGap),
-              ThemeToggleButton(size: m.toggleIconSize, height: m.controlHeight),
+              ThemeToggleButton(
+                size: m.toggleIconSize,
+                height: m.controlHeight,
+              ),
               SizedBox(width: m.clusterGap),
               ProfileAvatarButton(diameter: m.avatarSize),
             ],
@@ -1401,4 +1396,3 @@ class _WeatherScreenState extends State<WeatherScreen> {
     ],
   );
 }
-

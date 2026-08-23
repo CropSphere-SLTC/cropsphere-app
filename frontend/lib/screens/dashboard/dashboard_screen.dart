@@ -819,9 +819,9 @@ class _DashboardScreenState extends State<DashboardScreen>
   /// Opens Account Settings, then re-reads preferences on return so the
   /// hero reflects a change the farmer just saved without a full reload.
   Future<void> _openFarmSettings() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const AccountSettingsScreen()),
-    );
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const AccountSettingsScreen()));
     if (mounted) _loadFarmPreferences();
   }
 
@@ -1446,10 +1446,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               ),
             ),
           ),
-          LanguageControl(
-              labelSize: m.langLabelSize,
-              height: m.controlHeight,
-            ),
+          LanguageControl(labelSize: m.langLabelSize, height: m.controlHeight),
           SizedBox(width: m.clusterGap),
           ThemeToggleButton(size: m.toggleIconSize, height: m.controlHeight),
           SizedBox(width: m.clusterGap),
@@ -1458,7 +1455,6 @@ class _DashboardScreenState extends State<DashboardScreen>
       ),
     );
   }
-
 
   // ─────────────────────────────────────────────────────────────────────────
   //  Greeting line + season/date pills (replaces the old green hero card)

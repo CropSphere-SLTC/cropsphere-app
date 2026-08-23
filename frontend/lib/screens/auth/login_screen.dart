@@ -918,7 +918,10 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   // ── Top bar ────────────────────────────────────────────────────────────────
-  Widget _buildTopBar({required double logoSize, required double wordmarkSize}) {
+  Widget _buildTopBar({
+    required double logoSize,
+    required double wordmarkSize,
+  }) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
       child: Row(
@@ -1705,7 +1708,9 @@ class _ForgotPasswordLinkState extends State<_ForgotPasswordLink> {
           style: TextStyle(
             color: AppTheme.login.primaryGreen,
             fontSize: 11,
-            decoration: _hovered ? TextDecoration.underline : TextDecoration.none,
+            decoration: _hovered
+                ? TextDecoration.underline
+                : TextDecoration.none,
           ),
         ),
       ),

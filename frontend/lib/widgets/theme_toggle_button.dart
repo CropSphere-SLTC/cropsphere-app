@@ -23,12 +23,7 @@ class ThemeToggleButton extends StatelessWidget {
   /// nav labels. Null keeps the compact default used by mobile app bars.
   final double? height;
 
-  const ThemeToggleButton({
-    super.key,
-    this.size = 20,
-    this.color,
-    this.height,
-  });
+  const ThemeToggleButton({super.key, this.size = 20, this.color, this.height});
 
   @override
   Widget build(BuildContext context) {
@@ -49,10 +44,7 @@ class ThemeToggleButton extends StatelessWidget {
             // reverse at the same time, so it spins out from 0° to +180°
             // — together they read as one continuous half-turn, sun
             // rotating away as the moon rotates into its place.
-            final turns = Tween(
-              begin: -0.5,
-              end: 0.0,
-            ).animate(animation);
+            final turns = Tween(begin: -0.5, end: 0.0).animate(animation);
             return RotationTransition(
               turns: turns,
               child: FadeTransition(opacity: animation, child: child),

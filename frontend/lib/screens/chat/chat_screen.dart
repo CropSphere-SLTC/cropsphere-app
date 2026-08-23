@@ -1617,9 +1617,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     if (_displayMessages.isEmpty) {
       final ctx = _predictionCtx;
-      return ctx != null
-          ? _buildPredictionEmptyState(ctx)
-          : _buildEmptyState();
+      return ctx != null ? _buildPredictionEmptyState(ctx) : _buildEmptyState();
     }
     return ListView.builder(
       controller: _scrollController,

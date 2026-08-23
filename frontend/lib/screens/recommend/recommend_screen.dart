@@ -40,7 +40,6 @@ import '../../widgets/theme_toggle_button.dart';
 
 typedef _L = Map<String, String>;
 
-
 // District display names — official Sinhala/Tamil district names, not a
 // literal word-for-word translation. The English key is kept as the value
 // sent to the backend; only the label shown to the farmer changes.
@@ -58,8 +57,6 @@ const Map<String, _L> _districtNames = {
   'Batticaloa': {'en': 'Batticaloa', 'si': 'මඩකලපුව', 'ta': 'மட்டக்களப்பு'},
   'Jaffna': {'en': 'Jaffna', 'si': 'යාපනය', 'ta': 'யாழ்ப்பாணம்'},
 };
-
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Season & irrigation data — trilingual, consistent with Yield screen
@@ -1040,15 +1037,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
         ? ['මුල', 'අස්වැන්න', 'මිල', 'කාලගුණ', 'භෝග', 'ඉල්ලුම', 'AI']
         : lang == AppLang.ta
         ? ['முகப்பு', 'விளைச்சல்', 'விலை', 'வானிலை', 'பயிர்', 'தேவை', 'AI']
-        : [
-            'Home',
-            'Yield',
-            'Price',
-            'Weather',
-            'Crop',
-            'Demand',
-            'Chat',
-          ];
+        : ['Home', 'Yield', 'Price', 'Weather', 'Crop', 'Demand', 'Chat'];
 
     const activeBg = Color(0xFFE8F5E9);
     const activeColor = Color(0xFF2E7D32);
@@ -1111,11 +1100,14 @@ class _RecommendScreenState extends State<RecommendScreen> {
               if (isMobile) const Spacer(),
               const SizedBox(width: 8),
               LanguageControl(
-              labelSize: m.langLabelSize,
-              height: m.controlHeight,
-            ),
+                labelSize: m.langLabelSize,
+                height: m.controlHeight,
+              ),
               SizedBox(width: m.clusterGap),
-              ThemeToggleButton(size: m.toggleIconSize, height: m.controlHeight),
+              ThemeToggleButton(
+                size: m.toggleIconSize,
+                height: m.controlHeight,
+              ),
               SizedBox(width: m.clusterGap),
               ProfileAvatarButton(diameter: m.avatarSize),
             ],
@@ -2517,4 +2509,3 @@ class _RecommendScreenState extends State<RecommendScreen> {
     ),
   );
 }
-

@@ -2721,9 +2721,7 @@ def _format_prediction_context(pc) -> str:
     elif pc.area_hectares is not None:
         facts.append(f"- Cultivated area: {pc.area_hectares:.3f} ha")
     if pc.predicted_yield_kg_per_ha is not None:
-        facts.append(
-            f"- Predicted yield: {pc.predicted_yield_kg_per_ha:,.0f} kg/ha"
-        )
+        facts.append(f"- Predicted yield: {pc.predicted_yield_kg_per_ha:,.0f} kg/ha")
     if pc.average_yield_kg_per_ha is not None:
         facts.append(
             f"- District average yield: {pc.average_yield_kg_per_ha:,.0f} kg/ha"
@@ -2732,10 +2730,7 @@ def _format_prediction_context(pc) -> str:
     # really about ("is this good?", "how do I improve it?"), and the model
     # is instructed elsewhere not to calculate — so state it outright rather
     # than leaving it to be derived from the two figures above.
-    if (
-        pc.predicted_yield_kg_per_ha is not None
-        and pc.average_yield_kg_per_ha
-    ):
+    if pc.predicted_yield_kg_per_ha is not None and pc.average_yield_kg_per_ha:
         delta = (
             (pc.predicted_yield_kg_per_ha - pc.average_yield_kg_per_ha)
             / pc.average_yield_kg_per_ha

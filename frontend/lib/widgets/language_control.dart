@@ -71,14 +71,9 @@ class _LanguagePills extends StatelessWidget {
               onTap: () => notifier.setLang(l),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 9,
-                  vertical: 3,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
                 decoration: BoxDecoration(
-                  color: active
-                      ? const Color(0xFF1B5E20)
-                      : Colors.transparent,
+                  color: active ? const Color(0xFF1B5E20) : Colors.transparent,
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Text(
@@ -116,9 +111,7 @@ class _LanguageDropdown extends StatelessWidget {
         initialValue: current,
         onSelected: notifier.setLang,
         offset: const Offset(0, 36),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         itemBuilder: (context) => AppLang.values.map((l) {
           final active = l == current;
           return PopupMenuItem(

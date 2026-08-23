@@ -17,8 +17,11 @@ class _ShellState extends State<_Shell> with SingleTickerProviderStateMixin {
   int? _outgoing;
   double _outgoingFrom = 1.0;
 
-  late final AnimationController _c =
-      AnimationController(vsync: this, duration: dur, value: 1.0);
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: dur,
+    value: 1.0,
+  );
 
   final _screens = const [
     _Counter(key: ValueKey('a'), label: 'A'),
@@ -37,39 +40,47 @@ class _ShellState extends State<_Shell> with SingleTickerProviderStateMixin {
   }
 
   @override
-  void dispose() { _c.dispose(); super.dispose(); }
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) => MaterialApp(
-        home: Scaffold(
-          body: AnimatedBuilder(
-            animation: _c,
-            builder: (context, _) {
-              final t = _c.value;
-              return Stack(
-                fit: StackFit.expand,
-                children: [
-                  for (var i = 0; i < _screens.length; i++)
-                    IgnorePointer(
-                      ignoring: i != _index,
-                      child: Opacity(
-                        key: ValueKey('op$i'),
-                        opacity: i == _index
-                            ? t
-                            : (i == _outgoing ? (1 - t) * _outgoingFrom : 0.0),
-                        child: _screens[i],
-                      ),
-                    ),
-                ],
-              );
-            },
-          ),
-          bottomNavigationBar: Row(children: [
-            for (final e in {'A': 0, 'B': 1, 'C': 2}.entries)
-              TextButton(onPressed: () => go(e.value), child: Text('go ${e.key}')),
-          ]),
-        ),
-      );
+    home: Scaffold(
+      body: AnimatedBuilder(
+        animation: _c,
+        builder: (context, _) {
+          final t = _c.value;
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              for (var i = 0; i < _screens.length; i++)
+                IgnorePointer(
+                  ignoring: i != _index,
+                  child: Opacity(
+                    key: ValueKey('op$i'),
+                    opacity: i == _index
+                        ? t
+                        : (i == _outgoing ? (1 - t) * _outgoingFrom : 0.0),
+                    child: _screens[i],
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+      bottomNavigationBar: Row(
+        children: [
+          for (final e in {'A': 0, 'B': 1, 'C': 2}.entries)
+            TextButton(
+              onPressed: () => go(e.value),
+              child: Text('go ${e.key}'),
+            ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _Counter extends StatefulWidget {
@@ -83,20 +94,21 @@ class _CounterState extends State<_Counter> {
   int taps = 0;
   @override
   Widget build(BuildContext context) => Align(
-        alignment: Alignment.topLeft,
-        child: TextButton(
-          onPressed: () => setState(() => taps++),
-          child: Text('${widget.label}:$taps'),
-        ),
-      );
+    alignment: Alignment.topLeft,
+    child: TextButton(
+      onPressed: () => setState(() => taps++),
+      child: Text('${widget.label}:$taps'),
+    ),
+  );
 }
 
 double op(WidgetTester t, int i) =>
     t.widget<Opacity>(find.byKey(ValueKey('op$i'))).opacity;
 
 void main() {
-  testWidgets('outgoing and incoming are both visible mid-crossfade',
-      (t) async {
+  testWidgets('outgoing and incoming are both visible mid-crossfade', (
+    t,
+  ) async {
     await t.pumpWidget(const _Shell());
     expect(op(t, 0), 1.0);
 
@@ -130,8 +142,9 @@ void main() {
     expect(find.text('A:1'), findsOneWidget);
   });
 
-  testWidgets('rapid repeated taps leave no stuck or overlapping state',
-      (t) async {
+  testWidgets('rapid repeated taps leave no stuck or overlapping state', (
+    t,
+  ) async {
     await t.pumpWidget(const _Shell());
 
     // Interrupt each transition well before it finishes.
@@ -154,8 +167,7 @@ void main() {
     expect(op(t, 2), 0.0, reason: 'no screen left stuck part-faded');
   });
 
-  testWidgets('interrupting mid-fade never jumps opacity back up',
-      (t) async {
+  testWidgets('interrupting mid-fade never jumps opacity back up', (t) async {
     await t.pumpWidget(const _Shell());
     await t.tap(find.text('go B'));
     await t.pump();
@@ -166,8 +178,11 @@ void main() {
     // snap to 1.0 first.
     await t.tap(find.text('go C'));
     await t.pump();
-    expect(op(t, 1), lessThanOrEqualTo(bMid + 0.001),
-        reason: 'interrupted fade must not jump back to opaque');
+    expect(
+      op(t, 1),
+      lessThanOrEqualTo(bMid + 0.001),
+      reason: 'interrupted fade must not jump back to opaque',
+    );
   });
 
   testWidgets('only the destination receives taps mid-transition', (t) async {
@@ -179,6 +194,10 @@ void main() {
     // A is still painted at ~0.7 opacity; its button must be inert.
     await t.tap(find.text('A:0'), warnIfMissed: false);
     await t.pumpAndSettle();
-    expect(find.text('A:0'), findsOneWidget, reason: 'outgoing must not accept taps');
+    expect(
+      find.text('A:0'),
+      findsOneWidget,
+      reason: 'outgoing must not accept taps',
+    );
   });
 }

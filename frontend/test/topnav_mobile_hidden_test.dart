@@ -8,15 +8,7 @@ import 'package:cropsphere_app/widgets/top_nav_metrics.dart';
 // vertical room. Pinned here because the row lives in a shared widget used by
 // six screens — a regression would hit all of them at once.
 
-const _labels = [
-  'Home',
-  'Yield',
-  'Price',
-  'Weather',
-  'Crop',
-  'Demand',
-  'Chat',
-];
+const _labels = ['Home', 'Yield', 'Price', 'Weather', 'Crop', 'Demand', 'Chat'];
 
 Future<void> _pumpAt(WidgetTester tester, double width) async {
   tester.view.physicalSize = Size(width, 900);

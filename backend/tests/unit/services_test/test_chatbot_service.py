@@ -567,9 +567,7 @@ def test_build_messages_ordering_preserved_with_prediction_context():
     assert system_i < rag_i < pred_i < fmt_i < hist_i
     # Level instruction still sits between the formatting rules and history.
     level_i = next(
-        i
-        for i, m in enumerate(msgs)
-        if m["content"] in cs._LEVEL_INSTRUCTIONS.values()
+        i for i, m in enumerate(msgs) if m["content"] in cs._LEVEL_INSTRUCTIONS.values()
     )
     assert fmt_i < level_i < hist_i
     # The user message is still last, and still only the user's own text.

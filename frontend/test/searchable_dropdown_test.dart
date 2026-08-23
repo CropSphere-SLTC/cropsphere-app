@@ -226,9 +226,12 @@ void main() {
 
     // Blur restored the committed selection into the field.
     expect(
-      tester.widget<TextFormField>(
-        find.widgetWithText(TextFormField, 'Select District'),
-      ).controller?.text,
+      tester
+          .widget<TextFormField>(
+            find.widgetWithText(TextFormField, 'Select District'),
+          )
+          .controller
+          ?.text,
       'Badulla',
     );
 
@@ -254,9 +257,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      tester.widget<TextFormField>(
-        find.widgetWithText(TextFormField, 'Select District'),
-      ).controller?.text,
+      tester
+          .widget<TextFormField>(
+            find.widgetWithText(TextFormField, 'Select District'),
+          )
+          .controller
+          ?.text,
       isEmpty,
     );
 

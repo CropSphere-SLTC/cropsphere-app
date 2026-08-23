@@ -3090,9 +3090,7 @@ class _YieldScreenState extends State<YieldScreen> {
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(12),
               ),
-              border: const Border(
-                bottom: BorderSide(color: AppTheme.border),
-              ),
+              border: const Border(bottom: BorderSide(color: AppTheme.border)),
             ),
             child: Row(
               children: [

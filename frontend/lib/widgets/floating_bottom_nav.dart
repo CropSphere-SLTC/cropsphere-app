@@ -32,7 +32,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../app_lang.dart';
-import 'top_nav_items.dart' show kTopNavIndicatorCurve, kTopNavIndicatorDuration;
+import 'top_nav_items.dart'
+    show kTopNavIndicatorCurve, kTopNavIndicatorDuration;
 import 'animated_lang_text.dart';
 import 'app_theme.dart';
 

@@ -200,9 +200,7 @@ def test_prediction_context_rejects_unknown_crop(
     assert resp.status_code == 422
 
 
-def test_stream_accepts_prediction_context(
-    client, mock_valid_token, valid_auth_header
-):
+def test_stream_accepts_prediction_context(client, mock_valid_token, valid_auth_header):
     """Both endpoints take the field — the streaming path is the default."""
     captured = {}
 

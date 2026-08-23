@@ -152,10 +152,7 @@ class _TodaysRecommendationHeroState extends State<TodaysRecommendationHero> {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            AppTheme.login.primaryGreen,
-            AppTheme.login.primaryDark,
-          ],
+          colors: [AppTheme.login.primaryGreen, AppTheme.login.primaryDark],
         ),
         borderRadius: BorderRadius.circular(18),
         boxShadow: [
@@ -215,20 +212,12 @@ class _TodaysRecommendationHeroState extends State<TodaysRecommendationHero> {
           Row(
             children: [
               _statChip(
-                label: _t({
-                  'en': 'Price',
-                  'si': 'මිල',
-                  'ta': 'விலை',
-                }),
+                label: _t({'en': 'Price', 'si': 'මිල', 'ta': 'விலை'}),
                 value: 'Rs. ${top.expectedPriceLkrKg.round()}/kg',
               ),
               const SizedBox(width: 8),
               _statChip(
-                label: _t({
-                  'en': 'Yield',
-                  'si': 'අස්වැන්න',
-                  'ta': 'விளைச்சல்',
-                }),
+                label: _t({'en': 'Yield', 'si': 'අස්වැන්න', 'ta': 'விளைச்சல்'}),
                 value: '${top.expectedYieldKgPerHa.round()} kg/ha',
               ),
             ],

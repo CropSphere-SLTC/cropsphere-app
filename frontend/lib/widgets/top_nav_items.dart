@@ -109,9 +109,7 @@ class _TopNavItemsState extends State<TopNavItems> {
       return const SizedBox.shrink();
     }
     final m = widget.metrics;
-    final widths = [
-      for (final l in widget.labels) TopNavItems.itemWidth(l, m),
-    ];
+    final widths = [for (final l in widget.labels) TopNavItems.itemWidth(l, m)];
 
     // Left edge of each item, so the indicator can be positioned exactly.
     final offsets = <double>[];
@@ -121,8 +119,8 @@ class _TopNavItemsState extends State<TopNavItems> {
       running += w;
     }
 
-    final safeIndex = widget.activeIndex >= 0 &&
-            widget.activeIndex < widths.length
+    final safeIndex =
+        widget.activeIndex >= 0 && widget.activeIndex < widths.length
         ? widget.activeIndex
         : 0;
     final itemHeight = m.labelSize + m.itemPadV * 2;
@@ -194,9 +192,7 @@ class _TopNavItemsState extends State<TopNavItems> {
               style: TextStyle(
                 fontSize: m.labelSize,
                 fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                color: active
-                    ? widget.activeColor
-                    : TopNavItems.inactiveColor,
+                color: active ? widget.activeColor : TopNavItems.inactiveColor,
               ),
               child: Text(widget.labels[i], maxLines: 1),
             ),

@@ -477,7 +477,6 @@ class PriceComparisonCardView extends StatelessWidget {
       },
     );
   }
-
 }
 
 /// Loading placeholder mirroring the card's real shape.

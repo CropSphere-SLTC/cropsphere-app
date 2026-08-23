@@ -192,30 +192,6 @@ Future<_WeatherData?> _fetchWeather({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Quick stats model  (swap getters for real DB / Hive reads)
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _QuickStats {
-  final String bestCrop;
-  final double avgPriceLkr;
-  final double yieldTonnes;
-
-  const _QuickStats({
-    required this.bestCrop,
-    required this.avgPriceLkr,
-    required this.yieldTonnes,
-  });
-}
-
-// Realistic Sri Lankan defaults — replace with actual persisted data.
-// Marked clearly as sample data in the UI until this is wired up.
-const _kMockStats = _QuickStats(
-  bestCrop: 'Carrot',
-  avgPriceLkr: 74.0,
-  yieldTonnes: 1.8,
-);
-
-// ─────────────────────────────────────────────────────────────────────────────
 //  Tip data model
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1158,8 +1134,6 @@ class _DashboardScreenState extends State<DashboardScreen>
                 const SizedBox(height: 12),
                 _buildWeatherCard(compact: true),
                 const SizedBox(height: 10),
-                _buildQuickStats(compact: true),
-                const SizedBox(height: 10),
                 _buildTipCard(tip, tips, season, compact: true),
                 const SizedBox(height: 14),
                 _buildChatBox(),
@@ -1232,8 +1206,6 @@ class _DashboardScreenState extends State<DashboardScreen>
                       const SizedBox(height: gap),
                       _buildWeatherCard(compact: false),
                       const SizedBox(height: gap),
-                      _buildQuickStats(compact: false),
-                      const SizedBox(height: gap),
                       _buildTipCard(tip, tips, season, compact: false),
                       const SizedBox(height: gap + 4),
                       _buildChatBox(),
@@ -1280,8 +1252,6 @@ class _DashboardScreenState extends State<DashboardScreen>
                       const SizedBox(height: gap),
                       _buildWeatherCard(compact: false),
                       const SizedBox(height: gap),
-                      _buildQuickStats(compact: false),
-                      const SizedBox(height: gap),
                       _buildTipCard(tip, tips, season, compact: false),
                       const SizedBox(height: gap),
                       _buildChatBox(),
@@ -1326,8 +1296,6 @@ class _DashboardScreenState extends State<DashboardScreen>
                       ..._personalisedSection(),
                       const SizedBox(height: 12),
                       _buildWeatherCard(compact: false),
-                      const SizedBox(height: 12),
-                      _buildQuickStats(compact: false),
                       const SizedBox(height: 12),
                       _buildTipCard(tip, tips, season, compact: false),
                       const SizedBox(height: 12),
@@ -1804,116 +1772,6 @@ class _DashboardScreenState extends State<DashboardScreen>
           ),
         ],
       ),
-    );
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  //  Quick stats strip
-  // ─────────────────────────────────────────────────────────────────────────
-  Widget _buildQuickStats({required bool compact}) {
-    // Replace _kMockStats with real DB/Hive reads
-    final stats = _kMockStats;
-    final items = [
-      {
-        'icon': '🌱',
-        'label': _t({
-          'en': 'Best crop',
-          'si': 'හොඳ භෝගය',
-          'ta': 'சிறந்த பயிர்',
-        }),
-        'value': stats.bestCrop,
-        'color': const Color(0xFF2E7D32),
-        'bg': const Color(0xFFE8F5E9),
-      },
-      {
-        'icon': '💰',
-        'label': _t({
-          'en': 'Avg price',
-          'si': 'සාමාන්‍ය මිල',
-          'ta': 'சராசரி விலை',
-        }),
-        'value': 'Rs. ${stats.avgPriceLkr.toStringAsFixed(0)}/kg',
-        'color': const Color(0xFFE65100),
-        'bg': const Color(0xFFFFF8E1),
-      },
-      {
-        'icon': '📦',
-        'label': _t({'en': 'Last yield', 'si': 'අස්වැන්න', 'ta': 'விளைச்சல்'}),
-        'value': '${stats.yieldTonnes} t/ac',
-        'color': const Color(0xFF1565C0),
-        'bg': const Color(0xFFE3F2FD),
-      },
-    ];
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: List.generate(items.length, (i) {
-            final item = items[i];
-            final isLast = i == items.length - 1;
-            return Expanded(
-              child: Container(
-                margin: EdgeInsets.only(right: isLast ? 0 : 7),
-                padding: EdgeInsets.symmetric(
-                  vertical: compact ? 9 : 11,
-                  horizontal: 10,
-                ),
-                decoration: BoxDecoration(
-                  color: item['bg'] as Color,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: (item['color'] as Color).withValues(alpha: 0.2),
-                    width: 1.2,
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item['icon'] as String,
-                      style: TextStyle(fontSize: compact ? 16 : 18),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      item['label'] as String,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: (item['color'] as Color).withValues(alpha: 0.8),
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      item['value'] as String,
-                      style: TextStyle(
-                        fontSize: compact ? 13 : 14,
-                        color: item['color'] as Color,
-                        fontWeight: FontWeight.w800,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          _t({
-            'en': '* Sample data — will update after your first entries',
-            'si': '* නියැදි දත්ත — ඔබේ පළමු ප්‍රවේශයෙන් පසු යාවත්කාලීන වේ',
-            'ta':
-                '* மாதிரி தரவு — உங்கள் முதல் பதிவிற்குப் பிறகு புதுப்பிக்கப்படும்',
-          }),
-          style: TextStyle(
-            fontSize: 10.5,
-            color: Colors.grey.shade500,
-            fontStyle: FontStyle.italic,
-          ),
-        ),
-      ],
     );
   }
 

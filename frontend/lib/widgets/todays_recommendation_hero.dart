@@ -206,21 +206,45 @@ class _TodaysRecommendationHeroState extends State<TodaysRecommendationHero> {
               height: 1.1,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 10),
+          // Expected farmgate price and yield for THIS crop — the two
+          // numbers that answer "what do I actually get out of it".
+          // Labelled with the crop name because the price comparison card
+          // below tracks the farmer's *preferred* crop, which isn't always
+          // the top-ranked one shown here.
+          Row(
+            children: [
+              _statChip(
+                label: _t({
+                  'en': 'Price',
+                  'si': 'මිල',
+                  'ta': 'விலை',
+                }),
+                value: 'Rs. ${top.expectedPriceLkrKg.round()}/kg',
+              ),
+              const SizedBox(width: 8),
+              _statChip(
+                label: _t({
+                  'en': 'Yield',
+                  'si': 'අස්වැන්න',
+                  'ta': 'விளைச்சல்',
+                }),
+                value: '${top.expectedYieldKgPerHa.round()} kg/ha',
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
           Text(
             _t({
               'en':
                   'Best match for ${widget.preferredDistrict} this $season '
-                  'season — $confidencePct% confidence, around '
-                  '${top.expectedYieldKgPerHa.round()} kg/ha expected.',
+                  'season — $confidencePct% confidence.',
               'si':
                   '$season කන්නයේ ${widget.preferredDistrict} සඳහා හොඳම '
-                  'තේරීම — $confidencePct% විශ්වාසය, ආසන්න වශයෙන් '
-                  '${top.expectedYieldKgPerHa.round()} kg/ha.',
+                  'තේරීම — $confidencePct% විශ්වාසය.',
               'ta':
                   '$season பருவத்தில் ${widget.preferredDistrict} மாவட்டத்திற்கு '
-                  'சிறந்த தேர்வு — $confidencePct% நம்பிக்கை, சுமார் '
-                  '${top.expectedYieldKgPerHa.round()} kg/ha.',
+                  'சிறந்த தேர்வு — $confidencePct% நம்பிக்கை.',
             }),
             style: const TextStyle(
               fontSize: 12.5,
@@ -256,6 +280,50 @@ class _TodaysRecommendationHeroState extends State<TodaysRecommendationHero> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// A translucent pill on the hero's filled background — readable against
+  /// the gradient without introducing a second card surface.
+  Widget _statChip({required String label, required String value}) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.16),
+          borderRadius: BorderRadius.circular(11),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                color: Colors.white70,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 2),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                ),
+                maxLines: 1,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -421,9 +489,15 @@ class _TodaysRecommendationHeroState extends State<TodaysRecommendationHero> {
             SkeletonBox(width: 130, height: 11),
             SizedBox(height: 12),
             SkeletonBox(width: 150, height: 26),
-            SizedBox(height: 10),
-            SkeletonBox(height: 12),
-            SizedBox(height: 6),
+            SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(child: SkeletonBox(height: 42, radius: 11)),
+                SizedBox(width: 8),
+                Expanded(child: SkeletonBox(height: 42, radius: 11)),
+              ],
+            ),
+            SizedBox(height: 12),
             SkeletonBox(width: 200, height: 12),
             SizedBox(height: 16),
             SkeletonBox(height: 42, radius: 12),

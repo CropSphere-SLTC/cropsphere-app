@@ -780,7 +780,9 @@ class _MainShellState extends State<MainShell>
     final safeIndex = _selectedIndex < _screens.length ? _selectedIndex : 0;
     // Desktop (≥1024px) keeps the per-screen top nav as its only
     // navigation — same breakpoint the login screen redesign established.
-    // Below that, the floating bottom nav is the primary way to switch tabs.
+    // Below that, the floating bottom nav is the primary way to switch tabs;
+    // on phones it is the ONLY one, because TopNavItems hides its row below
+    // 600px rather than showing two navigations at once.
     final showFloatingNav = MediaQuery.of(context).size.width < 1024;
 
     return Scaffold(

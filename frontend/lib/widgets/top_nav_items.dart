@@ -34,6 +34,19 @@ const Curve kTopNavIndicatorCurve = Curves.easeInOutCubic;
 /// Hover tint fade — matches the chat screen's message-hover action rows.
 const Duration kTopNavHoverDuration = Duration(milliseconds: 140);
 
+/// Below this width the nav row is not rendered at all.
+///
+/// Phones get exactly one navigation: MainShell's FloatingBottomNav, which
+/// is the native pattern there and is always in thumb reach. Showing this
+/// row as well meant two navigations stacked at the top and bottom of a
+/// screen that has the least vertical space to give — so the row yields and
+/// the capsule wins. The rest of the top bar (logo, wordmark, language,
+/// theme, avatar) still renders; only the seven nav items go.
+///
+/// 600 is the app's existing phone/tablet boundary, the same one the screens
+/// use to pick between their mobile and tablet layouts.
+const double kTopNavRowMinWidth = 600;
+
 class TopNavItems extends StatefulWidget {
   final List<String> labels;
   final int activeIndex;
@@ -88,6 +101,13 @@ class _TopNavItemsState extends State<TopNavItems> {
 
   @override
   Widget build(BuildContext context) {
+    // Phones navigate with the floating bottom nav alone — see
+    // kTopNavRowMinWidth. Collapsing to zero width leaves the surrounding
+    // Expanded as plain flexible space, which pushes the top bar's trailing
+    // controls to the right edge instead of leaving a gap.
+    if (MediaQuery.sizeOf(context).width < kTopNavRowMinWidth) {
+      return const SizedBox.shrink();
+    }
     final m = widget.metrics;
     final widths = [
       for (final l in widget.labels) TopNavItems.itemWidth(l, m),

@@ -561,29 +561,38 @@ class _MainShellState extends State<MainShell>
   // bounded correction instead of an unbounded block.
   static const _adminCheckMaxWait = Duration(milliseconds: 600);
 
-  // Tab-switch transition — a fade-through (fast out, slower in), applied
-  // to the whole IndexedStack rather than swapping its children, because
-  // those children hold live state (the recommend screen's form, chat's
-  // conversation, the dashboard's fetched results) that an AnimatedSwitcher
-  // would destroy.
+  // Tab-switch transition — a true 150ms crossfade: the outgoing screen
+  // fades out while the incoming one fades in, both visible at once.
+  // Matches the chat screen's AnimatedSwitcher timing so page changes feel
+  // the same wherever they happen.
+  //
+  // NOT an actual AnimatedSwitcher, deliberately. AnimatedSwitcher swaps
+  // its child, which would rebuild the destination screen from scratch and
+  // destroy live state — the recommend screen's form, chat's conversation,
+  // the dashboard's fetched weather/prefs/M5/M3 results. A regression test
+  // covers exactly that. So the same visual result is built from a Stack
+  // where every screen keeps one permanent element and only its opacity
+  // animates.
   //
   // Fade rather than slide: each screen renders its OWN top bar, so the
   // animated subtree includes the header. All seven headers are nearly
   // identical, so a slide would make the header visibly jump sideways on
   // every switch; a crossfade between two near-identical headers is
-  // invisible, leaving only the content change on screen — which is what
-  // actually happened.
+  // invisible, leaving only the content change on screen.
+  static const pageFadeDuration = Duration(milliseconds: 150);
+
   late final AnimationController _pageFadeCtrl = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 200),
-    reverseDuration: const Duration(milliseconds: 110),
+    duration: pageFadeDuration,
     value: 1.0,
   );
-  late final Animation<double> _pageFade = CurvedAnimation(
-    parent: _pageFadeCtrl,
-    curve: Curves.easeOut,
-    reverseCurve: Curves.easeIn,
-  );
+
+  /// Index the crossfade is moving away from, and the opacity it held when
+  /// the transition began. Capturing that opacity is what keeps rapid
+  /// repeated taps continuous — an interrupted fade continues from where
+  /// it actually was instead of snapping back to fully opaque.
+  int? _outgoingIndex;
+  double _outgoingFrom = 1.0;
 
   late int _selectedIndex = widget.initialIndex;
   bool _isAdmin = false;
@@ -688,19 +697,56 @@ class _MainShellState extends State<MainShell>
     }
   }
 
-  Future<void> _navigateTo(int index) async {
+  void _navigateTo(int index) {
     // Re-tapping the current tab is a refresh gesture, not a navigation —
     // skip the transition so Home's refresh still feels immediate.
     if (index != _selectedIndex) {
-      await _pageFadeCtrl.reverse();
-      if (!mounted) return;
-      setState(() => _selectedIndex = index);
-      _pageFadeCtrl.forward();
+      setState(() {
+        _outgoingIndex = _selectedIndex;
+        // Where the previous screen actually is right now: fully opaque if
+        // settled, or mid-fade if this tap interrupted another transition.
+        _outgoingFrom = _pageFadeCtrl.value;
+        _selectedIndex = index;
+      });
+      _pageFadeCtrl.forward(from: 0);
     }
     if (index == 0) {
       _checkAdminAccess();
       _loadProfile();
     }
+  }
+
+  /// Every screen keeps a permanent element (so its State survives tab
+  /// switches, exactly as IndexedStack guaranteed) and only its opacity
+  /// animates. Opacity 0 short-circuits painting, so the cost matches
+  /// IndexedStack's except during the 150ms overlap.
+  Widget _buildCrossfadedBody(int safeIndex) {
+    return AnimatedBuilder(
+      animation: _pageFadeCtrl,
+      builder: (context, _) {
+        final t = _pageFadeCtrl.value;
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            for (var i = 0; i < _screens.length; i++)
+              IgnorePointer(
+                // Only the destination takes input, so a half-faded
+                // outgoing screen can never swallow a tap.
+                ignoring: i != safeIndex,
+                child: ExcludeSemantics(
+                  excluding: i != safeIndex,
+                  child: Opacity(
+                    opacity: i == safeIndex
+                        ? t
+                        : (i == _outgoingIndex ? (1 - t) * _outgoingFrom : 0.0),
+                    child: _screens[i],
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -742,10 +788,7 @@ class _MainShellState extends State<MainShell>
       // margins instead of being clipped above it — required for the
       // frosted-glass blur to actually have something to blur.
       extendBody: true,
-      body: FadeTransition(
-        opacity: _pageFade,
-        child: IndexedStack(index: safeIndex, children: _screens),
-      ),
+      body: _buildCrossfadedBody(safeIndex),
       bottomNavigationBar: showFloatingNav
           ? FloatingBottomNav(
               selectedIndex: safeIndex,

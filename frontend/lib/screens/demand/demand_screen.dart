@@ -30,6 +30,7 @@ import '../../services/service_factory.dart';
 import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
 import '../../widgets/brand_wordmark.dart';
+import '../../widgets/top_nav_items.dart';
 import '../../widgets/top_nav_metrics.dart';
 import '../../widgets/language_control.dart';
 import '../../widgets/profile_avatar_button.dart';
@@ -743,45 +744,13 @@ class _DemandScreenState extends State<DemandScreen> {
                   child: Center(
                     child: SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: List.generate(navLabels.length, (i) {
-                          final active = i == activeIndex;
-                          return Padding(
-                            padding: EdgeInsets.symmetric(horizontal: m.itemGap),
-                            child: TextButton(
-                              onPressed: widget.onNavigate == null
-                                  ? null
-                                  : () => widget.onNavigate!(i),
-                              style: TextButton.styleFrom(
-                                backgroundColor: active
-                                    ? activeBg
-                                    : Colors.transparent,
-                                foregroundColor: active
-                                    ? activeColor
-                                    : const Color(0xFF555555),
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: m.itemPadH,
-                                  vertical: m.itemPadV,
-                                ),
-                                minimumSize: Size.zero,
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                              ),
-                              child: Text(
-                                navLabels[i],
-                                style: TextStyle(
-                                  fontSize: m.labelSize,
-                                  fontWeight: active
-                                      ? FontWeight.w700
-                                      : FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                          );
-                        }),
+                      child: TopNavItems(
+                        labels: navLabels,
+                        activeIndex: activeIndex,
+                        activeBg: activeBg,
+                        activeColor: activeColor,
+                        onNavigate: widget.onNavigate,
+                        metrics: m,
                       ),
                     ),
                   ),

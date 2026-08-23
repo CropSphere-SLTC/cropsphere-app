@@ -39,6 +39,7 @@ import '../../services/profile_service.dart';
 import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
 import '../../widgets/brand_wordmark.dart';
+import '../../widgets/top_nav_items.dart';
 import '../../widgets/top_nav_metrics.dart';
 import '../../widgets/language_control.dart';
 import '../../widgets/price_comparison_card.dart';
@@ -1434,50 +1435,13 @@ class _DashboardScreenState extends State<DashboardScreen>
             child: Center(
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
-                child: Builder(
-                  builder: (ctx) {
-                    final navigate = widget.onNavigate;
-                    return Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: List.generate(navLabels.length, (i) {
-                        final active = i == 0;
-                        return Padding(
-                          padding: EdgeInsets.symmetric(horizontal: m.itemGap),
-                          child: TextButton(
-                            onPressed: navigate == null
-                                ? null
-                                : () => navigate(i),
-                            style: TextButton.styleFrom(
-                              backgroundColor: active
-                                  ? const Color(0xFFE8F5E9)
-                                  : Colors.transparent,
-                              foregroundColor: active
-                                  ? const Color(0xFF1B5E20)
-                                  : const Color(0xFF555555),
-                              padding: EdgeInsets.symmetric(
-                                horizontal: m.itemPadH,
-                                vertical: m.itemPadV,
-                              ),
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                            child: Text(
-                              navLabels[i],
-                              style: TextStyle(
-                                fontSize: m.labelSize,
-                                fontWeight: active
-                                    ? FontWeight.w700
-                                    : FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                        );
-                      }),
-                    );
-                  },
+                child: TopNavItems(
+                  labels: navLabels,
+                  activeIndex: 0,
+                  activeBg: const Color(0xFFE8F5E9),
+                  activeColor: const Color(0xFF1B5E20),
+                  onNavigate: widget.onNavigate,
+                  metrics: m,
                 ),
               ),
             ),

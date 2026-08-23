@@ -32,6 +32,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../app_lang.dart';
+import 'top_nav_items.dart' show kTopNavIndicatorCurve, kTopNavIndicatorDuration;
 import 'animated_lang_text.dart';
 import 'app_theme.dart';
 
@@ -83,7 +84,8 @@ class FloatingBottomNav extends StatelessWidget {
     _ => _labelsEn,
   };
 
-  static const _muted = Color(0xFFAEAEAE);
+  /// Inactive icon/label tone.
+  static const mutedColor = Color(0xFFAEAEAE);
 
   @override
   Widget build(BuildContext context) {
@@ -135,8 +137,14 @@ class FloatingBottomNav extends StatelessWidget {
                     // moving instead of one fading out while another fades
                     // in.
                     AnimatedPositioned(
-                      duration: const Duration(milliseconds: 230),
-                      curve: Curves.easeInOut,
+                      // Same timing/curve as the top nav's sliding
+                      // indicator (kTopNavIndicatorDuration/Curve) so both
+                      // navigations' indicators move identically. Every
+                      // slot is equal width — all items show icon+label —
+                      // so the pill slides without resizing; there is no
+                      // width difference left to morph.
+                      duration: kTopNavIndicatorDuration,
+                      curve: kTopNavIndicatorCurve,
                       left: selectedIndex * itemW + pillInset,
                       top: 8,
                       width: itemW - pillInset * 2,
@@ -150,80 +158,16 @@ class FloatingBottomNav extends StatelessWidget {
                     ),
                     Row(
                       children: List.generate(itemCount, (i) {
-                        final active = i == selectedIndex;
                         return SizedBox(
                           width: itemW,
                           height: 64,
-                          child: Semantics(
-                            button: true,
-                            selected: active,
+                          child: _NavItem(
                             label: labels[i],
-                            child: Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(20),
-                                onTap: () => onTap(i),
-                                child: Center(
-                                  // Drives the icon's pop + the icon/label
-                                  // color crossfade off one 0→1 value —
-                                  // TweenAnimationBuilder re-tweens smoothly
-                                  // from wherever it currently sits whenever
-                                  // `active` flips, so switching tabs mid-
-                                  // animation never jumps.
-                                  child: TweenAnimationBuilder<double>(
-                                    tween: Tween(
-                                      begin: 0,
-                                      end: active ? 1.0 : 0.0,
-                                    ),
-                                    duration: const Duration(
-                                      milliseconds: 240,
-                                    ),
-                                    curve: Curves.easeInOut,
-                                    builder: (context, t, _) {
-                                      final color = Color.lerp(
-                                        _muted,
-                                        primaryDark,
-                                        t,
-                                      )!;
-                                      // A single sine hump: 0 at rest,
-                                      // peaks mid-transition, back to 0 at
-                                      // rest — eases up and settles with no
-                                      // overshoot/bounce past 1.0.
-                                      final scale =
-                                          1.0 + math.sin(t * math.pi) * 0.14;
-                                      return Transform.scale(
-                                        scale: scale,
-                                        child: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.center,
-                                          children: [
-                                            SvgPicture.string(
-                                              _navSvg(i, color),
-                                              width: 18,
-                                              height: 18,
-                                            ),
-                                            const SizedBox(height: 3),
-                                            AnimatedLangText(
-                                              labels[i],
-                                              style: TextStyle(
-                                                fontSize: 9.5,
-                                                fontWeight: t > 0.5
-                                                    ? FontWeight.w800
-                                                    : FontWeight.w500,
-                                                color: color,
-                                              ),
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ],
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                ),
-                              ),
-                            ),
+                            active: i == selectedIndex,
+                            svg: _navSvg,
+                            index: i,
+                            activeColor: primaryDark,
+                            onTap: () => onTap(i),
                           ),
                         );
                       }),
@@ -315,5 +259,114 @@ class FloatingBottomNav extends StatelessWidget {
             '<path d="M17 5.5L18.5 7L21 4" stroke="white" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>'
             '</svg>',
     };
+  }
+}
+
+/// One bottom-nav slot.
+///
+/// Stateful only so it can hold the pressed flag for the tap feedback: a
+/// slight scale-down on pointer-down that springs back on release. Kept
+/// short (90ms) and shallow (0.96) so it reads as tactile acknowledgement
+/// rather than an animation the user has to wait through — and with a
+/// plain easeOut, no elastic overshoot, matching the rest of the app.
+class _NavItem extends StatefulWidget {
+  final String label;
+  final bool active;
+  final int index;
+  final Color activeColor;
+  final VoidCallback onTap;
+  final String Function(int, Color) svg;
+
+  const _NavItem({
+    required this.label,
+    required this.active,
+    required this.index,
+    required this.activeColor,
+    required this.onTap,
+    required this.svg,
+  });
+
+  @override
+  State<_NavItem> createState() => _NavItemState();
+}
+
+class _NavItemState extends State<_NavItem> {
+  bool _pressed = false;
+
+  void _setPressed(bool v) {
+    if (_pressed != v) setState(() => _pressed = v);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      selected: widget.active,
+      label: widget.label,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: widget.onTap,
+          onTapDown: (_) => _setPressed(true),
+          onTapUp: (_) => _setPressed(false),
+          onTapCancel: () => _setPressed(false),
+          child: AnimatedScale(
+            scale: _pressed ? 0.96 : 1.0,
+            duration: const Duration(milliseconds: 90),
+            curve: Curves.easeOut,
+            child: Center(
+              // Drives the icon's pop + the icon/label color crossfade off
+              // one 0→1 value — TweenAnimationBuilder re-tweens smoothly
+              // from wherever it currently sits whenever `active` flips, so
+              // switching tabs mid-animation never jumps.
+              child: TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0, end: widget.active ? 1.0 : 0.0),
+                duration: kTopNavIndicatorDuration,
+                curve: kTopNavIndicatorCurve,
+                builder: (context, t, _) {
+                  final color = Color.lerp(
+                    FloatingBottomNav.mutedColor,
+                    widget.activeColor,
+                    t,
+                  )!;
+                  // A single sine hump: 0 at rest, peaks mid-transition,
+                  // back to 0 at rest — eases up and settles with no
+                  // overshoot past 1.0.
+                  final scale = 1.0 + math.sin(t * math.pi) * 0.14;
+                  return Transform.scale(
+                    scale: scale,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SvgPicture.string(
+                          widget.svg(widget.index, color),
+                          width: 18,
+                          height: 18,
+                        ),
+                        const SizedBox(height: 3),
+                        AnimatedLangText(
+                          widget.label,
+                          style: TextStyle(
+                            fontSize: 9.5,
+                            fontWeight: t > 0.5
+                                ? FontWeight.w800
+                                : FontWeight.w500,
+                            color: color,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }

@@ -1,5 +1,5 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:cropsphere_app/widgets/top_nav_items.dart';
 import 'package:cropsphere_app/widgets/top_nav_metrics.dart';
 
 // The desktop top nav is the ONLY navigation from 1024px up (the floating
@@ -11,23 +11,10 @@ import 'package:cropsphere_app/widgets/top_nav_metrics.dart';
 // bottom nav's wording) at 13px, with BrandWordmark hidden in the
 // 600–1200px band.
 
-double _textWidth(String s, double size) {
-  final tp = TextPainter(
-    text: TextSpan(
-      text: s,
-      style: TextStyle(fontSize: size, fontWeight: FontWeight.w700),
-    ),
-    textDirection: TextDirection.ltr,
-  )..layout();
-  return tp.width;
-}
-
-/// Laid-out width of the 7-item nav row for a given TopNavMetrics step.
-double navRowWidth(List<String> labels, TopNavMetrics m) => labels.fold(
-      0.0,
-      (a, l) =>
-          a + _textWidth(l, m.labelSize) + m.itemPadH * 2 + m.itemGap * 2,
-    );
+/// Delegates to the widget's own geometry so the test can't drift from
+/// what actually renders.
+double navRowWidth(List<String> labels, TopNavMetrics m) =>
+    TopNavItems.rowWidth(labels, m);
 
 void main() {
   // Everything sharing the bar besides the nav row, with the wordmark

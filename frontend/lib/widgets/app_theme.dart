@@ -30,6 +30,51 @@ class AppTheme {
   static const Color error = Color(0xFFC62828);
   static const Color info = Color(0xFF01579B);
 
+  // On-colour — text/icons drawn ON a filled primary surface. Distinct from
+  // surfaceCard, which happens to be the same white but means "a card's
+  // background"; screens were reaching for a bare Colors.white here.
+  static const Color onPrimary = Color(0xFFFFFFFF);
+
+  // Disabled — a control that is present but not actionable. Neutral rather
+  // than green-tinted, so a disabled button reads as inert instead of as a
+  // washed-out brand colour.
+  static const Color disabled = Color(0xFFBDBDBD);
+  static const Color disabledSurface = Color(0x0A9E9E9E);
+
+  // Hairlines. `border` outlines cards and inputs; `divider` is the heavier
+  // rule between layout columns. Both were previously per-screen literals.
+  static const Color border = Color(0xFFE0EBE0);
+  static const Color divider = Color(0xFFE4EEE4);
+
+  // A recessive surface for a panel nested INSIDE a card, where surfaceCard
+  // would disappear against its parent.
+  static const Color surfaceMuted = Color(0xFFF4F9F4);
+
+  // ── Categorical data colours ──────────────────────────────────────────────
+  //
+  // Identity only — which chemical, which series. Assign in slot order and
+  // never cycle; a sixth category folds into "Other" rather than inventing a
+  // hue. Status colours (success/warning/error) are RESERVED for state and
+  // must never be borrowed as a categorical slot: a reader cannot tell
+  // "this is the third chemical" from "this one is dangerous".
+  //
+  // Validated as a categorical palette on the white card surface: OKLCH
+  // lightness band and chroma floor pass, contrast >= 3:1, and the worst
+  // ADJACENT pair separates by dE 18.6 (OKLab x100) under simulated
+  // protanopia and deuteranopia. The set this replaced failed outright —
+  // its green and orange collapsed to dE 2.3 under protanopia, i.e. they
+  // were the same colour to a protan reader.
+  //
+  // Adjacent-pairs is the right test here because these tint a vertical LIST
+  // of cards, each carrying its product name as a direct label, so identity
+  // is never colour-alone. Do not reuse this set for a scatter or map
+  // without re-validating with --pairs all, which it does not pass.
+  static const Color data1 = Color(0xFF0F8A4F); // green
+  static const Color data2 = Color(0xFF8E24AA); // purple
+  static const Color data3 = Color(0xFFB26500); // amber
+  static const Color data4 = Color(0xFF1565C0); // blue
+  static const Color data5 = Color(0xFFAD1457); // crimson
+
   // Login/auth screen palette — see AppLoginTheme below.
   static const AppLoginTheme login = AppLoginTheme._();
 
@@ -134,9 +179,12 @@ class AppLoginTheme {
   // Instance getters (not static) so callers can write AppTheme.login.background
   // through the single const AppTheme.login instance above.
   Color get background => const Color(0xFFFCFBF6); // warm off-white card bg
-  Color get primaryGreen => const Color(0xFF3A8943); // Sea Green — primary actions
-  Color get primaryDark => const Color(0xFF306534); // Hunter Green — hover/pressed
-  Color get borderSubtle => const Color(0xFFE4E8E0); // soft input borders/dividers
+  Color get primaryGreen =>
+      const Color(0xFF3A8943); // Sea Green — primary actions
+  Color get primaryDark =>
+      const Color(0xFF306534); // Hunter Green — hover/pressed
+  Color get borderSubtle =>
+      const Color(0xFFE4E8E0); // soft input borders/dividers
   Color get textPrimary => const Color(0xFF1F2A1F); // main text on light bg
   Color get textSecondary => const Color(0xFF6B7A6B); // subtitles/placeholders
   // Midpoint between textSecondary and textPrimary — textSecondary alone,

@@ -278,7 +278,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'கையுறை அணியுங்கள். தோலில் நேரடியாக படாமல் தவிர்க்கவும். உலர் இடத்தில் சேமிக்கவும்.',
         },
-        color: Color(0xFFE65100),
+        color: AppTheme.data3,
         icon: Icons.grass,
       ),
       _ChemicalInstruction(
@@ -315,7 +315,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'அதிக யூரியா கேரட்டில் கிளைத்த, மயிரான வேர்களை ஏற்படுத்தும். குறைவாக பயன்படுத்தவும்.',
         },
-        color: Color(0xFF2E7D32),
+        color: AppTheme.data1,
         icon: Icons.water_drop,
       ),
       _ChemicalInstruction(
@@ -347,7 +347,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'அதிகமாக பயன்படுத்தாதீர்கள் — அதிக பொட்டாசியம் வேர்களை கசப்பாக மாற்றும்.',
         },
-        color: Color(0xFF7B1FA2),
+        color: AppTheme.data2,
         icon: Icons.science,
       ),
     ],
@@ -385,7 +385,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'கையுறை, முககவசம், காலணி அணியுங்கள். காற்றுள்ள நாட்களில் தெளிக்காதீர்கள். அறுவடை இடைவெளி: 14 நாட்கள்.',
         },
-        color: Color(0xFFC62828),
+        color: AppTheme.data5,
         icon: Icons.bug_report,
       ),
       _ChemicalInstruction(
@@ -424,7 +424,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'முககவசம் அணியுங்கள். மழையில் அல்லது அதிக காற்றில் தெளிக்காதீர்கள். அறுவடை இடைவெளி: 7 நாட்கள்.',
         },
-        color: Color(0xFF7B1FA2),
+        color: AppTheme.data2,
         icon: Icons.spa,
       ),
     ],
@@ -501,7 +501,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'பிரித்து பயன்படுத்துவது திறனை இரட்டிப்பாக்கும். ஒரே நேரத்தில் அனைத்தையும் பயன்படுத்தாதீர்கள் — வேர்களை எரிக்கும்.',
         },
-        color: Color(0xFF2E7D32),
+        color: AppTheme.data1,
         icon: Icons.grass,
       ),
       _ChemicalInstruction(
@@ -535,7 +535,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'ஈரத்திலிருந்து விலகி சேமிக்கவும். உலர் துகள்கள் மட்டும் — கரைக்காதீர்கள்.',
         },
-        color: Color(0xFFE65100),
+        color: AppTheme.data3,
         icon: Icons.grass,
       ),
       _ChemicalInstruction(
@@ -566,7 +566,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'si': 'කොළ ස්පර්ශය වළකින්න — සාමාන්‍ය කොළ දහනය සිදු විය හැකිය.',
           'ta': 'இலை தொடர்பு தவிர்க்கவும் — சிறிய இலை எரிவு ஏற்படலாம்.',
         },
-        color: Color(0xFF7B1FA2),
+        color: AppTheme.data2,
         icon: Icons.science,
       ),
     ],
@@ -606,7 +606,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'தேனீக்களுக்கு மிகவும் நச்சு — மாலையில் மட்டும் தெளிக்கவும். முழு பாதுகாப்பு உடை அணியுங்கள். அறுவடை இடைவெளி: 21 நாட்கள்.',
         },
-        color: Color(0xFFC62828),
+        color: AppTheme.data5,
         icon: Icons.bug_report,
       ),
       _ChemicalInstruction(
@@ -643,7 +643,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'நீர் ஆதாரங்களுக்கு அருகில் பயன்படுத்தாதீர்கள். மாஸ்க் மற்றும் கையுறை அணியுங்கள். அறுவடை இடைவெளி: 45 நாட்கள்.',
         },
-        color: Color(0xFF1565C0),
+        color: AppTheme.data4,
         icon: Icons.eco,
       ),
     ],
@@ -719,7 +719,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'அதிகமாக உரமிடாதீர்கள் — அதிக ஊட்டச்சத்து வேர் பாக்டீரியாவின் இயற்கை N-நிலைநிறுத்தலை தடுக்கும்.',
         },
-        color: Color(0xFFE65100),
+        color: AppTheme.data3,
         icon: Icons.grass,
       ),
       _ChemicalInstruction(
@@ -754,7 +754,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'பச்சைப்பயிருக்கு மிகக் குறைந்த பொட்டாசியம் தேவை — பரிந்துரைக்கப்பட்ட அளவை தாண்டாதீர்கள்.',
         },
-        color: Color(0xFF7B1FA2),
+        color: AppTheme.data2,
         icon: Icons.science,
       ),
     ],
@@ -793,7 +793,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'பூக்கும் காலத்தில் தெளிக்காதீர்கள் — தேனீக்களுக்கு தீங்கு. அறுவடை இடைவெளி: 14 நாட்கள்.',
         },
-        color: Color(0xFFC62828),
+        color: AppTheme.data5,
         icon: Icons.bug_report,
       ),
       _ChemicalInstruction(
@@ -829,7 +829,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'si': 'මාස්ක් පළඳින්න. අස்வனු ගැළපීම: දින 7.',
           'ta': 'முககவசம் அணியுங்கள். அறுவடை இடைவெளி: 7 நாட்கள்.',
         },
-        color: Color(0xFF7B1FA2),
+        color: AppTheme.data2,
         icon: Icons.spa,
       ),
     ],
@@ -904,7 +904,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'குறைந்த உரம் அணுகுமுறை. அதிக நைட்ரஜன் N-நிலைநிறுத்தலை தடுக்கும்.',
         },
-        color: Color(0xFFE65100),
+        color: AppTheme.data3,
         icon: Icons.grass,
       ),
     ],
@@ -941,7 +941,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'மிதமான நச்சு — கையுறை மற்றும் முககவசம் அணியுங்கள். அறுவடை இடைவெளி: 7 நாட்கள்.',
         },
-        color: Color(0xFFC62828),
+        color: AppTheme.data5,
         icon: Icons.bug_report,
       ),
     ],
@@ -1017,7 +1017,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'சிறந்த விளைவுக்கு அளவை பிரிக்கவும். குளிர்ச்சியான மாலை நேரத்தில் பயன்படுத்தவும்.',
         },
-        color: Color(0xFF2E7D32),
+        color: AppTheme.data1,
         icon: Icons.grass,
       ),
       _ChemicalInstruction(
@@ -1049,7 +1049,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'si': 'ආර්ද්‍රතාවෙන් ඈත සද්ධ බෑගයක ගබඩා කරන්න.',
           'ta': 'ஈரத்திலிருந்து விலகி மூடிய பையில் சேமிக்கவும்.',
         },
-        color: Color(0xFF7B1FA2),
+        color: AppTheme.data2,
         icon: Icons.science,
       ),
     ],
@@ -1088,7 +1088,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'முழு பாதுகாப்பு உடை அணியுங்கள். பயன்படுத்திய பிறகு உபகரணங்களை கழுவுங்கள். அறுவடை இடைவெளி: 7 நாட்கள்.',
         },
-        color: Color(0xFFC62828),
+        color: AppTheme.data5,
         icon: Icons.bug_report,
       ),
     ],
@@ -1164,7 +1164,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'வேர்க்கடலை தனது நைட்ரஜனை நிலைநிறுத்துகிறது — நடவு நேரத்தில் யூரியா தேவையில்லை.',
         },
-        color: Color(0xFFE65100),
+        color: AppTheme.data3,
         icon: Icons.grass,
       ),
       _ChemicalInstruction(
@@ -1202,7 +1202,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'இது உரம் அல்ல — TSP அல்லது MOP-ஐ மாற்றாதீர்கள். வேர்க்கடலை தரத்திற்கு முக்கியம்.',
         },
-        color: Color(0xFF1565C0),
+        color: AppTheme.data4,
         icon: Icons.water_drop,
       ),
       _ChemicalInstruction(
@@ -1235,7 +1235,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'பயன்படுத்திய பிறகு நீர் தேக்கம் தவிர்க்கவும் — வேர்க்கடலை வேர்கள் அதிக ஈரத்திற்கு உணர்திறன் உடையவை.',
         },
-        color: Color(0xFF7B1FA2),
+        color: AppTheme.data2,
         icon: Icons.science,
       ),
     ],
@@ -1275,7 +1275,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'சிகிச்சை செய்யப்பட்ட விதைகளை சாப்பிடாதீர்கள். கையுறை அணியுங்கள். குழந்தைகளிடமிருந்து விலகி வைக்கவும்.',
         },
-        color: Color(0xFF7B1FA2),
+        color: AppTheme.data2,
         icon: Icons.spa,
       ),
       _ChemicalInstruction(
@@ -1312,7 +1312,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'முககவசம் அணியுங்கள். மழையில் தெளிக்காதீர்கள். அறுவடை இடைவெளி: 14 நாட்கள்.',
         },
-        color: Color(0xFFC62828),
+        color: AppTheme.data5,
         icon: Icons.bug_report,
       ),
     ],
@@ -1986,7 +1986,7 @@ class _YieldScreenState extends State<YieldScreen> {
   /// a trailing hint under an answer.
   ButtonStyle get _askAiButtonStyle => ElevatedButton.styleFrom(
     backgroundColor: AppTheme.primary,
-    foregroundColor: Colors.white,
+    foregroundColor: AppTheme.onPrimary,
     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
     elevation: 2,
@@ -2046,13 +2046,13 @@ class _YieldScreenState extends State<YieldScreen> {
         : ['Home', 'Yield', 'Price', 'Weather', 'Crop', 'Demand', 'Chat'];
 
     const activeBg = Color(0xFFE8F5E9);
-    const activeColor = Color(0xFF2E7D32);
+    const activeColor = AppTheme.success;
 
     return Container(
       height: m.barHeight,
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(bottom: BorderSide(color: Color(0xFFE4EEE4))),
+        border: Border(bottom: BorderSide(color: AppTheme.divider)),
         boxShadow: [
           BoxShadow(
             color: Color(0x0A000000),
@@ -2069,7 +2069,7 @@ class _YieldScreenState extends State<YieldScreen> {
             height: m.logoSize,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: const Color(0xFF4CAF50).withValues(alpha: 0.15),
+              color: AppTheme.primaryLight.withValues(alpha: 0.15),
             ),
             child: Center(
               child: SvgPicture.string(_cropSphereSvg, width: 32, height: 32),
@@ -2141,7 +2141,7 @@ class _YieldScreenState extends State<YieldScreen> {
               child: _inputsColumn(),
             ),
           ),
-          Container(width: 1, color: const Color(0xFFE4EEE4)),
+          Container(width: 1, color: AppTheme.divider),
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(16, 14, 20, 28),
@@ -2560,7 +2560,7 @@ class _YieldScreenState extends State<YieldScreen> {
           const SizedBox(height: 8),
           _infoBox(
             _t(sel['desc']!),
-            color: Colors.blue,
+            color: AppTheme.primary,
             icon: Icons.water_drop_outlined,
           ),
         ],
@@ -2611,7 +2611,6 @@ class _YieldScreenState extends State<YieldScreen> {
               child: _areaField(
                 controller: _perchesCtrl,
                 label: _ts({'en': 'Perches', 'si': 'පර්ච', 'ta': 'பர்ச்'}),
-                color: AppTheme.primary,
                 isMain: true,
               ),
             ),
@@ -2620,7 +2619,6 @@ class _YieldScreenState extends State<YieldScreen> {
               child: _areaField(
                 controller: _acresCtrl,
                 label: _ts({'en': 'Acres', 'si': 'අක්කර', 'ta': 'ஏக்கர்'}),
-                color: const Color(0xFF1565C0),
               ),
             ),
             const SizedBox(width: 10),
@@ -2632,7 +2630,6 @@ class _YieldScreenState extends State<YieldScreen> {
                   'si': 'හෙක්ටෙයාර්',
                   'ta': 'ஹெக்டேர்',
                 }),
-                color: const Color(0xFF558B2F),
               ),
             ),
           ],
@@ -2654,7 +2651,6 @@ class _YieldScreenState extends State<YieldScreen> {
   Widget _areaField({
     required TextEditingController controller,
     required String label,
-    required Color color,
     bool isMain = false,
   }) => TextField(
     controller: controller,
@@ -2663,28 +2659,28 @@ class _YieldScreenState extends State<YieldScreen> {
     style: TextStyle(
       fontSize: isMain ? 20 : 15,
       fontWeight: FontWeight.bold,
-      color: color,
+      color: AppTheme.primary,
     ),
     decoration: InputDecoration(
       labelText: label,
       labelStyle: TextStyle(
         fontSize: 11,
-        color: color,
+        color: AppTheme.primary,
         fontWeight: FontWeight.w600,
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
         borderSide: BorderSide(
-          color: color.withValues(alpha: 0.3),
+          color: AppTheme.primary.withValues(alpha: 0.3),
           width: isMain ? 2 : 1.2,
         ),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
-        borderSide: BorderSide(color: color, width: 2),
+        borderSide: BorderSide(color: AppTheme.primary, width: 2),
       ),
       filled: true,
-      fillColor: color.withValues(alpha: 0.05),
+      fillColor: AppTheme.primary.withValues(alpha: 0.05),
       contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
     ),
   );
@@ -2877,7 +2873,6 @@ class _YieldScreenState extends State<YieldScreen> {
               0,
               300,
               'mm',
-              Colors.blue,
               (v) => setState(() => _oRainfall = v),
             ),
             _weatherSlider(
@@ -2890,7 +2885,6 @@ class _YieldScreenState extends State<YieldScreen> {
               5,
               35,
               '°C',
-              Colors.lightBlue,
               (v) => setState(() => _oTempMin = v),
             ),
             _weatherSlider(
@@ -2903,7 +2897,6 @@ class _YieldScreenState extends State<YieldScreen> {
               10,
               45,
               '°C',
-              Colors.orange,
               (v) => setState(() => _oTempMax = v),
             ),
             _weatherSlider(
@@ -2912,7 +2905,6 @@ class _YieldScreenState extends State<YieldScreen> {
               20,
               100,
               '%',
-              Colors.teal,
               (v) => setState(() => _oHumidity = v),
             ),
             _weatherSlider(
@@ -2925,7 +2917,6 @@ class _YieldScreenState extends State<YieldScreen> {
               0,
               80,
               'km/h',
-              Colors.blueGrey,
               (v) => setState(() => _oWindSpeed = v),
             ),
             _weatherSlider(
@@ -2938,7 +2929,6 @@ class _YieldScreenState extends State<YieldScreen> {
               5,
               35,
               'MJ',
-              Colors.amber,
               (v) => setState(() => _oSolarRad = v),
             ),
           ],
@@ -2953,37 +2943,31 @@ class _YieldScreenState extends State<YieldScreen> {
         '🌧',
         _ts({'en': 'Rain', 'si': 'වර්ෂාව', 'ta': 'மழை'}),
         '${w.rainfallMm.toStringAsFixed(1)} mm',
-        Colors.blue,
       ),
       _WTile(
         '🌡',
         _ts({'en': 'Min Temp', 'si': 'අවම', 'ta': 'குறை'}),
         '${w.tempMinC.toStringAsFixed(1)}°C',
-        Colors.lightBlue,
       ),
       _WTile(
         '☀️',
         _ts({'en': 'Max Temp', 'si': 'උපරිම', 'ta': 'அதிக'}),
         '${w.tempMaxC.toStringAsFixed(1)}°C',
-        Colors.orange,
       ),
       _WTile(
         '💧',
         _ts({'en': 'Humidity', 'si': 'ආර්ද්‍රතා', 'ta': 'ஈரம்'}),
         '${w.humidityPct.toStringAsFixed(0)}%',
-        Colors.teal,
       ),
       _WTile(
         '🌬',
         _ts({'en': 'Wind', 'si': 'සුළං', 'ta': 'காற்று'}),
         '${w.windSpeedKmh.toStringAsFixed(1)} km/h',
-        Colors.blueGrey,
       ),
       _WTile(
         '⚡',
         _ts({'en': 'Solar', 'si': 'සූර්ය', 'ta': 'சூரிய'}),
         '${w.solarRadMj.toStringAsFixed(1)} MJ',
-        Colors.amber,
       ),
     ];
     // Tile HEIGHT is fixed (mainAxisExtent), not derived from tile width.
@@ -3018,9 +3002,9 @@ class _YieldScreenState extends State<YieldScreen> {
             return Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
               decoration: BoxDecoration(
-                color: t.color.withValues(alpha: 0.07),
+                color: AppTheme.surfaceMuted,
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: t.color.withValues(alpha: 0.2)),
+                border: Border.all(color: AppTheme.border),
               ),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -3031,19 +3015,19 @@ class _YieldScreenState extends State<YieldScreen> {
                     t.value,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
-                      color: t.color,
+                      color: AppTheme.textPrimary,
                     ),
                   ),
                   Text(
                     t.label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 9,
-                      color: t.color.withValues(alpha: 0.8),
+                      color: AppTheme.textSecondary,
                     ),
                   ),
                 ],
@@ -3093,7 +3077,7 @@ class _YieldScreenState extends State<YieldScreen> {
       decoration: BoxDecoration(
         color: AppTheme.surfaceCard,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE0EBE0)),
+        border: Border.all(color: AppTheme.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3107,7 +3091,7 @@ class _YieldScreenState extends State<YieldScreen> {
                 top: Radius.circular(12),
               ),
               border: const Border(
-                bottom: BorderSide(color: Color(0xFFE0EBE0)),
+                bottom: BorderSide(color: AppTheme.border),
               ),
             ),
             child: Row(
@@ -3163,7 +3147,7 @@ class _YieldScreenState extends State<YieldScreen> {
                         value: rec.soilPh.toStringAsFixed(1),
                         unit: 'pH',
                         icon: Icons.science,
-                        color: Colors.purple,
+                        color: AppTheme.primary,
                         note: _t(rec.phNote),
                       ),
                     ),
@@ -3178,7 +3162,7 @@ class _YieldScreenState extends State<YieldScreen> {
                         value: rec.soilMoisturePct.toStringAsFixed(0),
                         unit: '%',
                         icon: Icons.water_drop_outlined,
-                        color: Colors.cyan,
+                        color: AppTheme.primary,
                         note: _t(rec.moistureNote),
                       ),
                     ),
@@ -3189,7 +3173,7 @@ class _YieldScreenState extends State<YieldScreen> {
                 const SizedBox(height: 12),
                 _collapsibleSection(
                   icon: Icons.grass,
-                  color: const Color(0xFF2E7D32),
+                  color: AppTheme.success,
                   title: _ts({
                     'en': 'Fertilizer Mixing Guide',
                     'si': 'පොහොර මිශ්‍රණ මාර්ගෝපදේශය',
@@ -3207,7 +3191,7 @@ class _YieldScreenState extends State<YieldScreen> {
                 const SizedBox(height: 10),
                 _collapsibleSection(
                   icon: Icons.bug_report,
-                  color: const Color(0xFFC62828),
+                  color: AppTheme.error,
                   title: _ts({
                     'en': 'Pesticide & Spray Guide',
                     'si': 'පළිබෝධනාශක ස්ප්‍රේ මාර්ගෝපදේශය',
@@ -3520,7 +3504,7 @@ class _YieldScreenState extends State<YieldScreen> {
   Widget _npkBar(_SoilRec rec) => Container(
     padding: const EdgeInsets.all(12),
     decoration: BoxDecoration(
-      color: const Color(0xFFF4F9F4),
+      color: AppTheme.surfaceMuted,
       borderRadius: BorderRadius.circular(10),
       border: Border.all(color: const Color(0xFFCCE3CC)),
     ),
@@ -3548,7 +3532,7 @@ class _YieldScreenState extends State<YieldScreen> {
               child: _npkTile(
                 'N',
                 rec.nIndex,
-                Colors.indigo,
+                AppTheme.primary,
                 _ts({'en': 'Nitrogen', 'si': 'නයිට්‍රජන්', 'ta': 'நைட்ரஜன்'}),
               ),
             ),
@@ -3557,7 +3541,7 @@ class _YieldScreenState extends State<YieldScreen> {
               child: _npkTile(
                 'P',
                 rec.pIndex,
-                Colors.deepOrange,
+                AppTheme.primary,
                 _ts({'en': 'Phosphorus', 'si': 'පොස්පරස්', 'ta': 'பாஸ்பரஸ்'}),
               ),
             ),
@@ -3566,7 +3550,7 @@ class _YieldScreenState extends State<YieldScreen> {
               child: _npkTile(
                 'K',
                 rec.kIndex,
-                Colors.amber,
+                AppTheme.primary,
                 _ts({
                   'en': 'Potassium',
                   'si': 'පොටෑසියම්',
@@ -3662,7 +3646,7 @@ class _YieldScreenState extends State<YieldScreen> {
         backgroundColor: _canPredict
             ? AppTheme.primaryDark
             : Colors.grey.shade400,
-        foregroundColor: Colors.white,
+        foregroundColor: AppTheme.onPrimary,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     ),
@@ -4022,7 +4006,7 @@ class _YieldScreenState extends State<YieldScreen> {
           decoration: BoxDecoration(
             color: AppTheme.surfaceCard,
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: const Color(0xFFE0EBE0)),
+            border: Border.all(color: AppTheme.border),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -4152,7 +4136,7 @@ class _YieldScreenState extends State<YieldScreen> {
   Widget _emptyResultPlaceholder() => Container(
     padding: const EdgeInsets.all(24),
     decoration: BoxDecoration(
-      color: const Color(0xFFF1F7F1),
+      color: AppTheme.background,
       borderRadius: BorderRadius.circular(12),
       border: Border.all(color: const Color(0xFFD0E8C8)),
     ),
@@ -4194,18 +4178,18 @@ class _YieldScreenState extends State<YieldScreen> {
   Widget _errorCard() => Container(
     padding: const EdgeInsets.all(12),
     decoration: BoxDecoration(
-      color: Colors.red.withValues(alpha: 0.08),
+      color: AppTheme.error.withValues(alpha: 0.08),
       borderRadius: BorderRadius.circular(10),
-      border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+      border: Border.all(color: AppTheme.error.withValues(alpha: 0.3)),
     ),
     child: Row(
       children: [
-        const Icon(Icons.error_outline, color: Colors.red, size: 20),
+        const Icon(Icons.error_outline, color: AppTheme.error, size: 20),
         const SizedBox(width: 10),
         Expanded(
           child: Text(
             _errorMessage!,
-            style: const TextStyle(color: Colors.red, fontSize: 13),
+            style: const TextStyle(color: AppTheme.error, fontSize: 13),
           ),
         ),
       ],
@@ -4229,7 +4213,7 @@ class _YieldScreenState extends State<YieldScreen> {
     decoration: BoxDecoration(
       color: AppTheme.surfaceCard,
       borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: const Color(0xFFE0EBE0)),
+      border: Border.all(color: AppTheme.border),
     ),
     child: child,
   );
@@ -4281,7 +4265,6 @@ class _YieldScreenState extends State<YieldScreen> {
     double min,
     double max,
     String unit,
-    Color color,
     ValueChanged<double> onChanged,
   ) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 4),
@@ -4303,7 +4286,7 @@ class _YieldScreenState extends State<YieldScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.1),
+                color: AppTheme.primary.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
@@ -4311,7 +4294,7 @@ class _YieldScreenState extends State<YieldScreen> {
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.bold,
-                  color: color,
+                  color: AppTheme.primary,
                 ),
               ),
             ),
@@ -4319,10 +4302,10 @@ class _YieldScreenState extends State<YieldScreen> {
         ),
         SliderTheme(
           data: SliderTheme.of(context).copyWith(
-            activeTrackColor: color,
-            thumbColor: color,
-            overlayColor: color.withValues(alpha: 0.12),
-            inactiveTrackColor: color.withValues(alpha: 0.15),
+            activeTrackColor: AppTheme.primary,
+            thumbColor: AppTheme.primary,
+            overlayColor: AppTheme.primary.withValues(alpha: 0.12),
+            inactiveTrackColor: AppTheme.primary.withValues(alpha: 0.15),
             trackHeight: 2.5,
           ),
           child: Slider(value: value, min: min, max: max, onChanged: onChanged),
@@ -4430,7 +4413,7 @@ class _YieldScreenState extends State<YieldScreen> {
                 vertical: 10,
               ),
               filled: !enabled,
-              fillColor: enabled ? null : Colors.grey.withValues(alpha: 0.04),
+              fillColor: enabled ? null : AppTheme.disabledSurface,
             ),
           ),
           optionsViewBuilder: (ctx, onSelected, options) => Align(
@@ -4531,6 +4514,5 @@ class _YieldScreenState extends State<YieldScreen> {
 // ─────────────────────────────────────────────────────────────────────────────
 class _WTile {
   final String emoji, label, value;
-  final Color color;
-  const _WTile(this.emoji, this.label, this.value, this.color);
+  const _WTile(this.emoji, this.label, this.value);
 }

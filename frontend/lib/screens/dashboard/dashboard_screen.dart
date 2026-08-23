@@ -37,8 +37,10 @@ import 'package:http/http.dart' as http;
 import '../../app_lang.dart';
 import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
+import '../../widgets/language_control.dart';
 import '../../widgets/profile_avatar_button.dart';
 import '../../widgets/skeleton_loading.dart';
+import '../../widgets/theme_toggle_button.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Season helpers
@@ -616,139 +618,6 @@ List<_Tip> _tipsForSeason(String season) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Action button data
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _ActionBtn {
-  final Map<String, String> title;
-  final Map<String, String> sub;
-  final Color bg;
-  final Color border;
-  final Color titleColor;
-  final Color subColor;
-  final int navIndex;
-  final String iconKey;
-
-  const _ActionBtn({
-    required this.title,
-    required this.sub,
-    required this.bg,
-    required this.border,
-    required this.titleColor,
-    required this.subColor,
-    required this.navIndex,
-    required this.iconKey,
-  });
-}
-
-const _kActions = <_ActionBtn>[
-  _ActionBtn(
-    title: {
-      'en': 'Which crop should I plant?',
-      'si': 'කුමන භෝගය රොපනු කරන්නද?',
-      'ta': 'எந்த பயிர் நடவு செய்வது?',
-    },
-    sub: {
-      'en': 'Crop recommendation',
-      'si': 'භෝග නිර්දේශය',
-      'ta': 'பயிர் பரிந்துரை',
-    },
-    bg: Color(0xFFF3E5F5),
-    border: Color(0xFFCE93D8),
-    titleColor: Color(0xFF6A1B9A),
-    subColor: Color(0xFF7B1FA2),
-    navIndex: 4,
-    iconKey: 'crop',
-  ),
-  _ActionBtn(
-    title: {
-      'en': 'How much will I harvest?',
-      'si': 'මම කොච්චර අස්වනු ගන්නවාද?',
-      'ta': 'நான் எவ்வளவு அறுவடை செய்வேன்?',
-    },
-    sub: {
-      'en': 'Yield prediction',
-      'si': 'අස්වැන්න පුරෝකථනය',
-      'ta': 'விளைச்சல் கணிப்பு',
-    },
-    bg: Color(0xFFE8F5E9),
-    border: Color(0xFFA5D6A7),
-    titleColor: Color(0xFF1B5E20),
-    subColor: Color(0xFF2E7D32),
-    navIndex: 1,
-    iconKey: 'yield',
-  ),
-  _ActionBtn(
-    title: {
-      'en': 'Will it rain this week?',
-      'si': 'මේ සතියෙ වැස්ස එනවාද?',
-      'ta': 'இந்த வாரம் மழை வருமா?',
-    },
-    sub: {
-      'en': 'Weather forecast',
-      'si': 'කාලගුණ අනාවැකිය',
-      'ta': 'வானிலை முன்னறிவிப்பு',
-    },
-    bg: Color(0xFFE3F2FD),
-    border: Color(0xFF90CAF9),
-    titleColor: Color(0xFF1565C0),
-    subColor: Color(0xFF1976D2),
-    navIndex: 3,
-    iconKey: 'weather',
-  ),
-  _ActionBtn(
-    title: {
-      'en': 'What price will I get?',
-      'si': 'මිල කොච්චරද?',
-      'ta': 'என்ன விலை கிடைக்கும்?',
-    },
-    sub: {'en': 'Price prediction', 'si': 'මිල පුරෝකථනය', 'ta': 'விலை கணிப்பு'},
-    bg: Color(0xFFFFF8E1),
-    border: Color(0xFFFFE082),
-    titleColor: Color(0xFFE65100),
-    subColor: Color(0xFFF57F17),
-    navIndex: 2,
-    iconKey: 'price',
-  ),
-  _ActionBtn(
-    title: {
-      'en': 'Is there demand for my crop?',
-      'si': 'ඉල්ලුම කොච්චරද?',
-      'ta': 'தேவை உள்ளதா?',
-    },
-    sub: {
-      'en': 'Market demand',
-      'si': 'ඉල්ලුම් අනාවැකිය',
-      'ta': 'தேவை கணிப்பு',
-    },
-    bg: Color(0xFFE8EAF6),
-    border: Color(0xFF9FA8DA),
-    titleColor: Color(0xFF283593),
-    subColor: Color(0xFF3949AB),
-    navIndex: 5,
-    iconKey: 'demand',
-  ),
-  _ActionBtn(
-    title: {
-      'en': 'I have a question',
-      'si': 'මට ප්‍රශ්නයක් තිබේ',
-      'ta': 'எனக்கு ஒரு கேள்வி',
-    },
-    sub: {
-      'en': 'Ask AI assistant',
-      'si': 'AI සහකාරගෙන් අහන්න',
-      'ta': 'AI உதவியாளர்',
-    },
-    bg: Color(0xFFE0F2F1),
-    border: Color(0xFF80CBC4),
-    titleColor: Color(0xFF004D40),
-    subColor: Color(0xFF00695C),
-    navIndex: 6,
-    iconKey: 'ai',
-  ),
-];
-
-// ─────────────────────────────────────────────────────────────────────────────
 //  Chat chips
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1201,11 +1070,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     final bool isSmall = width < 340;
     final bool isLarge = width >= 420;
     final double hPad = isSmall ? 10 : (isLarge ? 16 : 14);
-    final double iconSize = isSmall ? 22 : (isLarge ? 28 : 26);
-    // 3 columns once a phone is genuinely wide enough (phablets, small
-    // tablets caught by this branch in landscape) so cards don't stretch
-    // into wasted white space; otherwise the usual 2-column grid.
-    final int gridColumns = width >= 520 ? 3 : 2;
 
     return Column(
       children: [
@@ -1227,19 +1091,6 @@ class _DashboardScreenState extends State<DashboardScreen>
                 _buildQuickStats(compact: true),
                 const SizedBox(height: 10),
                 _buildTipCard(tip, tips, season, compact: true),
-                const SizedBox(height: 12),
-                _sectionLabel(
-                  _t({
-                    'en': 'What do you need today?',
-                    'si': 'ඔබට අද මොකද ඕනෙ?',
-                    'ta': 'உங்களுக்கு என்ன தேவை?',
-                  }),
-                ),
-                const SizedBox(height: 8),
-                _buildActionGrid(
-                  crossAxisCount: gridColumns,
-                  iconSize: iconSize,
-                ),
                 const SizedBox(height: 14),
                 _buildChatBox(),
               ],
@@ -1291,7 +1142,6 @@ class _DashboardScreenState extends State<DashboardScreen>
   ) {
     final double hPad = width < 640 ? 16.0 : 20.0;
     const double gap = 13.0;
-    const int gridCols = 2;
 
     return Column(
       children: [
@@ -1299,20 +1149,6 @@ class _DashboardScreenState extends State<DashboardScreen>
         Expanded(
           child: LayoutBuilder(
             builder: (ctx, bc) {
-              final contentW = bc.maxWidth - hPad * 2;
-              final rows = (_kActions.length / gridCols).ceil();
-              const aboveGridEstimate = 420.0;
-              final availH = (bc.maxHeight - 32 - aboveGridEstimate).clamp(
-                200.0,
-                800.0,
-              );
-              final cardH = ((availH - (rows - 1) * gap) / rows).clamp(
-                120.0,
-                200.0,
-              );
-              final cardW = (contentW - (gridCols - 1) * gap) / gridCols;
-              final ratio = (cardW / cardH).clamp(0.75, 1.6);
-
               return SingleChildScrollView(
                 padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 16),
                 child: ConstrainedBox(
@@ -1328,20 +1164,6 @@ class _DashboardScreenState extends State<DashboardScreen>
                       const SizedBox(height: gap),
                       _buildTipCard(tip, tips, season, compact: false),
                       const SizedBox(height: gap + 4),
-                      _sectionLabel(
-                        _t({
-                          'en': 'What do you need today?',
-                          'si': 'ඔබට අද මොකද ඕනෙ?',
-                          'ta': 'உங்களுக்கு என்ன தேவை?',
-                        }),
-                      ),
-                      const SizedBox(height: 10),
-                      _buildActionGrid(
-                        crossAxisCount: gridCols,
-                        iconSize: 27,
-                        aspectRatio: ratio,
-                      ),
-                      const SizedBox(height: gap + 4),
                       _buildChatBox(),
                     ],
                   ),
@@ -1354,9 +1176,10 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
-  // Wider portrait tablets (~700–1024dp): info rail + action grid, split
-  // like the web layout so full device width is actually used — this is
-  // what removes the centered-column-with-side-whitespace look.
+  // Wider portrait tablets (~700–1024dp): now that the action grid is gone,
+  // a two-pane split would leave a bare right-hand pane — so this reflows
+  // to a single, centred column (info rail content + chat) instead, capped
+  // to a comfortable reading width rather than stretched edge-to-edge.
   Widget _buildTabletSplit(
     BuildContext context,
     String name,
@@ -1365,111 +1188,45 @@ class _DashboardScreenState extends State<DashboardScreen>
     _Tip tip,
     double width,
   ) {
-    final bool isLarge = width >= 800; // Tab 10.1 / iPad Pro 11" territory
-    final int gridCols = isLarge ? 3 : 2;
-    final double iconSize = isLarge ? 30 : 28;
+    const double gap = 14.0;
 
     return Column(
       children: [
         _buildTopBar(context),
         Expanded(
-          child: LayoutBuilder(
-            builder: (ctx, bc) {
-              final leftW = (bc.maxWidth * (isLarge ? 0.34 : 0.42)).clamp(
-                260.0,
-                340.0,
-              );
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  SizedBox(
-                    width: leftW,
-                    child: ListView(
-                      padding: const EdgeInsets.fromLTRB(16, 16, 10, 24),
-                      children: [
-                        _buildGreetingLine(name, season),
-                        const SizedBox(height: 12),
-                        _buildWeatherCard(compact: false),
-                        const SizedBox(height: 12),
-                        _buildQuickStats(compact: false),
-                        const SizedBox(height: 12),
-                        _buildTipCard(tip, tips, season, compact: false),
-                      ],
-                    ),
+          child: SingleChildScrollView(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 560),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+                  child: Column(
+                    children: [
+                      _buildGreetingLine(name, season),
+                      const SizedBox(height: gap),
+                      _buildWeatherCard(compact: false),
+                      const SizedBox(height: gap),
+                      _buildQuickStats(compact: false),
+                      const SizedBox(height: gap),
+                      _buildTipCard(tip, tips, season, compact: false),
+                      const SizedBox(height: gap),
+                      _buildChatBox(),
+                    ],
                   ),
-                  Container(width: 1, color: const Color(0xFFE4EEE4)),
-                  Expanded(
-                    child: _buildRightPane(
-                      gridCols: gridCols,
-                      iconSize: iconSize,
-                      includeChat: true,
-                    ),
-                  ),
-                ],
-              );
-            },
+                ),
+              ),
+            ),
           ),
         ),
       ],
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  //  Right-hand action pane (tablet-split + web layouts).
-  //  Top-anchored, not vertically centered: the section label sits flush
-  //  under the top bar (in line with the greeting on the left rail), and
-  //  the grid is measured via its own LayoutBuilder to fill exactly the
-  //  height/width it's given — no guessed offsets, no leftover blank
-  //  strip on the right or a big empty gap above the cards.
-  // ─────────────────────────────────────────────────────────────────────────
-  Widget _buildRightPane({
-    required int gridCols,
-    required double iconSize,
-    required bool includeChat,
-  }) {
-    const double pad = 16;
-    const double spacing = 14;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(pad, 16, pad, 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _sectionLabel(
-            _t({
-              'en': 'What do you need today?',
-              'si': 'ඔබට අද මොකද ඕනෙ?',
-              'ta': 'உங்களுக்கு என்ன தேவை?',
-            }),
-          ),
-          const SizedBox(height: spacing),
-          Expanded(
-            child: LayoutBuilder(
-              builder: (ctx, bc) {
-                final rows = (_kActions.length / gridCols).ceil();
-                final cardW =
-                    (bc.maxWidth - (gridCols - 1) * spacing) / gridCols;
-                final cardH = (bc.maxHeight - (rows - 1) * spacing) / rows;
-                final ratio = (cardW / cardH).clamp(0.6, 1.9);
-                return _buildActionGrid(
-                  crossAxisCount: gridCols,
-                  iconSize: iconSize,
-                  aspectRatio: ratio,
-                  scrollable: false,
-                  spacing: spacing,
-                );
-              },
-            ),
-          ),
-          if (includeChat) ...[
-            const SizedBox(height: spacing),
-            _buildChatBox(),
-          ],
-        ],
-      ),
-    );
-  }
-
   // ── WEB ───────────────────────────────────────────────────────────────────
+  // Now that the action grid (the old right pane's only content) is gone,
+  // this reflows to a single centred column instead of a two-pane split —
+  // capped to a comfortable reading width so it doesn't stretch thin and
+  // wide on desktop monitors.
   Widget _buildWeb(
     BuildContext context,
     String name,
@@ -1482,52 +1239,28 @@ class _DashboardScreenState extends State<DashboardScreen>
       children: [
         _buildTopBar(context),
         Expanded(
-          child: LayoutBuilder(
-            builder: (ctx, bc) {
-              // Cap the whole working area on ultra-wide desktop monitors
-              // (e.g. 1800px+) and centre it, instead of letting the
-              // two-pane row stretch edge-to-edge into a thin, hard-to-scan
-              // strip flanked by huge margins of empty space.
-              final maxContentW = bc.maxWidth.clamp(0.0, 1400.0);
-              final outerPad = ((bc.maxWidth - maxContentW) / 2).clamp(
-                0.0,
-                double.infinity,
-              );
-              final leftW = (maxContentW * 0.36).clamp(300.0, 460.0);
-              return Padding(
-                padding: EdgeInsets.symmetric(horizontal: outerPad),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    SizedBox(
-                      width: leftW,
-                      child: ListView(
-                        padding: const EdgeInsets.fromLTRB(20, 16, 12, 28),
-                        children: [
-                          _buildGreetingLine(name, season),
-                          const SizedBox(height: 12),
-                          _buildWeatherCard(compact: false),
-                          const SizedBox(height: 12),
-                          _buildQuickStats(compact: false),
-                          const SizedBox(height: 12),
-                          _buildTipCard(tip, tips, season, compact: false),
-                          const SizedBox(height: 12),
-                          _buildChatBox(),
-                        ],
-                      ),
-                    ),
-                    Container(width: 1, color: const Color(0xFFE4EEE4)),
-                    Expanded(
-                      child: _buildRightPane(
-                        gridCols: (maxContentW - leftW) < 640 ? 2 : 3,
-                        iconSize: (maxContentW - leftW) < 640 ? 30 : 32,
-                        includeChat: false,
-                      ),
-                    ),
-                  ],
+          child: SingleChildScrollView(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 640),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+                  child: Column(
+                    children: [
+                      _buildGreetingLine(name, season),
+                      const SizedBox(height: 12),
+                      _buildWeatherCard(compact: false),
+                      const SizedBox(height: 12),
+                      _buildQuickStats(compact: false),
+                      const SizedBox(height: 12),
+                      _buildTipCard(tip, tips, season, compact: false),
+                      const SizedBox(height: 12),
+                      _buildChatBox(),
+                    ],
+                  ),
                 ),
-              );
-            },
+              ),
+            ),
           ),
         ),
       ],
@@ -1575,8 +1308,10 @@ class _DashboardScreenState extends State<DashboardScreen>
           // tablet/web so mobile doesn't lose the entry point entirely.
           _buildSavedBadge(),
           const SizedBox(width: 8),
-          _LangPill(onDark: false),
-          const SizedBox(width: 10),
+          const LanguageControl(),
+          const SizedBox(width: 8),
+          const ThemeToggleButton(),
+          const SizedBox(width: 8),
           const ProfileAvatarButton(diameter: 32),
         ],
       ),
@@ -1717,9 +1452,10 @@ class _DashboardScreenState extends State<DashboardScreen>
           // Saved tips badge
           _buildSavedBadge(),
           const SizedBox(width: 8),
-          // Language pill
-          _LangPill(onDark: false),
-          const SizedBox(width: 10),
+          const LanguageControl(),
+          const SizedBox(width: 8),
+          const ThemeToggleButton(),
+          const SizedBox(width: 8),
           const ProfileAvatarButton(),
         ],
       ),
@@ -2450,61 +2186,6 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  //  Section label
-  // ─────────────────────────────────────────────────────────────────────────
-  Widget _sectionLabel(String text) => Row(
-    children: [
-      const Icon(Icons.touch_app_rounded, size: 17, color: Color(0xFF4CAF50)),
-      const SizedBox(width: 6),
-      AnimatedLangText(
-        text,
-        style: const TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w800,
-          color: Color(0xFF1B4D1B),
-        ),
-      ),
-    ],
-  );
-
-  // ─────────────────────────────────────────────────────────────────────────
-  //  Action grid
-  // ─────────────────────────────────────────────────────────────────────────
-  Widget _buildActionGrid({
-    required int crossAxisCount,
-    required double iconSize,
-    double? aspectRatio,
-    bool scrollable = true,
-    double spacing = 10,
-  }) {
-    final ratio = aspectRatio ?? (crossAxisCount == 2 ? 0.95 : 1.0);
-    return GridView.builder(
-      shrinkWrap: scrollable,
-      physics: scrollable
-          ? const NeverScrollableScrollPhysics()
-          : const ClampingScrollPhysics(),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: crossAxisCount,
-        crossAxisSpacing: spacing,
-        mainAxisSpacing: spacing,
-        childAspectRatio: ratio,
-      ),
-      itemCount: _kActions.length,
-      itemBuilder: (_, i) {
-        final navigate = widget.onNavigate;
-        return _ActionCard(
-          data: _kActions[i],
-          langKey: _langKey,
-          iconSize: iconSize,
-          onTap: navigate == null
-              ? () {}
-              : () => navigate(_kActions[i].navIndex),
-        );
-      },
-    );
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
   //  AI Chat box
   // ─────────────────────────────────────────────────────────────────────────
   Widget _buildChatBox() {
@@ -2582,153 +2263,6 @@ class _DashboardScreenState extends State<DashboardScreen>
             );
           }),
         ],
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  Language pill
-// ─────────────────────────────────────────────────────────────────────────────
-class _LangPill extends StatelessWidget {
-  final bool onDark;
-  const _LangPill({required this.onDark});
-
-  @override
-  Widget build(BuildContext context) {
-    final notifier = AppLangProvider.of(context);
-    final current = notifier.lang;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: onDark
-            ? Colors.white.withValues(alpha: 0.12)
-            : const Color(0xFFF0F4F0),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      padding: const EdgeInsets.all(3),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: AppLang.values.map((l) {
-          final active = l == current;
-          return GestureDetector(
-            onTap: () => notifier.setLang(l),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-              decoration: BoxDecoration(
-                color: active
-                    ? (onDark ? Colors.white : const Color(0xFF1B5E20))
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Text(
-                l.label,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: active ? FontWeight.w800 : FontWeight.w500,
-                  color: active
-                      ? (onDark ? const Color(0xFF1B5E20) : Colors.white)
-                      : (onDark
-                            ? Colors.white.withValues(alpha: 0.55)
-                            : const Color(0xFF888888)),
-                ),
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  Action card — neutral white surface + colored icon tile + InkWell ripple
-// ─────────────────────────────────────────────────────────────────────────────
-class _ActionCard extends StatelessWidget {
-  final _ActionBtn data;
-  final String langKey;
-  final double iconSize;
-  final VoidCallback onTap;
-
-  const _ActionCard({
-    required this.data,
-    required this.langKey,
-    required this.iconSize,
-    required this.onTap,
-  });
-
-  String _t(Map<String, String> map) => map[langKey] ?? map['en']!;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: onTap,
-        child: Ink(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: data.border.withValues(alpha: 0.85),
-              width: 1.4,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: data.border.withValues(alpha: 0.12),
-                blurRadius: 5,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Container(
-                width: iconSize + 14,
-                height: iconSize + 14,
-                decoration: BoxDecoration(
-                  color: data.border,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Center(
-                  child: SvgPicture.string(
-                    _DashIcons.forKey(data.iconKey),
-                    width: iconSize,
-                    height: iconSize,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _t(data.title),
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 14.5,
-                  fontWeight: FontWeight.w800,
-                  color: data.titleColor,
-                  height: 1.3,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 3),
-              Text(
-                _t(data.sub),
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: data.subColor,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

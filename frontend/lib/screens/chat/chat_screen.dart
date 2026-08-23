@@ -20,9 +20,11 @@ import '../../services/profile_service.dart';
 import '../../models/api_models.dart';
 import '../../models/chat_history_models.dart';
 import '../../widgets/app_theme.dart';
+import '../../widgets/language_control.dart';
 import '../../widgets/profile_avatar_button.dart';
 import '../../widgets/growth_logo.dart';
 import '../../widgets/skeleton_loading.dart';
+import '../../widgets/theme_toggle_button.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
@@ -1379,6 +1381,13 @@ class _ChatScreenState extends State<ChatScreen> {
               onPressed: _startNewChat,
             ),
           const SizedBox(width: 4),
+          // Chat's top bar is the one screen that never had a language
+          // switcher — added here too for a consistent cluster across all
+          // 7 screens. White icon to read against this bar's dark gradient.
+          const LanguageControl(),
+          const SizedBox(width: 8),
+          const ThemeToggleButton(color: Colors.white),
+          const SizedBox(width: 8),
           const ProfileAvatarButton(diameter: 32),
         ],
       ),

@@ -31,8 +31,10 @@ import '../../models/api_models.dart';
 import '../../services/service_factory.dart';
 import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
+import '../../widgets/language_control.dart';
 import '../../widgets/profile_avatar_button.dart';
 import '../../widgets/skeleton_loading.dart';
+import '../../widgets/theme_toggle_button.dart';
 
 typedef _L = Map<String, String>;
 
@@ -1245,8 +1247,10 @@ class _RecommendScreenState extends State<RecommendScreen> {
                 ),
               if (isMobile) const Spacer(),
               const SizedBox(width: 8),
-              const _LangPill(),
-              const SizedBox(width: 10),
+              const LanguageControl(),
+              const SizedBox(width: 8),
+              const ThemeToggleButton(),
+              const SizedBox(width: 8),
               const ProfileAvatarButton(diameter: 32),
             ],
           );
@@ -2648,46 +2652,3 @@ class _RecommendScreenState extends State<RecommendScreen> {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Language pill (matches Dashboard / Yield screens)
-// ─────────────────────────────────────────────────────────────────────────────
-class _LangPill extends StatelessWidget {
-  const _LangPill();
-  @override
-  Widget build(BuildContext context) {
-    final notifier = AppLangProvider.of(context);
-    final current = notifier.lang;
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFFF0F4F0),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      padding: const EdgeInsets.all(3),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: AppLang.values.map((l) {
-          final active = l == current;
-          return GestureDetector(
-            onTap: () => notifier.setLang(l),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-              decoration: BoxDecoration(
-                color: active ? const Color(0xFF1B5E20) : Colors.transparent,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Text(
-                l.label,
-                style: TextStyle(
-                  fontSize: 9.5,
-                  fontWeight: active ? FontWeight.w800 : FontWeight.w500,
-                  color: active ? Colors.white : const Color(0xFF888888),
-                ),
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
-}

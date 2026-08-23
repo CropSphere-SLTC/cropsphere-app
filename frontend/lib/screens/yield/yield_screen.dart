@@ -1985,7 +1985,7 @@ class _YieldScreenState extends State<YieldScreen> {
   /// suggestions: these are a primary call to action on the result card, not
   /// a trailing hint under an answer.
   ButtonStyle get _askAiButtonStyle => ElevatedButton.styleFrom(
-    backgroundColor: const Color(0xFF1B5E20),
+    backgroundColor: AppTheme.primary,
     foregroundColor: Colors.white,
     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -2043,15 +2043,7 @@ class _YieldScreenState extends State<YieldScreen> {
         ? ['මුල', 'අස්වැන්න', 'මිල', 'කාලගුණ', 'භෝග', 'ඉල්ලුම', 'AI']
         : lang == AppLang.ta
         ? ['முகப்பு', 'விளைச்சல்', 'விலை', 'வானிலை', 'பயிர்', 'தேவை', 'AI']
-        : [
-            'Home',
-            'Yield',
-            'Price',
-            'Weather',
-            'Crop',
-            'Demand',
-            'Chat',
-          ];
+        : ['Home', 'Yield', 'Price', 'Weather', 'Crop', 'Demand', 'Chat'];
 
     const activeBg = Color(0xFFE8F5E9);
     const activeColor = Color(0xFF2E7D32);
@@ -2099,10 +2091,7 @@ class _YieldScreenState extends State<YieldScreen> {
               ),
             ),
           ),
-          LanguageControl(
-              labelSize: m.langLabelSize,
-              height: m.controlHeight,
-            ),
+          LanguageControl(labelSize: m.langLabelSize, height: m.controlHeight),
           SizedBox(width: m.clusterGap),
           ThemeToggleButton(size: m.toggleIconSize, height: m.controlHeight),
           SizedBox(width: m.clusterGap),
@@ -2368,11 +2357,7 @@ class _YieldScreenState extends State<YieldScreen> {
   Widget? _fieldCheck(bool done) => done
       ? const Padding(
           padding: EdgeInsets.only(right: 10),
-          child: Icon(
-            Icons.check_circle,
-            size: 19,
-            color: AppTheme.success,
-          ),
+          child: Icon(Icons.check_circle, size: 19, color: AppTheme.success),
         )
       : null;
 

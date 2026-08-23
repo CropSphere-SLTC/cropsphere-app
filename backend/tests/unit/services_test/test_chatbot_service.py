@@ -462,6 +462,196 @@ def test_build_messages_no_context_chunks():
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# prediction_context injection (ChatRequest.prediction_context)
+# ═══════════════════════════════════════════════════════════════════════════
+
+_EMPTY_CONTEXT = {"chunks": [], "sources": [], "score": 0.0}
+
+_FULL_PREDICTION = {
+    "crop": "Carrot",
+    "district": "Badulla",
+    "season": "Maha",
+    "irrigation": "drip",
+    "area_perches": 160.0,
+    "area_hectares": 0.4047,
+    "predicted_yield_kg_per_ha": 19612.0,
+    "average_yield_kg_per_ha": 19961.0,
+    "confidence": "high",
+    "weather": {
+        "rainfall_mm": 45.0,
+        "temp_min_c": 12.0,
+        "temp_max_c": 22.0,
+        "humidity_pct": 78.0,
+        "wind_speed_kmh": 12.0,
+        "solar_radiation_mj": 16.0,
+    },
+}
+
+
+def _prediction_msgs(**overrides):
+    """_build_messages output for a request carrying a full prediction."""
+    req = _make_request(prediction_context={**_FULL_PREDICTION, **overrides})
+    return cs._build_messages("system", _EMPTY_CONTEXT, req, "Explain this prediction")
+
+
+def test_prediction_context_defaults_to_none():
+    assert _make_request().prediction_context is None
+
+
+def test_build_messages_without_prediction_context_is_unchanged():
+    """The additive field must not perturb existing requests at all."""
+    req = _make_request()
+    baseline = cs._build_messages("system", _EMPTY_CONTEXT, req, "hi")
+    assert not any("yield prediction CropSphere just" in m["content"] for m in baseline)
+
+    # Explicitly-null prediction_context produces the identical message list.
+    req_null = _make_request(prediction_context=None)
+    assert cs._build_messages("system", _EMPTY_CONTEXT, req_null, "hi") == baseline
+
+
+def test_build_messages_injects_prediction_context():
+    msgs = _prediction_msgs()
+    block = [m for m in msgs if "yield prediction CropSphere just" in m["content"]]
+    assert len(block) == 1
+    body = block[0]["content"]
+    assert block[0]["role"] == "system"
+    assert "Carrot" in body and "Badulla" in body and "Maha" in body
+    assert "drip" in body
+    assert "19,612 kg/ha" in body
+    assert "19,961 kg/ha" in body
+    assert "160 perches" in body
+    assert "Model confidence: high" in body
+    assert "rainfall 45 mm" in body and "humidity 78%" in body
+
+
+def test_prediction_context_states_the_gap():
+    """The model is told not to calculate, so the delta is spelled out."""
+    body = next(
+        m["content"] for m in _prediction_msgs() if "Difference:" in m["content"]
+    )
+    assert "2% below the average" in body
+
+
+def test_prediction_context_gap_above_average():
+    body = next(
+        m["content"]
+        for m in _prediction_msgs(predicted_yield_kg_per_ha=25000.0)
+        if "Difference:" in m["content"]
+    )
+    assert "25% above the average" in body
+
+
+def test_build_messages_ordering_preserved_with_prediction_context():
+    """Prediction context slots between RAG chunks and the formatting rules;
+    everything downstream keeps its existing relative order."""
+    history = [ConversationTurn(role="user", content="earlier turn")]
+    req = _make_request(
+        conversation_history=history, prediction_context=_FULL_PREDICTION
+    )
+    context = {
+        "chunks": [{"text": "carrot data", "source": "src", "score": 0.9}],
+        "sources": ["src"],
+        "score": 0.9,
+    }
+    msgs = cs._build_messages("system prompt", context, req, "Explain this prediction")
+
+    def idx(needle):
+        return next(i for i, m in enumerate(msgs) if needle in m["content"])
+
+    system_i = 0
+    rag_i = idx("Relevant context")
+    pred_i = idx("yield prediction CropSphere just")
+    fmt_i = idx(cs._FORMATTING_RULES[:40])
+    hist_i = idx("earlier turn")
+
+    assert system_i < rag_i < pred_i < fmt_i < hist_i
+    # Level instruction still sits between the formatting rules and history.
+    level_i = next(
+        i
+        for i, m in enumerate(msgs)
+        if m["content"] in cs._LEVEL_INSTRUCTIONS.values()
+    )
+    assert fmt_i < level_i < hist_i
+    # The user message is still last, and still only the user's own text.
+    assert msgs[-1] == {"role": "user", "content": "Explain this prediction"}
+
+
+def test_prediction_context_never_touches_the_user_message():
+    """chat_analytics.question is `message[:200]` — the injected context must
+    stay out of it, or the gap report fills up with prompt boilerplate."""
+    msgs = _prediction_msgs()
+    user_msgs = [m for m in msgs if m["role"] == "user"]
+    assert user_msgs == [{"role": "user", "content": "Explain this prediction"}]
+    assert "19,612" not in user_msgs[0]["content"]
+    assert "Carrot" not in user_msgs[0]["content"]
+
+
+def test_format_prediction_context_none_and_empty():
+    from app.models.schemas import PredictionContext
+
+    assert cs._format_prediction_context(None) == ""
+    # A context with nothing set has nothing worth injecting.
+    assert cs._format_prediction_context(PredictionContext()) == ""
+
+
+def test_analytics_logs_only_the_short_user_message_with_prediction_context():
+    """END-TO-END on the analytics record itself, not just _build_messages.
+
+    A starter-chip tap sends a 3-word question with the whole prediction
+    riding along in prediction_context. chat_analytics.question must record
+    ONLY those 3 words — if the injected block ever leaked into it, the gap
+    report and conversation miner would fill with prompt boilerplate instead
+    of real farmer phrasing.
+    """
+    req = _make_request(
+        message="Explain this prediction",
+        prediction_context=_FULL_PREDICTION,
+    )
+    with patch.object(cs, "log_chat_interaction") as logged:
+        cs._run_analytics(
+            req,
+            "Explain this prediction",
+            "answer",
+            "High confidence",
+            {"score": 0.7, "sources": ["src"]},
+            None,
+            120,
+        )
+
+    logged.assert_called_once()
+    data = logged.call_args[0][0]
+    assert data["question"] == "Explain this prediction"
+
+    # Nothing from the prediction block may appear ANYWHERE in the record.
+    blob = repr(data)
+    for leak in (
+        "19,612",
+        "19612",
+        "19,961",
+        "District average yield",
+        "yield prediction CropSphere just",
+        "Model confidence: high",
+        "rainfall 45 mm",
+    ):
+        assert leak not in blob, f"prediction context leaked into analytics: {leak}"
+
+
+def test_format_prediction_context_partial_fields():
+    """The client sends whatever the prediction produced; missing pieces are
+    simply omitted rather than rendered as blanks."""
+    from app.models.schemas import PredictionContext
+
+    body = cs._format_prediction_context(
+        PredictionContext(crop="Maize", predicted_yield_kg_per_ha=8000.0)
+    )
+    assert "Maize" in body
+    assert "8,000 kg/ha" in body
+    assert "District:" not in body
+    assert "Difference:" not in body
+    assert "Weather used:" not in body
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # _stream_error_code
 # ═══════════════════════════════════════════════════════════════════════════
 

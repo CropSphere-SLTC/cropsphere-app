@@ -234,6 +234,46 @@ class ConversationTurn(BaseModel):
     content: str = Field(..., max_length=500)
 
 
+class PredictionWeather(BaseModel):
+    """Weather snapshot a yield prediction was run against.
+
+    Bounds mirror YieldPredictRequest's so a figure that could never have
+    produced a real prediction can't be smuggled into the chat prompt.
+    """
+
+    rainfall_mm: Optional[float] = Field(default=None, ge=0, le=500)
+    temp_min_c: Optional[float] = Field(default=None, ge=-5, le=45)
+    temp_max_c: Optional[float] = Field(default=None, ge=0, le=50)
+    humidity_pct: Optional[float] = Field(default=None, ge=0, le=100)
+    wind_speed_kmh: Optional[float] = Field(default=None, ge=0, le=100)
+    solar_radiation_mj: Optional[float] = Field(default=None, ge=0, le=35)
+
+
+class PredictionContext(BaseModel):
+    """A yield prediction the farmer is asking about, attached to a chat
+    message so the LLM can ground its answer in these specific numbers
+    instead of generic dataset figures.
+
+    Every field is optional — the client sends whatever the prediction
+    produced. Crop/district/season/irrigation are ENUMS, not free strings:
+    nothing here is client-authored prose, so this block cannot become a
+    prompt-injection vector the way an arbitrary text field would.
+    """
+
+    crop: Optional[CropEnum] = None
+    district: Optional[DistrictEnum] = None
+    season: Optional[SeasonEnum] = None
+    irrigation: Optional[IrrigationEnum] = None
+    area_perches: Optional[float] = Field(default=None, ge=0, le=200000)
+    area_hectares: Optional[float] = Field(default=None, ge=0, le=500)
+    predicted_yield_kg_per_ha: Optional[float] = Field(
+        default=None, ge=0, le=1000000
+    )
+    average_yield_kg_per_ha: Optional[float] = Field(default=None, ge=0, le=1000000)
+    confidence: Optional[ConfidenceEnum] = None
+    weather: Optional[PredictionWeather] = None
+
+
 class ChatRequest(BaseModel):
     message: str = Field(..., max_length=500)
     conversation_history: List[ConversationTurn] = Field(
@@ -244,6 +284,12 @@ class ChatRequest(BaseModel):
     crop: Optional[CropEnum] = None
     model: str = Field(default="accurate", pattern="^(fast|accurate)$")
     conversation_id: Optional[str] = Field(default=None, max_length=128)
+    # Optional structured yield prediction the farmer is asking about. When
+    # present, _build_messages injects it as an extra system context block
+    # (see chatbot_service._format_prediction_context). It NEVER touches
+    # `message`, so chat_analytics keeps logging only the farmer's own short
+    # question. Absent -> the request behaves exactly as it did before.
+    prediction_context: Optional[PredictionContext] = None
 
 
 class ChatResponse(BaseModel):

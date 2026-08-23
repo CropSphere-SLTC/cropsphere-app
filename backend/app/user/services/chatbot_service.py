@@ -2686,6 +2686,93 @@ def _format_prompt_tuning_injection() -> str:
     )
 
 
+def _format_prediction_context(pc) -> str:
+    """Render a PredictionContext as one plain-text context block for the LLM.
+
+    Inputs: pc (schemas.PredictionContext or None) — the yield prediction the
+    farmer tapped "Ask AI about this" on.
+    Outputs: a system-message body, or "" when there is nothing to say (pc is
+    None, or every field was left unset) so the caller can skip the message
+    entirely.
+
+    Security assumption: every field on PredictionContext is either an enum
+    or a bounded float (see schemas.PredictionContext), so nothing
+    client-authored reaches the prompt as free text. No sanitising is needed
+    here and none is done — if a free-text field is ever added to that model,
+    it must be run through _strip_html before being interpolated below.
+    """
+    if pc is None:
+        return ""
+
+    facts = []
+    if pc.crop:
+        facts.append(f"- Crop: {pc.crop.value}")
+    if pc.district:
+        facts.append(f"- District: {pc.district.value}")
+    if pc.season:
+        facts.append(f"- Season: {pc.season.value}")
+    if pc.irrigation:
+        facts.append(f"- Irrigation: {pc.irrigation.value}")
+    if pc.area_perches is not None:
+        area = f"- Cultivated area: {pc.area_perches:,.0f} perches"
+        if pc.area_hectares is not None:
+            area += f" ({pc.area_hectares:.3f} ha)"
+        facts.append(area)
+    elif pc.area_hectares is not None:
+        facts.append(f"- Cultivated area: {pc.area_hectares:.3f} ha")
+    if pc.predicted_yield_kg_per_ha is not None:
+        facts.append(
+            f"- Predicted yield: {pc.predicted_yield_kg_per_ha:,.0f} kg/ha"
+        )
+    if pc.average_yield_kg_per_ha is not None:
+        facts.append(
+            f"- District average yield: {pc.average_yield_kg_per_ha:,.0f} kg/ha"
+        )
+    # The gap is the single number most questions about a prediction are
+    # really about ("is this good?", "how do I improve it?"), and the model
+    # is instructed elsewhere not to calculate — so state it outright rather
+    # than leaving it to be derived from the two figures above.
+    if (
+        pc.predicted_yield_kg_per_ha is not None
+        and pc.average_yield_kg_per_ha
+    ):
+        delta = (
+            (pc.predicted_yield_kg_per_ha - pc.average_yield_kg_per_ha)
+            / pc.average_yield_kg_per_ha
+            * 100
+        )
+        direction = "above" if delta >= 0 else "below"
+        facts.append(f"- Difference: {abs(delta):.0f}% {direction} the average")
+    if pc.confidence:
+        facts.append(f"- Model confidence: {pc.confidence.value}")
+
+    if pc.weather:
+        w = pc.weather
+        bits = []
+        if w.rainfall_mm is not None:
+            bits.append(f"rainfall {w.rainfall_mm:.0f} mm")
+        if w.temp_min_c is not None and w.temp_max_c is not None:
+            bits.append(f"temperature {w.temp_min_c:.0f}-{w.temp_max_c:.0f} C")
+        if w.humidity_pct is not None:
+            bits.append(f"humidity {w.humidity_pct:.0f}%")
+        if w.wind_speed_kmh is not None:
+            bits.append(f"wind {w.wind_speed_kmh:.0f} km/h")
+        if w.solar_radiation_mj is not None:
+            bits.append(f"solar radiation {w.solar_radiation_mj:.0f} MJ")
+        if bits:
+            facts.append(f"- Weather used: {', '.join(bits)}")
+
+    if not facts:
+        return ""
+
+    return (
+        "The farmer is asking about a yield prediction CropSphere just "
+        "produced for them. Ground your answer in THESE figures — they "
+        "override any general dataset averages you were given above:\n"
+        + "\n".join(facts)
+    )
+
+
 def _build_messages(system: str, context: dict, req: ChatRequest, message: str) -> list:
     """Assemble the Groq message list: system prompt, RAG context, history,
     current message.
@@ -2711,6 +2798,24 @@ def _build_messages(system: str, context: dict, req: ChatRequest, message: str) 
         msgs.append(
             {"role": "system", "content": "Relevant context:\n" + "\n".join(parts)}
         )
+    # Yield-prediction context (optional) — set when the farmer arrived here
+    # from "Ask AI about this" on a prediction result, so the answer must be
+    # about THOSE numbers rather than generic dataset averages.
+    #
+    # Position: immediately after the RAG chunks and before _FORMATTING_RULES.
+    # It belongs with the chunks because it is the same KIND of message —
+    # grounding facts, not instructions — and slotting it there leaves every
+    # existing message in its existing relative order: formatting rules,
+    # knowledge level, few-shot, prompt tuning, all-crops, history and the
+    # user message all still follow one another exactly as before.
+    #
+    # It is a SEPARATE system message and is never merged into `message`.
+    # That is what keeps analytics clean: _run_analytics logs `message[:200]`
+    # as chat_analytics.question, and `message` is the caller's sanitised
+    # user text, which this function does not touch.
+    _prediction = _format_prediction_context(getattr(req, "prediction_context", None))
+    if _prediction:
+        msgs.append({"role": "system", "content": _prediction})
     # Style/formatting rules — separate system message so they stay close to
     # the conversation and don't compete with the safety-critical rules in
     # the core prompt (see _FORMATTING_RULES).

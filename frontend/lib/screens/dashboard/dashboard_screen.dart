@@ -35,12 +35,16 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import '../../app_lang.dart';
+import '../../services/profile_service.dart';
 import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
 import '../../widgets/language_control.dart';
+import '../../widgets/price_comparison_card.dart';
 import '../../widgets/profile_avatar_button.dart';
 import '../../widgets/skeleton_loading.dart';
 import '../../widgets/theme_toggle_button.dart';
+import '../../widgets/todays_recommendation_hero.dart';
+import '../profile/account_settings_screen.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Season helpers
@@ -796,6 +800,13 @@ class _DashboardScreenState extends State<DashboardScreen>
   // ── Saved tips drawer ─────────────────────────────────────────────────────
   bool _drawerOpen = false;
 
+  // ── Farm preferences ──────────────────────────────────────────────────────
+  // Drive the recommendation hero and price comparison. Null until the
+  // preferences fetch resolves, or if the farmer hasn't set them — both
+  // widgets handle null themselves (prompt card / hidden respectively).
+  String? _preferredDistrict;
+  String? _preferredCrop;
+
   @override
   void initState() {
     super.initState();
@@ -807,6 +818,32 @@ class _DashboardScreenState extends State<DashboardScreen>
     _tipCtrl.value = 1.0;
     _startTipTimer();
     _loadWeather();
+    _loadFarmPreferences();
+  }
+
+  /// Farm district/crop for the hero + price comparison. A failure here is
+  /// non-fatal: both widgets fall back to their "not set" presentation, so
+  /// the rest of the dashboard is unaffected.
+  Future<void> _loadFarmPreferences() async {
+    try {
+      final prefs = await ProfileService().getPreferences();
+      if (!mounted) return;
+      setState(() {
+        _preferredDistrict = prefs.preferredDistrict;
+        _preferredCrop = prefs.preferredCrop;
+      });
+    } catch (e) {
+      debugPrint('Failed to load farm preferences: $e');
+    }
+  }
+
+  /// Opens Account Settings, then re-reads preferences on return so the
+  /// hero reflects a change the farmer just saved without a full reload.
+  Future<void> _openFarmSettings() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const AccountSettingsScreen()),
+    );
+    if (mounted) _loadFarmPreferences();
   }
 
   @override
@@ -1053,6 +1090,37 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  //  Personalised block — recommendation hero + price comparison.
+  //  Shared by every breakpoint so the two stay adjacent and in the same
+  //  order everywhere. Each child manages its own loading/empty state: the
+  //  hero always renders something (hero card or "set your details"
+  //  prompt), while the price card collapses to zero height whenever there
+  //  is nothing honest to show — which is why the spacer below is tied to
+  //  the same condition rather than emitted unconditionally.
+  // ─────────────────────────────────────────────────────────────────────────
+  List<Widget> _personalisedSection({double gap = 12}) {
+    final showPrice = _preferredDistrict != null && _preferredCrop != null;
+    return [
+      TodaysRecommendationHero(
+        preferredDistrict: _preferredDistrict,
+        preferredCrop: _preferredCrop,
+        langKey: _langKey,
+        onOpenSettings: _openFarmSettings,
+        onSeeFull: () => widget.onNavigate?.call(4), // Crop Recommendation
+      ),
+      if (showPrice) ...[
+        SizedBox(height: gap),
+        PriceComparisonCard(
+          preferredDistrict: _preferredDistrict,
+          preferredCrop: _preferredCrop,
+          langKey: _langKey,
+          onSeeFull: () => widget.onNavigate?.call(2), // Price
+        ),
+      ],
+    ];
+  }
+
   // ── MOBILE ────────────────────────────────────────────────────────────────
   // `width` is the real viewport width from the outer LayoutBuilder, so a
   // small phone (< 340px, e.g. an older/budget device), a regular phone
@@ -1085,6 +1153,8 @@ class _DashboardScreenState extends State<DashboardScreen>
               padding: EdgeInsets.fromLTRB(hPad, 14, hPad, 20),
               children: [
                 _buildGreetingLine(name, season),
+                const SizedBox(height: 12),
+                ..._personalisedSection(gap: 10),
                 const SizedBox(height: 12),
                 _buildWeatherCard(compact: true),
                 const SizedBox(height: 10),
@@ -1158,6 +1228,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                     children: [
                       _buildGreetingLine(name, season),
                       const SizedBox(height: gap),
+                      ..._personalisedSection(gap: gap),
+                      const SizedBox(height: gap),
                       _buildWeatherCard(compact: false),
                       const SizedBox(height: gap),
                       _buildQuickStats(compact: false),
@@ -1204,6 +1276,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                     children: [
                       _buildGreetingLine(name, season),
                       const SizedBox(height: gap),
+                      ..._personalisedSection(gap: gap),
+                      const SizedBox(height: gap),
                       _buildWeatherCard(compact: false),
                       const SizedBox(height: gap),
                       _buildQuickStats(compact: false),
@@ -1248,6 +1322,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                   child: Column(
                     children: [
                       _buildGreetingLine(name, season),
+                      const SizedBox(height: 12),
+                      ..._personalisedSection(),
                       const SizedBox(height: 12),
                       _buildWeatherCard(compact: false),
                       const SizedBox(height: 12),

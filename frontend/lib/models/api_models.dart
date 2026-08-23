@@ -241,11 +241,26 @@ class PriceRequest {
   };
 }
 
+/// Where a crop's average farmgate price came from. Mirrors the backend's
+/// AveragePriceSourceEnum, plus `unknown` for the null case.
+///
+/// `unknown` means the backend reported no source at all (mock response, or
+/// the price datasets were unreadable). Callers MUST render nothing for it —
+/// no "estimated" fallback, no implied claim about the data's origin.
+enum AveragePriceSource { real, synthetic, unknown }
+
 class PriceResponse {
   final String crop;
   final String district;
   final double predictedFarmgatePriceLkrKg;
   final double predictedRetailPriceLkrKg;
+
+  /// Static per-crop baseline the prediction can be compared against.
+  /// 0.0 when unavailable (mock response) — pair with [averagePriceSource]
+  /// before showing any comparison.
+  final double averageFarmgatePriceLkrKg;
+  final AveragePriceSource averagePriceSource;
+
   final String confidence;
   final bool isMock;
 
@@ -254,9 +269,24 @@ class PriceResponse {
     required this.district,
     required this.predictedFarmgatePriceLkrKg,
     required this.predictedRetailPriceLkrKg,
+    this.averageFarmgatePriceLkrKg = 0.0,
+    this.averagePriceSource = AveragePriceSource.unknown,
     required this.confidence,
     this.isMock = false,
   });
+
+  /// True only when there's a real baseline to compare against.
+  bool get hasAverage =>
+      averageFarmgatePriceLkrKg > 0 &&
+      averagePriceSource != AveragePriceSource.unknown;
+
+  static AveragePriceSource _parseSource(dynamic raw) => switch (raw) {
+    'real' => AveragePriceSource.real,
+    'synthetic' => AveragePriceSource.synthetic,
+    // Covers null and any value a future backend adds that this build
+    // doesn't know — both mean "don't claim anything about the source".
+    _ => AveragePriceSource.unknown,
+  };
 
   factory PriceResponse.fromJson(Map<String, dynamic> json) => PriceResponse(
     crop: json['crop'],
@@ -265,6 +295,9 @@ class PriceResponse {
         (json['predicted_farmgate_price_lkr_kg'] as num).toDouble(),
     predictedRetailPriceLkrKg: (json['predicted_retail_price_lkr_kg'] as num)
         .toDouble(),
+    averageFarmgatePriceLkrKg:
+        (json['average_farmgate_price_lkr_kg'] as num?)?.toDouble() ?? 0.0,
+    averagePriceSource: _parseSource(json['average_price_source']),
     confidence: json['confidence'],
     isMock: json['is_mock'] ?? false,
   );

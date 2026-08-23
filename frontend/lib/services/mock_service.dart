@@ -99,6 +99,12 @@ class MockService {
       predictedRetailPriceLkrKg:
           (b.retail * (0.95 + _rng.nextDouble() * 0.1) * request.inflationIndex)
               .roundToDouble(),
+      // Mirrors the real service's per-crop baseline so the dashboard's
+      // price comparison is exercisable in mock mode. Reported as
+      // `synthetic` because that is exactly what it is — mock mode must
+      // never claim to be backed by real market observations.
+      averageFarmgatePriceLkrKg: b.farmgate,
+      averagePriceSource: AveragePriceSource.synthetic,
       confidence: 'high',
       isMock: true,
     );

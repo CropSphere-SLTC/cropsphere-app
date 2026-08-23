@@ -354,13 +354,48 @@ def test_get_user_preferences_empty_when_doc_missing():
     assert result == {}
 
 
-def test_update_user_preferences_calls_update():
+def test_update_user_preferences_writes_dotted_paths():
+    """Saving preferences must not clobber siblings it wasn't given.
+
+    This previously asserted a whole-map replace
+    ({"preferences": {...}}), which is what made an Account Settings save
+    silently wipe preferred_crop / preferred_district / context_updated_at
+    written separately by update_user_context(). Dotted paths touch only
+    the supplied keys — same guarantee the context writer already had.
+    """
     mock_ref = MagicMock()
     mock_db = MagicMock()
     mock_db.collection.return_value.document.return_value = mock_ref
     with patch("app.utils.firestore.get_db", return_value=mock_db):
         fs.update_user_preferences("u1", {"language": "ta"})
-    mock_ref.update.assert_called_once_with({"preferences": {"language": "ta"}})
+    payload = mock_ref.update.call_args[0][0]
+    assert payload == {"preferences.language": "ta"}
+    assert "preferences" not in payload  # never a whole-map replace
+
+
+def test_update_user_preferences_preserves_unrelated_keys():
+    """A language-only save must not emit any preferred_* field path."""
+    mock_ref = MagicMock()
+    mock_db = MagicMock()
+    mock_db.collection.return_value.document.return_value = mock_ref
+    with patch("app.utils.firestore.get_db", return_value=mock_db):
+        fs.update_user_preferences(
+            "u1", {"language": "si", "notifications": {"price_alerts": False}}
+        )
+    payload = mock_ref.update.call_args[0][0]
+    assert set(payload) == {"preferences.language", "preferences.notifications"}
+    assert "preferences.preferred_crop" not in payload
+    assert "preferences.preferred_district" not in payload
+
+
+def test_update_user_preferences_noop_on_empty():
+    """Nothing to write means no Firestore call at all."""
+    mock_ref = MagicMock()
+    mock_db = MagicMock()
+    mock_db.collection.return_value.document.return_value = mock_ref
+    with patch("app.utils.firestore.get_db", return_value=mock_db):
+        fs.update_user_preferences("u1", {})
+    mock_ref.update.assert_not_called()
 
 
 def test_update_user_context_merges_via_field_paths():

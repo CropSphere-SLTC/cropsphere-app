@@ -182,9 +182,22 @@ def get_user_preferences(uid: str) -> Dict[str, Any]:
 
 
 def update_user_preferences(uid: str, preferences: Dict[str, Any]) -> None:
-    """Save preferences to a user's Firestore document."""
-    db = get_db()
-    db.collection("users").document(uid).update({"preferences": preferences})
+    """Save preferences to a user's Firestore document.
+
+    Writes each key as a dotted field path ("preferences.language") rather
+    than assigning the whole map. Passing a map to .update() REPLACES the
+    entire preferences object, which silently dropped any sibling key the
+    caller didn't include — notably preferred_crop / preferred_district /
+    context_updated_at, written separately by update_user_context() from
+    chat. Saving language or notifications from Account Settings therefore
+    used to wipe the farmer's saved crop/district context. Dotted paths
+    only touch the keys given, matching update_user_context()'s behaviour.
+    Security assumption: uid is JWT-verified by the caller.
+    """
+    if not preferences:
+        return
+    payload = {f"preferences.{key}": value for key, value in preferences.items()}
+    get_db().collection("users").document(uid).update(payload)
 
 
 def update_user_context(

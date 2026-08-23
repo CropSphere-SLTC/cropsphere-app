@@ -22,13 +22,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:http/http.dart' as http;
 import '../../app_lang.dart';
 import '../../models/api_models.dart';
 import '../../services/service_factory.dart';
+import '../../utils/farm_context.dart';
 import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
 import '../../widgets/language_control.dart';
@@ -38,19 +37,6 @@ import '../../widgets/theme_toggle_button.dart';
 
 typedef _L = Map<String, String>;
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  District → GPS coordinates for Open-Meteo (same set used across the app)
-// ─────────────────────────────────────────────────────────────────────────────
-const Map<String, List<double>> _districtCoords = {
-  'Nuwara Eliya': [6.9497, 80.7891],
-  'Badulla': [6.9934, 81.0550],
-  'Anuradhapura': [8.3114, 80.4037],
-  'Monaragala': [6.8728, 81.3507],
-  'Ampara': [7.2985, 81.6724],
-  'Hambantota': [6.1241, 81.1185],
-  'Batticaloa': [7.7102, 81.6924],
-  'Jaffna': [9.6615, 80.0255],
-};
 
 // District display names — official Sinhala/Tamil district names, not a
 // literal word-for-word translation. The English key is kept as the value
@@ -70,66 +56,7 @@ const Map<String, _L> _districtNames = {
   'Jaffna': {'en': 'Jaffna', 'si': 'යාපනය', 'ta': 'யாழ்ப்பாணம்'},
 };
 
-int _weekOfYear() {
-  final now = DateTime.now();
-  final soy = DateTime(now.year, 1, 1);
-  return (((now.difference(soy).inDays + soy.weekday - 1) / 7).ceil()).clamp(
-    1,
-    52,
-  );
-}
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Weather data + fetch helper (rainfall / temp / humidity only — that's all
-//  the recommend API needs)
-// ─────────────────────────────────────────────────────────────────────────────
-class _WeatherData {
-  final double rainfallMm;
-  final double tempMinC;
-  final double tempMaxC;
-  final double humidityPct;
-  const _WeatherData({
-    required this.rainfallMm,
-    required this.tempMinC,
-    required this.tempMaxC,
-    required this.humidityPct,
-  });
-}
-
-Future<_WeatherData> _fetchWeather(String district) async {
-  final coords = _districtCoords[district];
-  if (coords == null) throw Exception('District coordinates not found');
-  final lat = coords[0];
-  final lon = coords[1];
-  final uri = Uri.parse(
-    'https://api.open-meteo.com/v1/forecast'
-    '?latitude=$lat&longitude=$lon'
-    '&daily=precipitation_sum,temperature_2m_max,temperature_2m_min,'
-    'relative_humidity_2m_max'
-    '&past_days=7&forecast_days=1&timezone=Asia%2FColombo',
-  );
-  final res = await http.get(uri).timeout(const Duration(seconds: 15));
-  if (res.statusCode != 200) {
-    throw Exception('Weather API error ${res.statusCode}');
-  }
-  final json = jsonDecode(res.body) as Map<String, dynamic>;
-  final daily = json['daily'] as Map<String, dynamic>;
-  double avg(String key) {
-    final vals = (daily[key] as List)
-        .whereType<num>()
-        .map((e) => e.toDouble())
-        .toList();
-    if (vals.isEmpty) return 0;
-    return vals.reduce((a, b) => a + b) / vals.length;
-  }
-
-  return _WeatherData(
-    rainfallMm: avg('precipitation_sum').clamp(0, 300),
-    tempMinC: avg('temperature_2m_min').clamp(0, 45),
-    tempMaxC: avg('temperature_2m_max').clamp(5, 50),
-    humidityPct: avg('relative_humidity_2m_max').clamp(0, 100),
-  );
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Season & irrigation data — trilingual, consistent with Yield screen
@@ -222,45 +149,18 @@ final List<Map<String, _L>> _irrigationTypes = [
   },
 ];
 
-// Typical Sri Lankan agricultural-soil fallback (used only if a district is
-// ever missing from the table below).
-const double _kDefaultSoilPh = 6.2;
-const double _kDefaultSoilMoisture = 55.0;
+// Soil/NPK defaults, district coordinates, the weather fetch and the
+// week/season helpers now live in utils/farm_context.dart — the dashboard's
+// recommendation hero builds the same M5 request and needs the identical
+// values, so they're shared rather than duplicated. Local aliases keep the
+// rest of this screen reading exactly as before.
+const double _kDefaultSoilPh = kDefaultSoilPh;
+const double _kDefaultSoilMoisture = kDefaultSoilMoisture;
+const double _kDefaultN = kDefaultNIndex;
+const double _kDefaultP = kDefaultPIndex;
+const double _kDefaultK = kDefaultKIndex;
 
-/// A simple, unambiguous holder for a district's typical soil pH & moisture.
-/// (Using a plain class here instead of a Dart record — records need field
-/// names to line up exactly on every branch of an expression, which is a
-/// common source of confusing "getter isn't defined" errors depending on
-/// the Dart SDK version. A class avoids that entirely.)
-class _SoilTypical {
-  final double ph;
-  final double moisturePct;
-  const _SoilTypical(this.ph, this.moisturePct);
-}
-
-// Typical soil pH & moisture per district — approximate values based on the
-// dominant soil types/agro-climate of each district (upcountry wet-zone
-// districts trend more acidic & moist; dry-zone districts trend closer to
-// neutral/slightly alkaline & drier). Used as a sensible starting point that
-// updates when the farmer picks a district — NOT a substitute for an actual
-// soil test, and the farmer can always override it manually.
-const Map<String, _SoilTypical> _districtSoilDefaults = {
-  'Nuwara Eliya': _SoilTypical(5.6, 62.0), // upcountry, red-yellow podzolic
-  'Badulla': _SoilTypical(5.8, 58.0), // mid-country, similar upcountry profile
-  'Anuradhapura': _SoilTypical(6.8, 42.0), // dry zone, reddish brown earths
-  'Monaragala': _SoilTypical(6.5, 40.0), // dry zone / intermediate
-  'Ampara': _SoilTypical(6.6, 38.0), // dry zone, reddish brown earths
-  'Hambantota': _SoilTypical(7.0, 36.0), // dry zone, low rainfall
-  'Batticaloa': _SoilTypical(7.1, 40.0), // dry zone, coastal alluvial
-  'Jaffna': _SoilTypical(7.4, 35.0), // limestone-influenced, mildly alkaline
-};
-
-_SoilTypical _soilDefaultsFor(String district) =>
-    _districtSoilDefaults[district] ??
-    const _SoilTypical(_kDefaultSoilPh, _kDefaultSoilMoisture);
-const double _kDefaultN = 0.55;
-const double _kDefaultP = 0.55;
-const double _kDefaultK = 0.55;
+SoilTypical _soilDefaultsFor(String district) => soilDefaultsFor(district);
 
 const Map<String, String> _cropEmoji = {
   'Carrot': '🥕',
@@ -384,7 +284,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
   int _activeTab = 0;
 
   // ── Weather (auto-fetched) ───────────────────────────────────────────────
-  _WeatherData? _weather;
+  FarmWeather? _weather;
   bool _weatherLoading = false;
   String? _weatherError;
   bool _weatherOverrideOpen = false;
@@ -422,8 +322,8 @@ class _RecommendScreenState extends State<RecommendScreen> {
     'Jaffna',
   ];
 
-  _WeatherData get _effectiveWeather => _weatherOverrideOpen || _weather == null
-      ? _WeatherData(
+  FarmWeather get _effectiveWeather => _weatherOverrideOpen || _weather == null
+      ? FarmWeather(
           rainfallMm: _oRainfall,
           tempMinC: _oTempMin,
           tempMaxC: _oTempMax,
@@ -546,7 +446,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
       _weather = null;
     });
     try {
-      final w = await _fetchWeather(district);
+      final w = await fetchFarmWeather(district);
       if (mounted) {
         setState(() {
           _weather = w;
@@ -605,7 +505,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
         RecommendRequest(
           district: _selectedDistrict!,
           season: _selectedSeason!,
-          weekOfYear: _weekOfYear(),
+          weekOfYear: farmWeekOfYear(),
           rainfallMm: w.rainfallMm,
           tempMinC: w.tempMinC,
           tempMaxC: w.tempMaxC,
@@ -1330,9 +1230,9 @@ class _RecommendScreenState extends State<RecommendScreen> {
           ),
           child: Text(
             _t({
-              'en': 'Week ${_weekOfYear()}',
-              'si': 'සති ${_weekOfYear()}',
-              'ta': 'வாரம் ${_weekOfYear()}',
+              'en': 'Week ${farmWeekOfYear()}',
+              'si': 'සති ${farmWeekOfYear()}',
+              'ta': 'வாரம் ${farmWeekOfYear()}',
             }),
             style: const TextStyle(
               color: Colors.white,
@@ -1740,7 +1640,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
     );
   }
 
-  Widget _weatherGrid(_WeatherData w) {
+  Widget _weatherGrid(FarmWeather w) {
     final tiles = [
       (
         '🌧',

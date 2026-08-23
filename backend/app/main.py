@@ -275,6 +275,18 @@ def create_app() -> FastAPI:
         # (RAG's own model, the sentence-encoder above, is separate).
         _warmup_models()
 
+        # Average farmgate price per crop — a static per-crop mean read
+        # once from the price CSVs, cached so /api/price/predict never
+        # re-reads them per request. See price_service for source/coverage
+        # details.
+        try:
+            from app.user.services.price_service import warm_average_farmgate_prices
+
+            warm_average_farmgate_prices()
+            logger.info("Average farmgate prices preloaded")
+        except Exception as exc:
+            logger.warning("Average farmgate price warm-up failed: %s", exc)
+
         # Firestore — verify connectivity, but never block startup on it.
         _check_firestore(settings)
 

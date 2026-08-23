@@ -500,10 +500,22 @@ class _PriceScreenState extends State<PriceScreen>
   }
 
   // ── Price trend helpers ────────────────────────────────────────────────────
+  /// The figure the prediction is compared against. Prefers the backend's
+  /// per-crop average (the same one the dashboard's price comparison uses)
+  /// so the two screens can't disagree about whether today's price is above
+  /// or below average; falls back to the local _kRecentPrice table only
+  /// when the backend reported no baseline at all.
+  double get _comparisonBaseline =>
+      _result?.hasAverage == true
+      ? _result!.averageFarmgatePriceLkrKg
+      : _recentPrice;
+
   double get _pctChange {
     if (_result == null) return 0;
     final predicted = _result!.predictedFarmgatePriceLkrKg;
-    return (predicted - _recentPrice) / _recentPrice * 100;
+    final baseline = _comparisonBaseline;
+    if (baseline <= 0) return 0;
+    return (predicted - baseline) / baseline * 100;
   }
 
   bool get _isRising => _pctChange >= 0;
@@ -521,9 +533,16 @@ class _PriceScreenState extends State<PriceScreen>
   String _buildAiContext() {
     final farmgate = _result!.predictedFarmgatePriceLkrKg.toStringAsFixed(0);
     final retail = _result!.predictedRetailPriceLkrKg.toStringAsFixed(0);
+    // Quote whichever baseline the on-screen % change was actually computed
+    // against, so the assistant's advice can't contradict the figure the
+    // farmer is looking at.
+    final baseline = _result!.hasAverage
+        ? 'The average farmgate price for this crop is Rs. '
+              '${_result!.averageFarmgatePriceLkrKg.toStringAsFixed(0)}/kg.'
+        : 'Recent price was Rs. ${_recentPrice.toStringAsFixed(0)}/kg.';
     return 'My price prediction for $_selectedCrop in $_selectedDistrict '
         '($_selectedSeason season): farmgate Rs. $farmgate/kg, retail Rs. $retail/kg. '
-        'Recent price was Rs. ${_recentPrice.toStringAsFixed(0)}/kg. '
+        '$baseline '
         'Please give me detailed advice on the best time and place to sell, and how to get a better price.';
   }
 

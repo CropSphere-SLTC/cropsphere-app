@@ -53,6 +53,19 @@ class TrendEnum(str, Enum):
     falling = "falling"
 
 
+class AveragePriceSourceEnum(str, Enum):
+    """Which dataset a crop's average farmgate price was derived from.
+
+    Surfaced in PricePredictResponse so the UI can label the baseline
+    honestly rather than presenting a synthetic estimate as observed
+    market data — same transparency principle as the chatbot's source
+    citations and the confidence badges.
+    """
+
+    real = "real"
+    synthetic = "synthetic"
+
+
 # ── Yield ─────────────────────────────────────────────────────────────────────
 
 
@@ -143,6 +156,11 @@ class PricePredictResponse(BaseModel):
     district: DistrictEnum
     predicted_farmgate_price_lkr_kg: float
     predicted_retail_price_lkr_kg: float
+    average_farmgate_price_lkr_kg: float  # static per-crop baseline, see price_service
+    # Provenance of that baseline. None when no average was computed at
+    # all (model-missing mock response, or price CSVs unreadable) — the
+    # UI should omit the badge entirely in that case rather than guess.
+    average_price_source: Optional[AveragePriceSourceEnum] = None
     confidence: ConfidenceEnum
     is_mock: bool = False
 
@@ -305,3 +323,12 @@ class UserPreferencesResponse(BaseModel):
 class UpdatePreferencesRequest(BaseModel):
     language: str = Field(..., pattern="^(en|si|ta)$")
     notifications: NotificationPreferences
+    # The farmer's home district / main crop, used to personalise the
+    # dashboard (recommendation hero + price comparison). Validated against
+    # the same enums the prediction endpoints use so an unknown value can
+    # never reach a model call. Optional and None-means-untouched: the
+    # chatbot also writes these from conversational context
+    # (update_user_context), so a settings save that omits them must leave
+    # whatever is already stored alone rather than clearing it.
+    preferred_district: Optional[DistrictEnum] = None
+    preferred_crop: Optional[CropEnum] = None

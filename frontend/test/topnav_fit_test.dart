@@ -33,7 +33,13 @@ void main() {
   // Everything sharing the bar besides the nav row, with the wordmark
   // hidden: logo + language control + theme toggle + avatar + gaps + pad.
   double chromeNoWordmark(TopNavMetrics m) =>
-      m.logoSize + 92 + (m.toggleIconSize + 24) + m.avatarSize + 24 + 28;
+      m.logoSize +
+      92 /*language control*/ +
+      (m.toggleIconSize + 24) /*toggle button box*/ +
+      m.avatarSize +
+      m.clusterGap * 2 /*gaps inside the right cluster*/ +
+      8 /*gap before the cluster*/ +
+      28 /*bar padding*/;
 
   const labels = {
     'en': ['Home', 'Yield', 'Price', 'Weather', 'Crop', 'Demand', 'Chat'],

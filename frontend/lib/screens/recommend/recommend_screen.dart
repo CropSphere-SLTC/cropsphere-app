@@ -1142,9 +1142,9 @@ class _RecommendScreenState extends State<RecommendScreen> {
               if (isMobile) const Spacer(),
               const SizedBox(width: 8),
               const LanguageControl(),
-              const SizedBox(width: 8),
+              SizedBox(width: m.clusterGap),
               ThemeToggleButton(size: m.toggleIconSize),
-              const SizedBox(width: 8),
+              SizedBox(width: m.clusterGap),
               ProfileAvatarButton(diameter: m.avatarSize),
             ],
           );

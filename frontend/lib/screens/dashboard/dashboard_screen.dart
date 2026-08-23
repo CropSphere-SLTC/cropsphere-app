@@ -1349,11 +1349,6 @@ class _DashboardScreenState extends State<DashboardScreen>
             ),
           ),
           const Spacer(),
-          // Was reachable only via the profile avatar's "Saved Tips" tile
-          // before that avatar was removed — now the same badge used on
-          // tablet/web so mobile doesn't lose the entry point entirely.
-          _buildSavedBadge(),
-          const SizedBox(width: 8),
           const LanguageControl(),
           const SizedBox(width: 8),
           const ThemeToggleButton(),
@@ -1487,70 +1482,16 @@ class _DashboardScreenState extends State<DashboardScreen>
               ),
             ),
           ),
-          // Saved tips badge
-          _buildSavedBadge(),
-          const SizedBox(width: 8),
           const LanguageControl(),
-          const SizedBox(width: 8),
+          SizedBox(width: m.clusterGap),
           ThemeToggleButton(size: m.toggleIconSize),
-          const SizedBox(width: 8),
+          SizedBox(width: m.clusterGap),
           const ProfileAvatarButton(),
         ],
       ),
     );
   }
 
-  Widget _buildSavedBadge() {
-    final count = _savedTipKeys.length;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(10),
-        onTap: () => setState(() => _drawerOpen = true),
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: const Color(0xFFF0F4F0),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(
-                Icons.bookmark_rounded,
-                size: 20,
-                color: Color(0xFF2E7D32),
-              ),
-            ),
-            if (count > 0)
-              Positioned(
-                right: -4,
-                top: -4,
-                child: Container(
-                  width: 16,
-                  height: 16,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFE65100),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Center(
-                    child: Text(
-                      '$count',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 9,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
 
   // ─────────────────────────────────────────────────────────────────────────
   //  Greeting line + season/date pills (replaces the old green hero card)

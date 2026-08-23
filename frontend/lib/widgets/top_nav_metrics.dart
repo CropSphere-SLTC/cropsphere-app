@@ -51,6 +51,11 @@ class TopNavMetrics {
   /// Theme-toggle icon size.
   final double toggleIconSize;
 
+  /// Gap between the right-hand cluster's controls (language, theme
+  /// toggle, avatar). Only the full web/tablet bar uses these metrics, so
+  /// widening this never affects the compact mobile app bars.
+  final double clusterGap;
+
   const TopNavMetrics({
     required this.labelSize,
     required this.itemPadH,
@@ -61,6 +66,7 @@ class TopNavMetrics {
     required this.barHeight,
     required this.avatarSize,
     required this.toggleIconSize,
+    required this.clusterGap,
   });
 
   /// 1024–1200px — the band where the nav row is tightest and is also the
@@ -75,6 +81,7 @@ class TopNavMetrics {
     barHeight: 68,
     avatarSize: 34,
     toggleIconSize: 20,
+    clusterGap: 14,
   );
 
   /// ≥1200px — room to breathe on real desktop monitors.
@@ -88,6 +95,7 @@ class TopNavMetrics {
     barHeight: 78,
     avatarSize: 40,
     toggleIconSize: 24,
+    clusterGap: 20,
   );
 
   /// Width at which the comfortable step becomes affordable.

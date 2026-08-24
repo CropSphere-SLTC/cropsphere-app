@@ -232,7 +232,10 @@ class AppLoginTheme {
 //
 //   fill      white   #1F2A1F   as text on #FCFBF6
 //   #3A8943   4.34✗   3.43✗     4.19✗     Sea Green — fails BOTH on the fill
-//   #DF8A58   2.65✗   5.62✓     2.56✗     Terracotta
+//   #AB5524   5.18✓   —         —         Terracotta — deepened from #DF8A58
+//                                          (2.65✗ white) specifically so white
+//                                          could be used; see price's entry
+//                                          below for the trade made there.
 //   #2D689B   5.89✓   2.53✗     5.69✓     Deep Blue — the only self-sufficient one
 //   #7CA759   2.79✗   5.34✓     2.69✗     Muted Olive
 //   #BA9454   2.82✗   5.29✓     2.72✗     Ochre
@@ -282,10 +285,16 @@ class AppFeatureAccents {
     ink: _hunter, // 6.67:1 on #FCFBF6
   );
 
-  /// Terracotta.
+  /// Terracotta. Deepened from the original #DF8A58 by request, to carry
+  /// white header text instead of dark — #DF8A58 measured white at 2.65:1
+  /// (fails even the 3:1 non-text floor); this hue, same family (hue 0.060
+  /// vs 0.062, similar saturation) at lower lightness, measures 5.18:1 —
+  /// real margin, not a bare pass. ink is unchanged: it was independently
+  /// verified against the page background, not against fill, so darkening
+  /// fill doesn't affect its correctness.
   FeatureAccent get price => const FeatureAccent(
-    fill: Color(0xFFDF8A58),
-    onFill: _onLight, // 5.62:1
+    fill: Color(0xFFAB5524),
+    onFill: Colors.white, // 5.18:1
     ink: Color(0xFFB75A23), // 4.50:1 on #FCFBF6
   );
 

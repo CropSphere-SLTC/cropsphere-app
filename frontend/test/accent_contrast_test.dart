@@ -83,26 +83,37 @@ void main() {
     });
   });
 
-  test('price keeps its terracotta identity as the header fill', () {
-    // The specified hue, unmodified. If this ever has to change, the change
-    // is a design decision, not an accessibility workaround.
-    expect(AppTheme.accents.price.fill, const Color(0xFFDF8A58));
+  test('price fill is deepened terracotta, chosen so white text works', () {
+    // Originally #DF8A58 with dark onFill (white measured 2.65:1 there —
+    // fails even the 3:1 non-text floor). Deepened to #AB5524 by request so
+    // the header could carry white text instead — same hue family (0.060 vs
+    // 0.062), lower lightness. This pin is a design decision, not an
+    // incidental value; if it changes again, re-verify onFill below it.
+    expect(AppTheme.accents.price.fill, const Color(0xFFAB5524));
   });
 
-  test('price header takes DARK text — white would be 2.65:1', () {
-    expect(AppTheme.accents.price.onFill, AppTheme.login.textPrimary);
-    expect(
-      contrast(Colors.white, AppTheme.accents.price.fill),
-      lessThan(kAANonText),
-      reason:
-          'Documents why onFill is dark here: white fails even the non-text '
-          'floor on this fill.',
-    );
-  });
+  test(
+    'price header takes WHITE text — 5.18:1, real margin not a bare pass',
+    () {
+      expect(AppTheme.accents.price.onFill, Colors.white);
+      expect(
+        contrast(Colors.white, AppTheme.accents.price.fill),
+        greaterThanOrEqualTo(kAA),
+      );
+      // The original fill is documented here specifically so nobody re-lightens
+      // price.fill back toward #DF8A58 without noticing white stops working.
+      const originalFill = Color(0xFFDF8A58);
+      expect(
+        contrast(Colors.white, originalFill),
+        lessThan(kAANonText),
+        reason: 'The original fill genuinely cannot carry white text.',
+      );
+    },
+  );
 
   test('the price header subtitle alpha stays above AA', () {
-    // The subtitle renders onFill at 90% over the fill. Below ~0.87 the
-    // blended ink drops under 4.5:1.
+    // The subtitle renders onFill at 90% over the fill. Below ~0.897 the
+    // blended white drops under 4.5:1.
     const alpha = 0.90;
     final fill = AppTheme.accents.price.fill;
     final ink = AppTheme.accents.price.onFill;

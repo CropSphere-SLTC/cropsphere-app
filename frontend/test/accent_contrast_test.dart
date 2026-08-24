@@ -111,26 +111,120 @@ void main() {
     },
   );
 
-  test('the price header subtitle alpha stays above AA', () {
-    // The subtitle renders onFill at 90% over the fill. Below ~0.897 the
-    // blended white drops under 4.5:1.
-    const alpha = 0.90;
-    final fill = AppTheme.accents.price.fill;
-    final ink = AppTheme.accents.price.onFill;
-    final blended = Color.from(
-      alpha: 1.0,
-      red: alpha * ink.r + (1 - alpha) * fill.r,
-      green: alpha * ink.g + (1 - alpha) * fill.g,
-      blue: alpha * ink.b + (1 - alpha) * fill.b,
+  group('price header gradient', () {
+    // The header moved from a flat AppTheme.accents.price.fill to a
+    // two-stop gradient (dark top-left -> light bottom-right, matching
+    // yield_screen's header). fill (#AB5524) is the dark anchor, unchanged;
+    // the light anchor is price_screen's own private
+    // _headerGradientLight — hardcoded here since it isn't exposed, the
+    // same way the MEDIUM confidence dot's deepened warning colour is
+    // pinned elsewhere in this file.
+    //
+    // #BA5C27 is the actual AA ceiling for white text on this hue family —
+    // 4.52:1, chosen deliberately at the edge (by request, for the most
+    // visible gradient the accessibility floor allows) over two rejected,
+    // safer alternatives: #B35926 (4.80:1, more margin) and, before that,
+    // #CC672C (3.79:1, failed outright — passed the TITLE's 3:1 large-text
+    // floor but not the SUBTITLE's 4.5:1 one, with no alpha fix available).
+    const lightStop = Color(0xFFBA5C27);
+
+    test('the light stop IS the ceiling — one step lighter fails', () {
+      expect(contrast(Colors.white, lightStop), greaterThanOrEqualTo(kAA));
+      // #BC5D28 is ~0.005 lighter in HLS lightness than the ceiling.
+      const oneStepLighter = Color(0xFFBC5D28);
+      expect(contrast(Colors.white, oneStepLighter), lessThan(kAA));
+    });
+
+    test('both rejected, lighter alternatives are documented', () {
+      const saferAlternative = Color(0xFFB35926); // 4.80:1, more margin
+      const firstRejected = Color(0xFFCC672C); // 3.79:1, failed outright
+      expect(
+        contrast(Colors.white, saferAlternative),
+        greaterThan(contrast(Colors.white, lightStop)),
+      );
+      expect(contrast(Colors.white, firstRejected), lessThan(kAA));
+    });
+
+    test(
+      'white text clears AA across the whole gradient, dark end included',
+      () {
+        expect(
+          contrast(Colors.white, AppTheme.accents.price.fill),
+          greaterThanOrEqualTo(kAA),
+        );
+        expect(contrast(Colors.white, lightStop), greaterThanOrEqualTo(kAA));
+      },
     );
-    expect(contrast(blended, fill), greaterThanOrEqualTo(kAA));
+
+    test('the subtitle has zero alpha headroom at the ceiling', () {
+      // Unlike the earlier, safer light stop (which still had ~5% alpha
+      // headroom), the ceiling itself leaves none: even 99% white drops
+      // under 4.5:1 here.
+      final at99 = Color.alphaBlend(
+        Colors.white.withValues(alpha: 0.99),
+        lightStop,
+      );
+      expect(contrast(at99, lightStop), lessThan(kAA));
+      expect(contrast(Colors.white, lightStop), greaterThanOrEqualTo(kAA));
+    });
+
+    group('icon badge / Week pill scrim', () {
+      // First an ink scrim (0.10, then 0.15): barely visible as a distinct
+      // badge, since ink sits close to the fill's own hue/lightness — that
+      // WAS the "can't see the icon" bug. White would fix visibility but
+      // cost contrast severely: even 0.15 white here drops the icon to
+      // 3.92:1, under AA, and it only gets worse from there. Black is the
+      // one direction that's a pure win — darkening only ever IMPROVES
+      // white-on-it contrast — so it is both clearly visible as a distinct
+      // badge and higher-contrast than the flat fill was on its own.
+
+      test('a white scrim would fail — the reason it was NOT used', () {
+        final whiteScrim = Color.alphaBlend(
+          Colors.white.withValues(alpha: 0.15),
+          lightStop,
+        );
+        expect(contrast(Colors.white, whiteScrim), lessThan(kAA));
+      });
+
+      test('the black@0.20 scrim clears AA across the whole gradient', () {
+        final darkEnd = Color.alphaBlend(
+          Colors.black.withValues(alpha: 0.20),
+          AppTheme.accents.price.fill,
+        );
+        final lightEnd = Color.alphaBlend(
+          Colors.black.withValues(alpha: 0.20),
+          lightStop,
+        );
+        expect(contrast(Colors.white, darkEnd), greaterThanOrEqualTo(kAA));
+        expect(contrast(Colors.white, lightEnd), greaterThanOrEqualTo(kAA));
+        // Genuinely better than the un-scrimmed flat fill it replaced.
+        expect(
+          contrast(Colors.white, lightEnd),
+          greaterThan(contrast(Colors.white, AppTheme.accents.price.fill)),
+        );
+      });
+    });
   });
 
   test('primary actions stay on primaryDark, not on any accent', () {
     // Step 3's rule. primaryDark is the one action colour app-wide, and it
-    // clears AA against white comfortably.
+    // clears AA against white comfortably. price_screen's "Predict Price"
+    // button is now ONE explicit, requested exception to this — see the
+    // 'Predict Price button uses the price accent' test below — every
+    // other primary action, including Price's own "Ask AI about this",
+    // still follows this rule.
     expect(
       contrast(Colors.white, AppTheme.login.primaryDark),
+      greaterThanOrEqualTo(kAA),
+    );
+  });
+
+  test('Predict Price button uses the price accent, deliberately', () {
+    // The one exception to the rule above. price_screen's button uses
+    // accents.price.fill instead of login.primaryDark, tying it to the
+    // header's dark gradient anchor — same colour, separately verified.
+    expect(
+      contrast(Colors.white, AppTheme.accents.price.fill),
       greaterThanOrEqualTo(kAA),
     );
   });

@@ -804,23 +804,40 @@ class _PriceScreenState extends State<PriceScreen> {
     ],
   );
 
-  // ── Page header ────────────────────────────────────────────────────────────
-  // The feature header — the one place the price accent appears as a large
-  // fill. Flat, not a gradient: the measured 5.18:1 holds for #AB5524, and a
-  // gradient would have run text over a lighter stop that was never checked.
+  // Header gradient's lighter stop. Not part of AppFeatureAccents.price
+  // (which stays the single flat identity colour used everywhere else on
+  // this page — nav pill, badges) — this is a header-local extension of it,
+  // same precedent as yield_screen's own gradient (primaryDark -> primary),
+  // which also isn't part of the shared accent system.
   //
-  // Fill is #AB5524, not the original #DF8A58: by request, this header
-  // carries WHITE text/icons rather than dark. #DF8A58 measured white at
-  // 2.65:1 (fails even the 3:1 non-text floor) — #AB5524 is the same hue
-  // family, deepened, at 5.18:1. See AppFeatureAccents.price for the numbers.
+  // This IS the readability ceiling for white text on this hue family —
+  // #BA5C27 measures 4.52:1, 0.02 above the AA floor. Chosen deliberately at
+  // the edge, by request, for the most visible gradient possible without
+  // the subtitle actually failing AA; #B35926 (4.80:1) was the safer,
+  // more-margin alternative tried first. There is no room to go lighter
+  // than this — #CC672C (3.79:1), tried before either of these, fails
+  // outright.
+  static const Color _headerGradientLight = Color(0xFFBA5C27);
+
+  // ── Page header ────────────────────────────────────────────────────────────
+  // Gradient, matching yield_screen's header treatment: darker (top-left) to
+  // lighter (bottom-right). #AB5524 is the dark anchor — the SAME value as
+  // AppTheme.accents.price.fill, so the header's darkest point is still the
+  // one flat colour verified everywhere else on this page. The light anchor
+  // never goes above the readability ceiling for white text (see
+  // _headerGradientLight).
   Widget _pageHeader() => Container(
     padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(
-      color: AppTheme.accents.price.fill,
+      gradient: LinearGradient(
+        colors: [AppTheme.accents.price.fill, _headerGradientLight],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
       borderRadius: BorderRadius.circular(14),
       boxShadow: [
         BoxShadow(
-          color: AppTheme.accents.price.ink.withValues(alpha: 0.22),
+          color: AppTheme.accents.price.fill.withValues(alpha: 0.3),
           blurRadius: 10,
           offset: const Offset(0, 4),
         ),
@@ -831,15 +848,21 @@ class _PriceScreenState extends State<PriceScreen> {
         Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            // An INK scrim, not a white one: white would LIGHTEN the fill,
-            // and lightening always erodes contrast for white text/icons —
-            // a white scrim here drops the badge to 4.30:1; ink barely
-            // moves the fill (same family), keeping it at 5.11:1.
-            color: AppTheme.accents.price.ink.withValues(alpha: 0.10),
+            // BLACK, not ink and not white. ink sits close to the fill's
+            // own hue and lightness, so at 0.15 it barely showed as a
+            // distinct badge at all — that was the actual bug behind "can't
+            // see the icon". White would fix the visibility but cost
+            // contrast (lightening always erodes it for white icons/text —
+            // even 0.15 white here drops the icon to 3.92:1, under AA).
+            // Black is the one direction that's a pure win: darkening only
+            // ever IMPROVES white-on-it contrast, so this scrim reads as a
+            // clearly separate badge AND holds a stronger 6.41-7.22:1
+            // across the gradient — better than the flat fill's own 5.18:1.
+            color: Colors.black.withValues(alpha: 0.20),
             borderRadius: BorderRadius.circular(10),
           ),
           child: SvgPicture.string(
-            // White on #AB5524 is 5.18:1.
+            // White is >=6.41:1 on this scrim across the whole gradient.
             _navSvg(2, AppTheme.accents.price.onFill),
             width: 26,
             height: 26,
@@ -857,7 +880,7 @@ class _PriceScreenState extends State<PriceScreen> {
                   'ta': 'விலை கணிப்பான்',
                 }),
                 style: TextStyle(
-                  color: AppTheme.accents.price.onFill, // 5.18:1
+                  color: AppTheme.accents.price.onFill, // >=4.52:1
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
                 ),
@@ -869,9 +892,11 @@ class _PriceScreenState extends State<PriceScreen> {
                   'ta': 'AI-சார்ந்த சந்தை விலை மதிப்பீடு',
                 }),
                 style: TextStyle(
-                  // 0.90 is the floor: at 0.85 the blended white lands on
-                  // 4.23:1, under AA for 12px text. At 0.90 it's 4.53:1.
-                  color: AppTheme.accents.price.onFill.withValues(alpha: 0.90),
+                  // Full opacity, not partial — the gradient's light stop
+                  // (4.52:1) IS the AA ceiling, so the subtitle has zero
+                  // room for any alpha at all; even 99% white would drop
+                  // under 4.5:1 there.
+                  color: AppTheme.accents.price.onFill,
                   fontSize: 12,
                 ),
               ),
@@ -881,13 +906,14 @@ class _PriceScreenState extends State<PriceScreen> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
-            color: AppTheme.accents.price.ink.withValues(alpha: 0.10),
+            // Same black scrim as the icon badge — see its comment above.
+            color: Colors.black.withValues(alpha: 0.20),
             borderRadius: BorderRadius.circular(20),
           ),
           child: Text(
             'Week ${_weekOfYear()}',
             style: TextStyle(
-              color: AppTheme.accents.price.onFill, // 5.11:1 on the scrim
+              color: AppTheme.accents.price.onFill, // >=6.41:1 on the scrim
               fontSize: 12,
               fontWeight: FontWeight.w600,
             ),
@@ -1388,12 +1414,15 @@ class _PriceScreenState extends State<PriceScreen> {
                     }),
               style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
             ),
-            // NOT accent-coloured. Primary actions stay on
-            // login.primaryDark app-wide so "press this to proceed" reads the
-            // same on every screen, at a verified 6.92:1 against white.
+            // By request, an explicit exception to the app-wide rule that
+            // primary actions stay on login.primaryDark (still true for
+            // every other screen, and for Price's own "Ask AI about this"
+            // actions — see _askAiButtonStyle). This button uses the price
+            // accent instead, tying it to the header's dark gradient anchor
+            // (the same #AB5524). Still verified: white on it is 5.18:1.
             style: ElevatedButton.styleFrom(
               backgroundColor: _canPredict
-                  ? AppTheme.login.primaryDark
+                  ? AppTheme.accents.price.fill
                   : Colors.grey.shade400,
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(

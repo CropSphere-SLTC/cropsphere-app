@@ -220,7 +220,11 @@ class AppLoginTheme {
 // WHERE THEY MAY NOT
 //   • primary action buttons — those stay AppTheme.login.primaryDark app-wide,
 //     so "press this to proceed" looks the same everywhere and keeps its
-//     verified 6.92:1 contrast.
+//     verified 6.92:1 contrast. ONE explicit, requested exception exists:
+//     price_screen's "Predict Price" button uses accents.price.fill instead
+//     (white on it is 5.18:1, separately verified) — see that button's own
+//     comment. Every other screen's primary action, and Price's own
+//     secondary "Ask AI about this" actions, still follow this rule.
 //   • page backgrounds, card surfaces, body text, borders, inputs — all stay
 //     on the AppTheme.login.* neutrals.
 //

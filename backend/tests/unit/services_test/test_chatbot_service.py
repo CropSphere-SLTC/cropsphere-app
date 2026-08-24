@@ -494,6 +494,36 @@ def _prediction_msgs(**overrides):
     return cs._build_messages("system", _EMPTY_CONTEXT, req, "Explain this prediction")
 
 
+_FULL_PRICE_PREDICTION = {
+    "crop": "Carrot",
+    "district": "Badulla",
+    "season": "Maha",
+    "predicted_price_lkr_kg": 78.0,
+    "average_price_lkr_kg": 74.0,
+    "average_price_source": "real",
+    "quantity_kg": 100.0,
+    "estimated_earnings_lkr": 7800.0,
+    "supply_level": "normal",
+    "demand_level": "high",
+    "holiday_week": False,
+    "festival_week": True,
+    "confidence": "high",
+}
+
+
+def _price_msgs(**overrides):
+    """_build_messages output for a request carrying a price prediction."""
+    payload = {**_FULL_PRICE_PREDICTION, **overrides}
+    req = _make_request(prediction_context=payload)
+    return cs._build_messages("system", _EMPTY_CONTEXT, req, "Explain this price")
+
+
+def _price_block(**overrides):
+    return next(
+        m["content"] for m in _price_msgs(**overrides) if "CropSphere just" in m["content"]
+    )
+
+
 def test_prediction_context_defaults_to_none():
     assert _make_request().prediction_context is None
 
@@ -1982,3 +2012,86 @@ def test_validation_fails_open_without_rag(monkeypatch):
 
 def test_validation_of_empty_list_is_empty():
     assert cs._validate_followup_chips([]) == []
+
+
+# ── price-side prediction_context ──────────────────────────────────────────
+
+def test_price_context_injects_price_facts():
+    body = _price_block()
+    assert "Rs. 78/kg" in body
+    assert "Rs. 74/kg" in body
+    assert "100 kg" in body
+    assert "Rs. 7,800 total" in body
+    assert "Market supply: normal" in body
+    assert "Buyer demand: high" in body
+
+
+def test_price_context_is_named_a_price_prediction():
+    """The preamble must not call a price question a yield question."""
+    body = _price_block()
+    assert "price prediction CropSphere just" in body
+    assert "yield prediction" not in body
+
+
+def test_price_context_states_the_gap():
+    """Same rule as yield: the model is told not to calculate."""
+    body = _price_block()
+    assert "Difference: 5% above the average" in body
+
+
+def test_price_context_gap_below_average():
+    body = _price_block(predicted_price_lkr_kg=70.0, average_price_lkr_kg=74.0)
+    assert "Difference: 5% below the average" in body
+
+
+def test_price_context_attributes_a_real_average():
+    assert "(from real market data)" in _price_block()
+
+
+def test_price_context_attributes_a_synthetic_average():
+    body = _price_block(average_price_source="synthetic")
+    assert "(estimated from modelled data)" in body
+
+
+def test_price_context_omits_provenance_when_source_is_absent():
+    """The null-source contract: no baseline attribution is invented.
+
+    The average may still be stated, but nothing is said about where it came
+    from — no fallback wording, no implied label.
+    """
+    body = _price_block(average_price_source=None)
+    assert "Rs. 74/kg" in body
+    assert "market data" not in body
+    assert "modelled data" not in body
+
+
+def test_price_context_rejects_an_unknown_source_literal():
+    """average_price_source is a Literal, so 'unknown' must not validate."""
+    import pytest as _pytest
+    from pydantic import ValidationError
+
+    with _pytest.raises(ValidationError):
+        _make_request(
+            prediction_context={**_FULL_PRICE_PREDICTION, "average_price_source": "unknown"}
+        )
+
+
+def test_price_context_omits_unset_flags():
+    """holiday/festival lines appear only when the flag is actually true."""
+    body = _price_block(holiday_week=False, festival_week=False)
+    assert "holiday week" not in body
+    assert "festival week" not in body
+
+
+def test_price_context_carries_no_yield_fields():
+    """A price handoff must not leak yield wording into the block."""
+    body = _price_block()
+    assert "kg/ha" not in body
+    assert "Cultivated area" not in body
+
+
+def test_price_context_never_touches_the_user_message():
+    msgs = _price_msgs()
+    user = [m for m in msgs if m["role"] == "user"]
+    assert user[-1]["content"] == "Explain this price"
+    assert "78" not in user[-1]["content"]

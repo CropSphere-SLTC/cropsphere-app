@@ -1,7 +1,7 @@
 """Pydantic request/response schemas with strict input validation for all endpoints."""
 
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -250,24 +250,47 @@ class PredictionWeather(BaseModel):
 
 
 class PredictionContext(BaseModel):
-    """A yield prediction the farmer is asking about, attached to a chat
-    message so the LLM can ground its answer in these specific numbers
-    instead of generic dataset figures.
+    """A prediction the farmer is asking about, attached to a chat message so
+    the LLM can ground its answer in these specific numbers instead of generic
+    dataset figures.
+
+    Carries EITHER a yield prediction or a price prediction. The two share
+    crop/district/season and are otherwise disjoint, so rather than a second
+    model and a second request field they live in one optional-everything
+    block: the client sends whatever its screen produced, and
+    _format_prediction_context renders only the fields that are set.
 
     Every field is optional — the client sends whatever the prediction
-    produced. Crop/district/season/irrigation are ENUMS, not free strings:
-    nothing here is client-authored prose, so this block cannot become a
+    produced. Crop/district/season/irrigation are ENUMS, not free strings, and
+    the price fields below are bounded floats, booleans, or Literals: nothing
+    here is client-authored prose, so this block cannot become a
     prompt-injection vector the way an arbitrary text field would.
     """
 
     crop: Optional[CropEnum] = None
     district: Optional[DistrictEnum] = None
     season: Optional[SeasonEnum] = None
+
+    # ── Yield-side fields ────────────────────────────────────────────────────
     irrigation: Optional[IrrigationEnum] = None
     area_perches: Optional[float] = Field(default=None, ge=0, le=200000)
     area_hectares: Optional[float] = Field(default=None, ge=0, le=500)
     predicted_yield_kg_per_ha: Optional[float] = Field(default=None, ge=0, le=1000000)
     average_yield_kg_per_ha: Optional[float] = Field(default=None, ge=0, le=1000000)
+
+    # ── Price-side fields ────────────────────────────────────────────────────
+    predicted_price_lkr_kg: Optional[float] = Field(default=None, ge=0, le=100000)
+    average_price_lkr_kg: Optional[float] = Field(default=None, ge=0, le=100000)
+    # Omitted when the backend reported no attributable baseline, mirroring the
+    # client contract: an unattributed average is not stated at all.
+    average_price_source: Optional[Literal["real", "synthetic"]] = None
+    quantity_kg: Optional[float] = Field(default=None, ge=0, le=1000000)
+    estimated_earnings_lkr: Optional[float] = Field(default=None, ge=0, le=1000000000)
+    supply_level: Optional[Literal["low", "normal", "high"]] = None
+    demand_level: Optional[Literal["low", "normal", "high"]] = None
+    holiday_week: Optional[bool] = None
+    festival_week: Optional[bool] = None
+
     confidence: Optional[ConfidenceEnum] = None
     weather: Optional[PredictionWeather] = None
 
@@ -282,7 +305,8 @@ class ChatRequest(BaseModel):
     crop: Optional[CropEnum] = None
     model: str = Field(default="accurate", pattern="^(fast|accurate)$")
     conversation_id: Optional[str] = Field(default=None, max_length=128)
-    # Optional structured yield prediction the farmer is asking about. When
+    # Optional structured prediction (yield OR price) the farmer is asking
+    # about. When
     # present, _build_messages injects it as an extra system context block
     # (see chatbot_service._format_prediction_context). It NEVER touches
     # `message`, so chat_analytics keeps logging only the farmer's own short

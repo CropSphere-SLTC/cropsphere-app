@@ -2689,14 +2689,18 @@ def _format_prompt_tuning_injection() -> str:
 def _format_prediction_context(pc) -> str:
     """Render a PredictionContext as one plain-text context block for the LLM.
 
-    Inputs: pc (schemas.PredictionContext or None) — the yield prediction the
-    farmer tapped "Ask AI about this" on.
+    Inputs: pc (schemas.PredictionContext or None) — the yield OR price
+    prediction the farmer tapped "Ask AI about this" on. The two share
+    crop/district/season and are otherwise disjoint; only the fields actually
+    set are rendered, so one block serves both without either screen's
+    numbers leaking into the other's conversation.
     Outputs: a system-message body, or "" when there is nothing to say (pc is
     None, or every field was left unset) so the caller can skip the message
     entirely.
 
-    Security assumption: every field on PredictionContext is either an enum
-    or a bounded float (see schemas.PredictionContext), so nothing
+    Security assumption: every field on PredictionContext is an enum, a
+    Literal, a bool, or a bounded float (see schemas.PredictionContext), so
+    nothing
     client-authored reaches the prompt as free text. No sanitising is needed
     here and none is done — if a free-text field is ever added to that model,
     it must be run through _strip_html before being interpolated below.
@@ -2738,6 +2742,45 @@ def _format_prediction_context(pc) -> str:
         )
         direction = "above" if delta >= 0 else "below"
         facts.append(f"- Difference: {abs(delta):.0f}% {direction} the average")
+    # ── Price-side facts ─────────────────────────────────────────────────────
+    if pc.predicted_price_lkr_kg is not None:
+        facts.append(
+            f"- Predicted farmgate price: Rs. {pc.predicted_price_lkr_kg:,.0f}/kg"
+        )
+    if pc.average_price_lkr_kg is not None:
+        line = f"- Average farmgate price for this crop: Rs. {pc.average_price_lkr_kg:,.0f}/kg"
+        # Provenance travels WITH the number. A null source means the client
+        # showed no baseline and stated nothing about where one came from;
+        # the assistant must not be handed one either.
+        if pc.average_price_source == "real":
+            line += " (from real market data)"
+        elif pc.average_price_source == "synthetic":
+            line += " (estimated from modelled data)"
+        facts.append(line)
+    # Same reasoning as the yield gap above: state the comparison outright
+    # rather than leaving the model to derive it from two figures.
+    if pc.predicted_price_lkr_kg is not None and pc.average_price_lkr_kg:
+        delta = (
+            (pc.predicted_price_lkr_kg - pc.average_price_lkr_kg)
+            / pc.average_price_lkr_kg
+            * 100
+        )
+        direction = "above" if delta >= 0 else "below"
+        facts.append(f"- Difference: {abs(delta):.0f}% {direction} the average")
+    if pc.quantity_kg is not None:
+        qty = f"- Quantity the farmer plans to sell: {pc.quantity_kg:,.0f} kg"
+        if pc.estimated_earnings_lkr is not None:
+            qty += f" (estimated Rs. {pc.estimated_earnings_lkr:,.0f} total)"
+        facts.append(qty)
+    if pc.supply_level:
+        facts.append(f"- Market supply: {pc.supply_level}")
+    if pc.demand_level:
+        facts.append(f"- Buyer demand: {pc.demand_level}")
+    if pc.holiday_week:
+        facts.append("- This is a holiday week")
+    if pc.festival_week:
+        facts.append("- This is a festival week")
+
     if pc.confidence:
         facts.append(f"- Model confidence: {pc.confidence.value}")
 
@@ -2760,8 +2803,19 @@ def _format_prediction_context(pc) -> str:
     if not facts:
         return ""
 
+    # Name the right kind of prediction. The block used to say "yield"
+    # unconditionally; with price contexts sharing this model, telling the
+    # assistant a farmer is asking about a yield prediction while handing it
+    # Rs./kg figures invites it to answer the wrong question.
+    if pc.predicted_yield_kg_per_ha is not None:
+        kind = "yield prediction"
+    elif pc.predicted_price_lkr_kg is not None:
+        kind = "price prediction"
+    else:
+        kind = "prediction"
+
     return (
-        "The farmer is asking about a yield prediction CropSphere just "
+        f"The farmer is asking about a {kind} CropSphere just "
         "produced for them. Ground your answer in THESE figures — they "
         "override any general dataset averages you were given above:\n"
         + "\n".join(facts)

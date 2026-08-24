@@ -528,6 +528,24 @@ class PredictionContext {
   final double? areaHectares;
   final double? predictedYieldKgPerHa;
   final double? averageYieldKgPerHa;
+
+  // ── Price-side fields ──────────────────────────────────────────────────────
+  // Set by the price screen instead of the yield fields above. One model
+  // carries either prediction; the backend renders only what is set.
+  final double? predictedPriceLkrKg;
+  final double? averagePriceLkrKg;
+
+  /// 'real' | 'synthetic', or null. Null is NOT a fallback label — it means
+  /// the backend attributed no baseline, so neither the card nor the chat
+  /// context says anything about where the average came from.
+  final String? averagePriceSource;
+  final double? quantityKg;
+  final double? estimatedEarningsLkr;
+  final String? supplyLevel; // low | normal | high
+  final String? demandLevel; // low | normal | high
+  final bool? holidayWeek;
+  final bool? festivalWeek;
+
   final String? confidence;
   final PredictionWeather? weather;
 
@@ -540,6 +558,15 @@ class PredictionContext {
     this.areaHectares,
     this.predictedYieldKgPerHa,
     this.averageYieldKgPerHa,
+    this.predictedPriceLkrKg,
+    this.averagePriceLkrKg,
+    this.averagePriceSource,
+    this.quantityKg,
+    this.estimatedEarningsLkr,
+    this.supplyLevel,
+    this.demandLevel,
+    this.holidayWeek,
+    this.festivalWeek,
     this.confidence,
     this.weather,
   });
@@ -552,6 +579,8 @@ class PredictionContext {
     ?district,
     if (predictedYieldKgPerHa != null)
       '${predictedYieldKgPerHa!.toStringAsFixed(0)} kg/ha',
+    if (predictedPriceLkrKg != null)
+      'Rs. ${predictedPriceLkrKg!.toStringAsFixed(0)}/kg',
   ].join(' · ');
 
   Map<String, dynamic> toJson() => {
@@ -565,6 +594,17 @@ class PredictionContext {
       'predicted_yield_kg_per_ha': predictedYieldKgPerHa,
     if (averageYieldKgPerHa != null)
       'average_yield_kg_per_ha': averageYieldKgPerHa,
+    if (predictedPriceLkrKg != null)
+      'predicted_price_lkr_kg': predictedPriceLkrKg,
+    if (averagePriceLkrKg != null) 'average_price_lkr_kg': averagePriceLkrKg,
+    if (averagePriceSource != null) 'average_price_source': averagePriceSource,
+    if (quantityKg != null) 'quantity_kg': quantityKg,
+    if (estimatedEarningsLkr != null)
+      'estimated_earnings_lkr': estimatedEarningsLkr,
+    if (supplyLevel != null) 'supply_level': supplyLevel,
+    if (demandLevel != null) 'demand_level': demandLevel,
+    if (holidayWeek != null) 'holiday_week': holidayWeek,
+    if (festivalWeek != null) 'festival_week': festivalWeek,
     if (confidence != null) 'confidence': confidence,
     if (weather != null) 'weather': weather!.toJson(),
   };

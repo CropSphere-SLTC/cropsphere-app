@@ -54,3 +54,15 @@ const List<String> kPredictionStarters = [
   'What price will I get for this?',
   'Is this a good yield for my area?',
 ];
+
+/// The four quick questions offered on a price prediction result.
+///
+/// English-only for the same reason as [kPredictionStarters]: they are sent
+/// verbatim as the farmer's chat message, so translating the label would mean
+/// the transcript no longer matched the chip that was tapped.
+const List<String> kPriceStarters = [
+  'Explain this price',
+  'When should I sell?',
+  'How does this compare to other districts?',
+  'How can I get a better price?',
+];

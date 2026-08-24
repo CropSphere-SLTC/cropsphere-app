@@ -1774,14 +1774,19 @@ class _ChatScreenState extends State<ChatScreen> {
     ];
   }
 
-  /// Shown when the farmer arrived from a yield prediction via the free-form
-  /// "Ask something else about this" button, i.e. without having picked a
-  /// question yet.
+  /// Shown when the farmer arrived from a yield OR price prediction via the
+  /// free-form "Ask something else about this" button, i.e. without having
+  /// picked a question yet.
   ///
-  /// It carries NO starter chips: the four quick questions live on the yield
-  /// result card now, and tapping one there is auto-sent on arrival — so this
-  /// state is only ever reached when the farmer wants to type their own.
+  /// It carries NO starter chips: the four quick questions live on the
+  /// originating result card, and tapping one there is auto-sent on arrival —
+  /// so this state is only ever reached when the farmer wants to type their
+  /// own.
   Widget _buildPredictionEmptyState(PredictionContext ctx) {
+    // Name the prediction the farmer actually arrived from. Calling a price
+    // handoff a "yield prediction" would contradict the figures shown right
+    // below it in ctx.summary.
+    final isPrice = ctx.predictedPriceLkrKg != null;
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 600),
@@ -1793,7 +1798,9 @@ class _ChatScreenState extends State<ChatScreen> {
               const GrowthLogo(progress: 1.0, size: 72),
               const SizedBox(height: 16),
               Text(
-                'About your yield prediction',
+                isPrice
+                    ? 'About your price prediction'
+                    : 'About your yield prediction',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 22,
@@ -1824,9 +1831,12 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               ],
               const SizedBox(height: 10),
-              const Text(
-                'Ask anything about it — I have your crop, district, '
-                'season, area and weather.',
+              Text(
+                isPrice
+                    ? 'Ask anything about it — I have your crop, district, '
+                          'season, market conditions and quantity.'
+                    : 'Ask anything about it — I have your crop, district, '
+                          'season, area and weather.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 13.5,

@@ -78,6 +78,11 @@ class AppTheme {
   // Login/auth screen palette — see AppLoginTheme below.
   static const AppLoginTheme login = AppLoginTheme._();
 
+  // Per-feature accent palette — see AppFeatureAccents below. Plural: the
+  // singular `accent` above is the pre-existing harvest-amber token, still
+  // used by the chat and admin screens.
+  static const AppFeatureAccents accents = AppFeatureAccents._();
+
   // Confidence colors
   static Color confidenceColor(String confidence) {
     switch (confidence.toLowerCase()) {
@@ -200,6 +205,117 @@ class AppLoginTheme {
   Color get outsideMutedText => const Color(0xFF455245);
   Color get errorMuted => const Color(0xFFC0473F); // muted validation errors
   Color get focusRing => const Color(0xFF80B080); // Muted Olive — input focus
+}
+
+// ─── PER-FEATURE ACCENTS ─────────────────────────────────────────────────────
+// One accent per feature screen, so Price/Weather/Demand read as distinct
+// places in the app while every neutral, surface and primary action stays on
+// AppTheme.login.*.
+//
+// WHERE ACCENTS MAY BE USED
+//   • the feature's header card background        -> accent.X.fill  (+ onFill)
+//   • that screen's section labels                -> accent.X.ink
+//   • small icon tints within that screen         -> accent.X.ink
+//
+// WHERE THEY MAY NOT
+//   • primary action buttons — those stay AppTheme.login.primaryDark app-wide,
+//     so "press this to proceed" looks the same everywhere and keeps its
+//     verified 6.92:1 contrast.
+//   • page backgrounds, card surfaces, body text, borders, inputs — all stay
+//     on the AppTheme.login.* neutrals.
+//
+// WHY THREE TOKENS AND NOT ONE
+// A saturated fill and a readable ink are different jobs and, for four of
+// these six hues, different colours. The identity hues were measured against
+// both white and textPrimary (#1F2A1F) on the fill, and against the page
+// background (#FCFBF6) as text:
+//
+//   fill      white   #1F2A1F   as text on #FCFBF6
+//   #3A8943   4.34✗   3.43✗     4.19✗     Sea Green — fails BOTH on the fill
+//   #DF8A58   2.65✗   5.62✓     2.56✗     Terracotta
+//   #2D689B   5.89✓   2.53✗     5.69✓     Deep Blue — the only self-sufficient one
+//   #7CA759   2.79✗   5.34✓     2.69✗     Muted Olive
+//   #BA9454   2.82✗   5.29✓     2.72✗     Ochre
+//
+// So [fill] keeps the identity hue, [onFill] is whichever of white/textPrimary
+// actually clears 4.5:1 on it, and [ink] is that hue darkened in HLS — hue and
+// saturation preserved — until it clears 4.5:1 as TEXT on #FCFBF6. That last
+// threshold is the binding one: anything passing it also clears 4.5:1 against
+// white, so one ink token covers labels, icons and any white-on-accent surface.
+//
+// Sea Green is the exception. At 4.34:1 on white and 3.43:1 on textPrimary it
+// carries no small text in either direction, so yield/chat use the existing,
+// already-verified login.primaryDark (#306534, 6.92:1 white / 6.67:1 on the
+// page background) rather than a newly invented green. #3A8943 remains correct
+// where it is used today — as a button fill behind white, and as
+// login.primaryGreen — it just cannot be a header carrying a 12px subtitle.
+class FeatureAccent {
+  /// Header-card background. The feature's identity colour.
+  final Color fill;
+
+  /// Text and icons drawn ON [fill]. Whichever of white / login.textPrimary
+  /// reaches AA there — never assume white.
+  final Color onFill;
+
+  /// Section labels and small icon tints on the page background. Always AA
+  /// against #FCFBF6, so it is also safe as a fill behind white.
+  final Color ink;
+
+  const FeatureAccent({
+    required this.fill,
+    required this.onFill,
+    required this.ink,
+  });
+}
+
+class AppFeatureAccents {
+  const AppFeatureAccents._();
+
+  static const Color _onLight = Color(0xFF1F2A1F); // == login.textPrimary
+  static const Color _hunter = Color(0xFF306534); // == login.primaryDark
+
+  /// Sea Green identity, but see the class comment: #3A8943 carries no small
+  /// text, so the header falls back to Hunter Green.
+  FeatureAccent get yield => const FeatureAccent(
+    fill: _hunter,
+    onFill: Colors.white, // 6.92:1
+    ink: _hunter, // 6.67:1 on #FCFBF6
+  );
+
+  /// Terracotta.
+  FeatureAccent get price => const FeatureAccent(
+    fill: Color(0xFFDF8A58),
+    onFill: _onLight, // 5.62:1
+    ink: Color(0xFFB75A23), // 4.50:1 on #FCFBF6
+  );
+
+  /// Deep Blue — dark enough to take white text and to serve as its own ink.
+  FeatureAccent get weather => const FeatureAccent(
+    fill: Color(0xFF2D689B),
+    onFill: Colors.white, // 5.89:1
+    ink: Color(0xFF2D689B), // 5.69:1 on #FCFBF6
+  );
+
+  /// Muted Olive.
+  FeatureAccent get cropRec => const FeatureAccent(
+    fill: Color(0xFF7CA759),
+    onFill: _onLight, // 5.34:1
+    ink: Color(0xFF5D7D42), // 4.53:1 on #FCFBF6
+  );
+
+  /// Ochre.
+  FeatureAccent get demand => const FeatureAccent(
+    fill: Color(0xFFBA9454),
+    onFill: _onLight, // 5.29:1
+    ink: Color(0xFF8F6F3A), // 4.50:1 on #FCFBF6
+  );
+
+  /// Core brand green — same Sea Green caveat as [yield].
+  FeatureAccent get chat => const FeatureAccent(
+    fill: _hunter,
+    onFill: Colors.white, // 6.92:1
+    ink: _hunter, // 6.67:1 on #FCFBF6
+  );
 }
 
 // ─── REUSABLE WIDGETS ────────────────────────────────────────────────────────

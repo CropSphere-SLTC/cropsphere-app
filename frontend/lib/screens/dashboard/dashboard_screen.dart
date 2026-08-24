@@ -38,14 +38,9 @@ import '../../app_lang.dart';
 import '../../services/profile_service.dart';
 import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
-import '../../widgets/brand_wordmark.dart';
-import '../../widgets/top_nav_items.dart';
-import '../../widgets/top_nav_metrics.dart';
-import '../../widgets/language_control.dart';
+import '../../widgets/app_top_bar.dart';
 import '../../widgets/price_comparison_card.dart';
-import '../../widgets/profile_avatar_button.dart';
 import '../../widgets/skeleton_loading.dart';
-import '../../widgets/theme_toggle_button.dart';
 import '../../widgets/todays_recommendation_hero.dart';
 import '../profile/account_settings_screen.dart';
 
@@ -710,27 +705,6 @@ class _DashIcons {
   <path d="M23 7L25.5 9.5L29 5" stroke="#FAC775" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>''';
 
-  static const cropSphere =
-      '''<svg viewBox="0 0 110 110" xmlns="http://www.w3.org/2000/svg">
-  <ellipse cx="55" cy="96" rx="36" ry="7" fill="#1B4D1B" opacity="0.7"/>
-  <path d="M55 95 C55 80 52 65 50 50" stroke="#4CAF50" stroke-width="2.5" stroke-linecap="round" fill="none"/>
-  <path d="M50 65 C35 58 22 42 28 28 C38 40 48 55 50 65Z" fill="#388E3C" opacity="0.9"/>
-  <path d="M50 65 C42 58 35 44 28 28" stroke="#2E7D32" stroke-width="1" fill="none" opacity="0.6"/>
-  <path d="M52 58 C67 50 80 36 74 22 C64 34 55 50 52 58Z" fill="#4CAF50" opacity="0.9"/>
-  <path d="M52 58 C62 50 70 36 74 22" stroke="#388E3C" stroke-width="1" fill="none" opacity="0.6"/>
-  <path d="M50 50 C38 44 30 32 34 20 C42 30 48 42 50 50Z" fill="#66BB6A" opacity="0.8"/>
-  <circle cx="50" cy="28" r="3.5" fill="#FFC107" opacity="0.9"/>
-  <circle cx="44" cy="22" r="3"   fill="#FFB300" opacity="0.85"/>
-  <circle cx="56" cy="20" r="3"   fill="#FFC107" opacity="0.9"/>
-  <circle cx="50" cy="14" r="3.5" fill="#FFD54F" opacity="0.95"/>
-  <circle cx="43" cy="13" r="2.5" fill="#FFB300" opacity="0.8"/>
-  <circle cx="57" cy="12" r="2.5" fill="#FFC107" opacity="0.85"/>
-  <circle cx="50" cy="8"  r="2"   fill="#FFD54F" opacity="0.9"/>
-  <path d="M50 50 C50 42 50 35 50 28" stroke="#558B2F" stroke-width="2" stroke-linecap="round" fill="none"/>
-  <ellipse cx="40" cy="46" rx="2" ry="3" fill="#B3E5FC" opacity="0.6" transform="rotate(-20 40 46)"/>
-  <ellipse cx="63" cy="40" rx="1.5" ry="2.5" fill="#B3E5FC" opacity="0.5" transform="rotate(15 63 40)"/>
-</svg>''';
-
   static String forKey(String key) {
     if (key == 'yield') return yield_;
     if (key == 'price') return price;
@@ -1120,7 +1094,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     return Column(
       children: [
-        _buildMobileAppBar(context, width),
+        _buildTopBar(context),
         Expanded(
           child: RefreshIndicator(
             color: AppTheme.primary,
@@ -1320,141 +1294,17 @@ class _DashboardScreenState extends State<DashboardScreen>
   //  on tablet+ where there's room). Navigation on mobile happens via
   //  the action grid / chat / profile sheet.
   // ─────────────────────────────────────────────────────────────────────────
-  Widget _buildMobileAppBar(BuildContext context, double width) {
-    final bool isSmall = width < 340;
-    final double logoSize = isSmall ? 26 : 30;
-    return Container(
-      height: 56,
-      padding: EdgeInsets.symmetric(horizontal: isSmall ? 10 : 14),
-      decoration: const BoxDecoration(
-        // Faint green tint (not flat white) so the app bar reads as part
-        // of the same brand wash as the rest of the screen.
-        color: Color(0xFFFAFDFA),
-        border: Border(bottom: BorderSide(color: Color(0xFFE4EEE4))),
-      ),
-      child: Row(
-        children: [
-          SvgPicture.string(
-            _DashIcons.cropSphere,
-            width: logoSize,
-            height: logoSize,
-          ),
-          const SizedBox(width: 8),
-          Text(
-            'CropSphere',
-            style: TextStyle(
-              color: const Color(0xFF1B4D1B),
-              fontSize: isSmall ? 14.5 : 16,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.2,
-            ),
-          ),
-          const Spacer(),
-          const LanguageControl(),
-          const SizedBox(width: 8),
-          const ThemeToggleButton(),
-          const SizedBox(width: 8),
-          const ProfileAvatarButton(diameter: 32),
-        ],
-      ),
-    );
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  //  Top bar (tablet + web)
-  // ─────────────────────────────────────────────────────────────────────────
-  Widget _buildTopBar(BuildContext context) {
-    final m = TopNavMetrics.of(context);
-    final lang = AppLangProvider.lang(context);
-    final List<String> navLabels;
-    if (lang == AppLang.si) {
-      navLabels = ['මුල', 'අස්වැන්න', 'මිල', 'කාලගුණ', 'භෝග', 'ඉල්ලුම', 'AI'];
-    } else if (lang == AppLang.ta) {
-      navLabels = [
-        'முகப்பு',
-        'விளைச்சல்',
-        'விலை',
-        'வானிலை',
-        'பயிர்',
-        'தேவை',
-        'AI',
-      ];
-    } else {
-      navLabels = [
-        'Home',
-        'Yield',
-        'Price',
-        'Weather',
-        'Crop',
-        'Demand',
-        'Chat',
-      ];
-    }
-
-    return Container(
-      height: m.barHeight,
-      decoration: const BoxDecoration(
-        color: Color(0xFFFAFDFA),
-        border: Border(bottom: BorderSide(color: Color(0xFFE4EEE4))),
-        boxShadow: [
-          BoxShadow(
-            color: Color(0x0A000000),
-            blurRadius: 6,
-            offset: Offset(0, 2),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          // Logo
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: m.logoSize,
-                height: m.logoSize,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: const Color(0xFF4CAF50).withValues(alpha: 0.15),
-                ),
-                child: Center(
-                  child: SvgPicture.string(
-                    _DashIcons.cropSphere,
-                    width: m.logoGlyphSize,
-                    height: m.logoGlyphSize,
-                  ),
-                ),
-              ),
-              const BrandWordmark(),
-            ],
-          ),
-          // Nav links
-          Expanded(
-            child: Center(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: TopNavItems(
-                  labels: navLabels,
-                  activeIndex: 0,
-                  activeBg: const Color(0xFFE8F5E9),
-                  activeColor: const Color(0xFF1B5E20),
-                  onNavigate: widget.onNavigate,
-                  metrics: m,
-                ),
-              ),
-            ),
-          ),
-          LanguageControl(labelSize: m.langLabelSize, height: m.controlHeight),
-          SizedBox(width: m.clusterGap),
-          ThemeToggleButton(size: m.toggleIconSize, height: m.controlHeight),
-          SizedBox(width: m.clusterGap),
-          const ProfileAvatarButton(),
-        ],
-      ),
-    );
-  }
+  // Dashboard is nav index 0. Both this and the old separate
+  // _buildMobileAppBar (different height, logo size, a hand-rolled
+  // "CropSphere" text, a bare default-sized ProfileAvatarButton — none of it
+  // wired to TopNavMetrics) are gone: see app_top_bar.dart for why this is
+  // one shared widget now instead of six independent copies of this bar.
+  Widget _buildTopBar(BuildContext context) => AppTopBar(
+    activeIndex: 0,
+    activeBg: const Color(0xFFE8F5E9),
+    activeColor: const Color(0xFF1B5E20),
+    onNavigate: widget.onNavigate,
+  );
 
   // ─────────────────────────────────────────────────────────────────────────
   //  Greeting line + season/date pills (replaces the old green hero card)

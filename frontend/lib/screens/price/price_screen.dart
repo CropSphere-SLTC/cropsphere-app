@@ -27,14 +27,9 @@ import '../../services/prediction_handoff.dart';
 import '../../services/service_factory.dart';
 import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
-import '../../widgets/brand_wordmark.dart';
+import '../../widgets/app_top_bar.dart';
 import '../../widgets/followup_chip.dart';
-import '../../widgets/top_nav_items.dart';
-import '../../widgets/top_nav_metrics.dart';
-import '../../widgets/language_control.dart';
-import '../../widgets/profile_avatar_button.dart';
 import '../../widgets/skeleton_loading.dart';
-import '../../widgets/theme_toggle_button.dart';
 
 typedef _L = Map<String, String>;
 
@@ -175,28 +170,6 @@ const List<_MarketLevel> _demandLevels = [
   }, 75),
   _MarketLevel('high', {'en': 'High', 'si': 'වැඩියි', 'ta': 'அதிகம்'}, 140),
 ];
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  SVG icons (matching Dashboard / Yield)
-// ─────────────────────────────────────────────────────────────────────────────
-const String _cropSphereSvg =
-    '''<svg viewBox="0 0 110 110" xmlns="http://www.w3.org/2000/svg">
-  <ellipse cx="55" cy="96" rx="36" ry="7" fill="#1B4D1B" opacity="0.7"/>
-  <path d="M55 95 C55 80 52 65 50 50" stroke="#4CAF50" stroke-width="2.5" stroke-linecap="round" fill="none"/>
-  <path d="M50 65 C35 58 22 42 28 28 C38 40 48 55 50 65Z" fill="#388E3C" opacity="0.9"/>
-  <path d="M50 65 C42 58 35 44 28 28" stroke="#2E7D32" stroke-width="1" fill="none" opacity="0.6"/>
-  <path d="M52 58 C67 50 80 36 74 22 C64 34 55 50 52 58Z" fill="#4CAF50" opacity="0.9"/>
-  <path d="M52 58 C62 50 70 36 74 22" stroke="#388E3C" stroke-width="1" fill="none" opacity="0.6"/>
-  <path d="M50 50 C38 44 30 32 34 20 C42 30 48 42 50 50Z" fill="#66BB6A" opacity="0.8"/>
-  <circle cx="50" cy="28" r="3.5" fill="#FFC107" opacity="0.9"/>
-  <circle cx="44" cy="22" r="3" fill="#FFB300" opacity="0.85"/>
-  <circle cx="56" cy="20" r="3" fill="#FFC107" opacity="0.9"/>
-  <circle cx="50" cy="14" r="3.5" fill="#FFD54F" opacity="0.95"/>
-  <circle cx="43" cy="13" r="2.5" fill="#FFB300" opacity="0.8"/>
-  <circle cx="57" cy="12" r="2.5" fill="#FFC107" opacity="0.85"/>
-  <circle cx="50" cy="8" r="2" fill="#FFD54F" opacity="0.9"/>
-  <path d="M50 50 C50 42 50 35 50 28" stroke="#558B2F" stroke-width="2" stroke-linecap="round" fill="none"/>
-</svg>''';
 
 String _navSvg(int i, Color color) {
   final c =
@@ -665,7 +638,7 @@ class _PriceScreenState extends State<PriceScreen> {
         final w = bc.maxWidth;
         return Column(
           children: [
-            _buildTopBar(context, w),
+            _buildTopBar(context),
             Expanded(child: _buildDetailsTab(w)),
           ],
         );
@@ -757,133 +730,17 @@ class _PriceScreenState extends State<PriceScreen> {
   }
 
   // ── Top bar ────────────────────────────────────────────────────────────────
-  Widget _buildTopBar(BuildContext context, double width) {
-    if (width < 600) return _buildMobileTopBar(width);
-    return _buildFullTopBar(context);
-  }
-
-  // ── Mobile top bar — logo + language pill only. ────────────────────────────
-  //    Nav labels (Dashboard/Yield/Price/Weather/Crop Rec./Demand/AI Chat)
-  //    are dropped here — there's no room, and navigation on mobile happens
-  //    through the dashboard's own action grid instead.
-  Widget _buildMobileTopBar(double width) {
-    final bool isSmall = width < 340;
-    return Container(
-      height: 56,
-      padding: EdgeInsets.symmetric(horizontal: isSmall ? 10 : 14),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: Color(0xFFE4EEE4))),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: isSmall ? 34 : 38,
-            height: isSmall ? 34 : 38,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: const Color(0xFF4CAF50).withValues(alpha: 0.15),
-            ),
-            child: Center(
-              child: SvgPicture.string(
-                _cropSphereSvg,
-                width: isSmall ? 22 : 26,
-                height: isSmall ? 22 : 26,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          // Flexible, not fixed: at 320dp the wordmark's intrinsic width plus
-          // the three trailing controls overran the bar. It gives way first.
-          Flexible(
-            child: Text(
-              'CropSphere',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: const Color(0xFF1B4D1B),
-                fontSize: isSmall ? 14.5 : 16,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.2,
-              ),
-            ),
-          ),
-          const Spacer(),
-          const LanguageControl(),
-          const SizedBox(width: 8),
-          const ThemeToggleButton(),
-          const SizedBox(width: 8),
-          const ProfileAvatarButton(diameter: 32),
-        ],
-      ),
-    );
-  }
-
-  // ── Tablet/web top bar — logo + nav labels + language pill. ────────────────
-  Widget _buildFullTopBar(BuildContext context) {
-    final m = TopNavMetrics.of(context);
-    final lang = AppLangProvider.lang(context);
-    final List<String> navLabels = lang == AppLang.si
-        ? ['මුල', 'අස්වැන්න', 'මිල', 'කාලගුණ', 'භෝග', 'ඉල්ලුම', 'AI']
-        : lang == AppLang.ta
-        ? ['முகப்பு', 'விளைச்சல்', 'விலை', 'வானிலை', 'பயிர்', 'தேவை', 'AI']
-        : ['Home', 'Yield', 'Price', 'Weather', 'Crop', 'Demand', 'Chat'];
-
-    final activeBg = AppTheme.accents.price.fill.withValues(alpha: 0.16);
-    final activeColor = AppTheme.accents.price.ink;
-
-    return Container(
-      height: m.barHeight,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: Color(0xFFE4EEE4))),
-        boxShadow: [
-          BoxShadow(
-            color: Color(0x0A000000),
-            blurRadius: 6,
-            offset: Offset(0, 2),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      child: Row(
-        children: [
-          Container(
-            width: m.logoSize,
-            height: m.logoSize,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: const Color(0xFF4CAF50).withValues(alpha: 0.15),
-            ),
-            child: Center(
-              child: SvgPicture.string(_cropSphereSvg, width: 32, height: 32),
-            ),
-          ),
-          const BrandWordmark(),
-          Expanded(
-            child: Center(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: TopNavItems(
-                  labels: navLabels,
-                  activeIndex: 2,
-                  activeBg: activeBg,
-                  activeColor: activeColor,
-                  onNavigate: widget.onNavigate,
-                  metrics: m,
-                ),
-              ),
-            ),
-          ),
-          LanguageControl(labelSize: m.langLabelSize, height: m.controlHeight),
-          SizedBox(width: m.clusterGap),
-          ThemeToggleButton(size: m.toggleIconSize, height: m.controlHeight),
-          SizedBox(width: m.clusterGap),
-          ProfileAvatarButton(diameter: m.avatarSize),
-        ],
-      ),
-    );
-  }
+  // This screen used to be the ONE screen with its own separate, hand-tuned
+  // mobile bar (different height, logo size, a hand-rolled "CropSphere" text,
+  // default-sized language/theme/avatar controls, none of it wired to
+  // TopNavMetrics) — the exact drift app_top_bar.dart exists to end. `width`
+  // is no longer needed: AppTopBar handles every breakpoint itself.
+  Widget _buildTopBar(BuildContext context) => AppTopBar(
+    activeIndex: 2,
+    activeBg: AppTheme.accents.price.fill.withValues(alpha: 0.16),
+    activeColor: AppTheme.accents.price.ink,
+    onNavigate: widget.onNavigate,
+  );
 
   // ── Form column — Crop/Location, Market Conditions, Quantity only; ────────
   //    Selling Tips now lives in its own tab, which is what keeps this
@@ -949,8 +806,13 @@ class _PriceScreenState extends State<PriceScreen> {
 
   // ── Page header ────────────────────────────────────────────────────────────
   // The feature header — the one place the price accent appears as a large
-  // fill. Flat, not a gradient: the measured 5.62:1 holds for #DF8A58, and a
+  // fill. Flat, not a gradient: the measured 5.18:1 holds for #AB5524, and a
   // gradient would have run text over a lighter stop that was never checked.
+  //
+  // Fill is #AB5524, not the original #DF8A58: by request, this header
+  // carries WHITE text/icons rather than dark. #DF8A58 measured white at
+  // 2.65:1 (fails even the 3:1 non-text floor) — #AB5524 is the same hue
+  // family, deepened, at 5.18:1. See AppFeatureAccents.price for the numbers.
   Widget _pageHeader() => Container(
     padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(
@@ -969,13 +831,15 @@ class _PriceScreenState extends State<PriceScreen> {
         Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            // An INK scrim, not a white one: white would lighten the fill
-            // and push the dark glyph on it below AA.
+            // An INK scrim, not a white one: white would LIGHTEN the fill,
+            // and lightening always erodes contrast for white text/icons —
+            // a white scrim here drops the badge to 4.30:1; ink barely
+            // moves the fill (same family), keeping it at 5.11:1.
             color: AppTheme.accents.price.ink.withValues(alpha: 0.10),
             borderRadius: BorderRadius.circular(10),
           ),
           child: SvgPicture.string(
-            // White on #DF8A58 is 2.65:1 — under the 3:1 non-text floor.
+            // White on #AB5524 is 5.18:1.
             _navSvg(2, AppTheme.accents.price.onFill),
             width: 26,
             height: 26,
@@ -993,7 +857,7 @@ class _PriceScreenState extends State<PriceScreen> {
                   'ta': 'விலை கணிப்பான்',
                 }),
                 style: TextStyle(
-                  color: AppTheme.accents.price.onFill, // 5.62:1
+                  color: AppTheme.accents.price.onFill, // 5.18:1
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
                 ),
@@ -1005,8 +869,8 @@ class _PriceScreenState extends State<PriceScreen> {
                   'ta': 'AI-சார்ந்த சந்தை விலை மதிப்பீடு',
                 }),
                 style: TextStyle(
-                  // 0.90 is the floor: at 0.85 the blended ink lands on
-                  // 4.43:1, under AA for 12px text.
+                  // 0.90 is the floor: at 0.85 the blended white lands on
+                  // 4.23:1, under AA for 12px text. At 0.90 it's 4.53:1.
                   color: AppTheme.accents.price.onFill.withValues(alpha: 0.90),
                   fontSize: 12,
                 ),
@@ -1023,7 +887,7 @@ class _PriceScreenState extends State<PriceScreen> {
           child: Text(
             'Week ${_weekOfYear()}',
             style: TextStyle(
-              color: AppTheme.accents.price.onFill, // 4.81:1 on the scrim
+              color: AppTheme.accents.price.onFill, // 5.11:1 on the scrim
               fontSize: 12,
               fontWeight: FontWeight.w600,
             ),

@@ -29,13 +29,8 @@ import '../../models/api_models.dart';
 import '../../services/service_factory.dart';
 import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
-import '../../widgets/brand_wordmark.dart';
-import '../../widgets/top_nav_items.dart';
-import '../../widgets/top_nav_metrics.dart';
-import '../../widgets/language_control.dart';
-import '../../widgets/profile_avatar_button.dart';
+import '../../widgets/app_top_bar.dart';
 import '../../widgets/skeleton_loading.dart';
-import '../../widgets/theme_toggle_button.dart';
 
 typedef _L = Map<String, String>;
 
@@ -122,20 +117,6 @@ final List<Map<String, _L>> _seasons = [
     'emoji': {'en': '🌤️', 'si': '🌤️', 'ta': '🌤️'},
   },
 ];
-
-const String _cropSphereSvg =
-    '''<svg viewBox="0 0 110 110" xmlns="http://www.w3.org/2000/svg">
-  <ellipse cx="55" cy="96" rx="36" ry="7" fill="#1B4D1B" opacity="0.7"/>
-  <path d="M55 95 C55 80 52 65 50 50" stroke="#4CAF50" stroke-width="2.5" stroke-linecap="round" fill="none"/>
-  <path d="M50 65 C35 58 22 42 28 28 C38 40 48 55 50 65Z" fill="#388E3C" opacity="0.9"/>
-  <path d="M52 58 C67 50 80 36 74 22 C64 34 55 50 52 58Z" fill="#4CAF50" opacity="0.9"/>
-  <path d="M50 50 C38 44 30 32 34 20 C42 30 48 42 50 50Z" fill="#66BB6A" opacity="0.8"/>
-  <circle cx="50" cy="28" r="3.5" fill="#FFC107" opacity="0.9"/>
-  <circle cx="44" cy="22" r="3" fill="#FFB300" opacity="0.85"/>
-  <circle cx="56" cy="20" r="3" fill="#FFC107" opacity="0.9"/>
-  <circle cx="50" cy="14" r="3.5" fill="#FFD54F" opacity="0.95"/>
-  <path d="M50 50 C50 42 50 35 50 28" stroke="#558B2F" stroke-width="2" stroke-linecap="round" fill="none"/>
-</svg>''';
 
 String _navSvg(int i, Color color) {
   final c =
@@ -679,93 +660,14 @@ class _DemandScreenState extends State<DemandScreen> {
     );
   }
 
-  // ── Top bar ────────────────────────────────────────────────────────────────
-  Widget _buildTopBar(BuildContext context) {
-    final m = TopNavMetrics.of(context);
-    final lang = AppLangProvider.lang(context);
-    final List<String> navLabels = lang == AppLang.si
-        ? ['මුල', 'අස්වැන්න', 'මිල', 'කාලගුණ', 'භෝග', 'ඉල්ලුම', 'AI']
-        : lang == AppLang.ta
-        ? ['முகப்பு', 'விளைச்சல்', 'விலை', 'வானிலை', 'பயிர்', 'தேவை', 'AI']
-        : ['Home', 'Yield', 'Price', 'Weather', 'Crop', 'Demand', 'Chat'];
-
-    const activeBg = Color(0xFFE8EAF6);
-    const activeColor = Color(0xFF283593);
-    const activeIndex = 5; // Demand
-
-    return Container(
-      height: m.barHeight,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: Color(0xFFE4EEE4))),
-        boxShadow: [
-          BoxShadow(
-            color: Color(0x0A000000),
-            blurRadius: 6,
-            offset: Offset(0, 2),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      child: LayoutBuilder(
-        builder: (ctx, bc) {
-          // Below 600px (mobile) the text nav labels are dropped entirely —
-          // just logo + language pill remain. Tablet/web (>=600px) keep the
-          // full nav bar.
-          final isMobile = bc.maxWidth < 600;
-          return Row(
-            children: [
-              Container(
-                width: m.logoSize,
-                height: m.logoSize,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: const Color(0xFF4CAF50).withValues(alpha: 0.15),
-                ),
-                child: Center(
-                  child: SvgPicture.string(
-                    _cropSphereSvg,
-                    width: m.logoGlyphSize,
-                    height: m.logoGlyphSize,
-                  ),
-                ),
-              ),
-              const BrandWordmark(),
-              if (!isMobile)
-                Expanded(
-                  child: Center(
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: TopNavItems(
-                        labels: navLabels,
-                        activeIndex: activeIndex,
-                        activeBg: activeBg,
-                        activeColor: activeColor,
-                        onNavigate: widget.onNavigate,
-                        metrics: m,
-                      ),
-                    ),
-                  ),
-                ),
-              if (isMobile) const Spacer(),
-              const SizedBox(width: 8),
-              LanguageControl(
-                labelSize: m.langLabelSize,
-                height: m.controlHeight,
-              ),
-              SizedBox(width: m.clusterGap),
-              ThemeToggleButton(
-                size: m.toggleIconSize,
-                height: m.controlHeight,
-              ),
-              SizedBox(width: m.clusterGap),
-              ProfileAvatarButton(diameter: m.avatarSize),
-            ],
-          );
-        },
-      ),
-    );
-  }
+  // Demand is nav index 5. See app_top_bar.dart for why this is one shared
+  // widget now instead of six independent copies of this same bar.
+  Widget _buildTopBar(BuildContext context) => AppTopBar(
+    activeIndex: 5,
+    activeBg: const Color(0xFFE8EAF6),
+    activeColor: const Color(0xFF283593),
+    onNavigate: widget.onNavigate,
+  );
 
   // ── Page header ────────────────────────────────────────────────────────────
   Widget _pageHeader() => Container(

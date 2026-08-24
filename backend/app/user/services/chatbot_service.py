@@ -734,10 +734,15 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
         # RAG retrieval always uses English-normalised query for best results.
         # The UI's optional district/crop filters boost matching chunks in
         # the ranking (never in the relevance floor or confidence label).
+        # Falls back to prediction_context's crop/district when the dropdown
+        # didn't supply one — a prediction handoff's numbers are for a
+        # SPECIFIC crop/district, and retrieval should boost toward that
+        # same one rather than searching unfiltered.
+        pc_crop, pc_district = _prediction_context_terms(req)
         context = _rag_context(
             retrieval_query,
-            district=req.district.value if req.district else "",
-            crop=req.crop.value if req.crop else "",
+            district=(req.district.value if req.district else None) or pc_district or "",
+            crop=(req.crop.value if req.crop else None) or pc_crop or "",
             history=req.conversation_history,
         )
         confidence = _confidence_label(context)
@@ -1077,10 +1082,12 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
         # No previous assistant turn to reformulate — fall through to the
         # normal retrieval path below.
 
+    # Same prediction_context fallback as chat() — see the comment there.
+    pc_crop, pc_district = _prediction_context_terms(req)
     context = _rag_context(
         retrieval_query,
-        district=req.district.value if req.district else "",
-        crop=req.crop.value if req.crop else "",
+        district=(req.district.value if req.district else None) or pc_district or "",
+        crop=(req.crop.value if req.crop else None) or pc_crop or "",
         history=req.conversation_history,
     )
     confidence = _confidence_label(context)
@@ -2416,36 +2423,83 @@ def _safe_get_preferences(user_id: str) -> dict:
         return {}
 
 
+def _prediction_context_terms(req) -> tuple:
+    """(crop, district) named by req.prediction_context, or (None, None) if
+    absent or it names neither. A prediction handoff ("Ask AI about this" on
+    a yield/price result) carries the exact crop/district that prediction was
+    for — that must never be second-guessed against a stale saved-profile
+    preference, which is what _should_confirm_saved_context and the RAG
+    metadata boost both use this for.
+    """
+    pc = req.prediction_context
+    if pc is None:
+        return None, None
+    return (
+        pc.crop.value if pc.crop else None,
+        pc.district.value if pc.district else None,
+    )
+
+
 def _should_confirm_saved_context(req, message, saved_crop, saved_district) -> bool:
     """True when a fresh, dropdown-free query omits a crop OR district that the
     saved profile can supply — so we confirm ("Do you mean … in Jaffna?")
-    instead of silently assuming. Dropdown selections always win, so a
-    dimension the user set in the dropdown is never filled from saved context.
+    instead of silently assuming.
+
+    PRIORITY per dimension: dropdown (req.crop/district) > named in THIS
+    message > prediction_context (the prediction this conversation is
+    actually about) > saved profile (last-resort, account-level guess).
+    Dropdown and message stay ahead of prediction_context deliberately — an
+    explicit "what about Jaffna instead?" mid-conversation should still be
+    able to redirect a farmer past their original prediction's district.
+    Saved profile is consulted only when NONE of the other three name a
+    dimension, which is what "filled" below tracks: a dimension is only
+    ever confirmed with the farmer when the saved profile was the SOLE
+    source for it.
     """
-    eff_saved_crop = None if req.crop else saved_crop
-    eff_saved_district = None if req.district else saved_district
+    pc_crop, pc_district = _prediction_context_terms(req)
+    eff_saved_crop = None if (req.crop or pc_crop) else saved_crop
+    eff_saved_district = None if (req.district or pc_district) else saved_district
     if not (eff_saved_crop or eff_saved_district):
         return False
     msg_crop, msg_district = _extract_context_terms(message)
-    crop = (req.crop.value if req.crop else None) or msg_crop or eff_saved_crop
+    crop = (
+        (req.crop.value if req.crop else None)
+        or msg_crop
+        or pc_crop
+        or eff_saved_crop
+    )
     district = (
         (req.district.value if req.district else None)
         or msg_district
+        or pc_district
         or eff_saved_district
     )
-    filled = (not (req.crop or msg_crop) and eff_saved_crop) or (
-        not (req.district or msg_district) and eff_saved_district
-    )
+    filled = (
+        not (req.crop or msg_crop or pc_crop) and eff_saved_crop
+    ) or (not (req.district or msg_district or pc_district) and eff_saved_district)
     return bool(crop and district and filled and _has_agricultural_intent(message))
 
 
 def _build_context_confirmation(req, message, saved_crop, saved_district) -> tuple:
     """Confirmation reply + a tappable resolved-topic chip. Deterministic; no
-    Groq. Precedence for each dimension: dropdown, then message, then saved."""
+    Groq. Precedence for each dimension: dropdown, then message, then
+    prediction_context, then saved — same order as
+    _should_confirm_saved_context, so the crop/district named here is
+    always the same one that decided whether to confirm at all. In
+    practice this only ever resolves from `saved` (the caller only invokes
+    this when the gate above returned True, which requires prediction_context
+    and the dropdown/message to all be silent on the confirmed dimension) —
+    the fuller precedence is kept here anyway so this function's own
+    resolution can never diverge from the gate's.
+    """
+    pc_crop, pc_district = _prediction_context_terms(req)
     msg_crop, msg_district = _extract_context_terms(message)
-    crop = (req.crop.value if req.crop else None) or msg_crop or saved_crop
+    crop = (req.crop.value if req.crop else None) or msg_crop or pc_crop or saved_crop
     district = (
-        (req.district.value if req.district else None) or msg_district or saved_district
+        (req.district.value if req.district else None)
+        or msg_district
+        or pc_district
+        or saved_district
     )
     reply = (
         f"Do you mean {crop} in {district}? I've used what you told me "

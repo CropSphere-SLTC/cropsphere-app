@@ -1278,6 +1278,189 @@ def test_no_confirm_on_non_agricultural_message():
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# prediction_context vs. saved-context confirmation
+#
+# Bug: a farmer who taps "Ask AI about this" on a fresh yield/price
+# prediction was confirmed against their STALE saved profile crop/district
+# instead of the prediction they just made, whenever the starter chip's own
+# wording happened to contain an agricultural-intent keyword ("price",
+# "yield", "earn", ...) — _should_confirm_saved_context had no idea
+# prediction_context existed. Reproduced directly against the real function,
+# no LLM call needed: with saved_crop="Maize", saved_district="Batticaloa"
+# and req.prediction_context naming Carrot/Badulla, the pre-fix function
+# returned True and _build_context_confirmation said "Do you mean Maize in
+# Batticaloa?" — the exact reported symptom.
+# ═══════════════════════════════════════════════════════════════════════════
+
+_PC_PRICE = {
+    "crop": "Carrot",
+    "district": "Badulla",
+    "season": "Maha",
+    "predicted_price_lkr_kg": 78.0,
+    "average_price_lkr_kg": 74.0,
+    "average_price_source": "real",
+}
+_PC_YIELD = {
+    "crop": "Carrot",
+    "district": "Badulla",
+    "season": "Maha",
+    "predicted_yield_kg_per_ha": 19612.0,
+    "average_yield_kg_per_ha": 19961.0,
+}
+
+# All 8 starter chips across both pages (kPredictionStarters + kPriceStarters
+# in followup_chip.dart) — pre-fix, 5 of these 8 falsely triggered the
+# confirmation gate against a saved Maize/Batticaloa profile: "Explain this
+# price", "How can I get a better price?", "How can I improve this yield?",
+# "What price will I get for this?", "Is this a good yield for my area?".
+# Only wording avoided it by accident (no _AGRICULTURAL_INTENT_PHRASES
+# keyword) — this was never a yield-vs-price difference.
+_ALL_STARTER_CHIPS = [
+    "Explain this price",
+    "When should I sell?",
+    "How does this compare to other districts?",
+    "How can I get a better price?",
+    "Explain this prediction",
+    "How can I improve this yield?",
+    "What price will I get for this?",
+    "Is this a good yield for my area?",
+]
+
+
+@pytest.mark.parametrize("message", _ALL_STARTER_CHIPS)
+def test_no_confirm_when_prediction_context_present(message):
+    """The core fix: none of the 8 starter chips may trigger the confirmation
+    gate once prediction_context names a crop and district, no matter what
+    the saved profile says or what agricultural keyword the chip's own
+    wording happens to contain."""
+    req = _make_request(
+        message=message, prediction_context=_PC_PRICE, conversation_history=[]
+    )
+    assert (
+        cs._should_confirm_saved_context(req, message, "Maize", "Batticaloa")
+        is False
+    )
+
+
+def test_confirm_still_fires_for_ordinary_chat_without_prediction_context():
+    """Regression: the saved-profile confirmation is a real, wanted feature
+    for a normal, dropdown-free, prediction-context-free chat message — the
+    fix must not disable it."""
+    req = _make_request(
+        message="What's a good price for my harvest?", conversation_history=[]
+    )
+    assert (
+        cs._should_confirm_saved_context(
+            req, "What's a good price for my harvest?", "Maize", "Batticaloa"
+        )
+        is True
+    )
+    reply, chips = cs._build_context_confirmation(
+        req, "What's a good price for my harvest?", "Maize", "Batticaloa"
+    )
+    assert "Maize in Batticaloa" in reply
+    assert chips[0] == "Maize in Batticaloa"
+
+
+def test_dropdown_still_wins_over_prediction_context():
+    """Priority order is dropdown > message > prediction_context > saved —
+    an explicit dropdown selection must still take precedence, exactly as it
+    already did over saved context."""
+    req = _make_request(
+        message="Explain this price",
+        crop="Maize",
+        district="Jaffna",
+        prediction_context=_PC_PRICE,  # names Carrot/Badulla
+        conversation_history=[],
+    )
+    assert (
+        cs._should_confirm_saved_context(req, "Explain this price", "Maize", "Batticaloa")
+        is False
+    )
+
+
+def test_message_text_still_wins_over_prediction_context():
+    """A farmer typing a different crop/district mid-conversation must still
+    be able to redirect past the original prediction — prediction_context is
+    a default for the conversation, not a lock."""
+    req = _make_request(
+        message="what about jaffna instead",
+        prediction_context=_PC_PRICE,  # names Carrot/Badulla
+        conversation_history=[],
+    )
+    with patch.object(cs, "_dataset_capabilities", return_value=_CTX_CAPS):
+        reply, chips = cs._build_context_confirmation(
+            req, "what about jaffna instead", "Maize", "Batticaloa"
+        )
+    # Resolved from the message text ("jaffna"), not prediction_context's
+    # Badulla and not the saved Batticaloa.
+    assert "Jaffna" in reply
+    assert "Badulla" not in reply
+    assert "Batticaloa" not in reply
+
+
+def test_prediction_context_terms_none_when_absent():
+    req = _make_request(prediction_context=None)
+    assert cs._prediction_context_terms(req) == (None, None)
+
+
+def test_prediction_context_terms_reads_crop_and_district():
+    req = _make_request(prediction_context=_PC_YIELD)
+    assert cs._prediction_context_terms(req) == ("Carrot", "Badulla")
+
+
+def test_rag_context_falls_back_to_prediction_context_crop_district():
+    """The RAG metadata boost must target the prediction's own crop/district
+    when the dropdown is empty, instead of searching unfiltered — the second
+    half of the fix (retrieval), not just the confirmation gate."""
+    req = _make_request(
+        message="Explain this price",
+        prediction_context=_PC_PRICE,  # names Carrot/Badulla
+        conversation_history=[],
+    )
+    context = {
+        "chunks": [{"text": "carrot data", "source": "src", "score": 0.9}],
+        "sources": ["src"],
+        "score": 0.9,
+    }
+    mock_rag = MagicMock(return_value=context)
+    with patch("app.user.services.chatbot_service._safe_audit"), patch(
+        "app.user.services.chatbot_service._explicit_miss", return_value=None
+    ), patch("app.user.services.chatbot_service._rag_context", mock_rag), patch(
+        "groq.Groq", return_value=_groq_reply("Carrots do well.")
+    ):
+        cs.chat(req, SETTINGS)
+    _, kwargs = mock_rag.call_args
+    assert kwargs["district"] == "Badulla"
+    assert kwargs["crop"] == "Carrot"
+
+
+def test_rag_context_dropdown_still_wins_over_prediction_context():
+    req = _make_request(
+        message="Explain this price",
+        crop="Maize",
+        district="Jaffna",
+        prediction_context=_PC_PRICE,  # names Carrot/Badulla
+        conversation_history=[],
+    )
+    context = {
+        "chunks": [{"text": "maize data", "source": "src", "score": 0.9}],
+        "sources": ["src"],
+        "score": 0.9,
+    }
+    mock_rag = MagicMock(return_value=context)
+    with patch("app.user.services.chatbot_service._safe_audit"), patch(
+        "app.user.services.chatbot_service._explicit_miss", return_value=None
+    ), patch("app.user.services.chatbot_service._rag_context", mock_rag), patch(
+        "groq.Groq", return_value=_groq_reply("Maize does well.")
+    ):
+        cs.chat(req, SETTINGS)
+    _, kwargs = mock_rag.call_args
+    assert kwargs["district"] == "Jaffna"
+    assert kwargs["crop"] == "Maize"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # few-shot examples (loader + injection)
 # ═══════════════════════════════════════════════════════════════════════════
 

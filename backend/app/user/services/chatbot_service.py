@@ -741,6 +741,14 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
             history=req.conversation_history,
         )
         confidence = _confidence_label(context)
+        # Retrieval found nothing, but the request carries the farmer's own
+        # prediction, so the answer IS grounded — just not in the corpus.
+        # _confidence_label only sees the RAG context and would call that
+        # "Out of scope", which would put an out-of-scope badge on a real
+        # answer. Moderate rather than High: the figures are exact, but no
+        # retrieved agronomy backs the advice around them.
+        if not context["chunks"] and _has_prediction_grounding(req):
+            confidence = "Moderate confidence"
 
         # Saved-context confirmation — a fresh, dropdown-free query that omits a
         # crop or district our saved profile can fill: confirm ("Do you mean
@@ -792,7 +800,7 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
         # with a friendly, dataset-aware message. The query never reaches the
         # LLM, so it cannot answer from its own general knowledge (e.g.
         # "what's the weather on Mars").
-        if not context["chunks"]:
+        if not context["chunks"] and not _has_prediction_grounding(req):
             # ...unless we already refused the turn before and the farmer is
             # still trying. Repeating the same text teaches them nothing, so
             # ask which crop and district they mean instead. Still no Groq
@@ -1076,6 +1084,14 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
         history=req.conversation_history,
     )
     confidence = _confidence_label(context)
+    # Retrieval found nothing, but the request carries the farmer's own
+    # prediction, so the answer IS grounded — just not in the corpus.
+    # _confidence_label only sees the RAG context and would call that
+    # "Out of scope", which would put an out-of-scope badge on a real
+    # answer. Moderate rather than High: the figures are exact, but no
+    # retrieved agronomy backs the advice around them.
+    if not context["chunks"] and _has_prediction_grounding(req):
+        confidence = "Moderate confidence"
     # Template chips as the starting value. The special-path branches below
     # replace `followups` with their own fixed sets (clarification / refusal /
     # …), and the ANSWER path replaces it again after the stream completes —
@@ -1143,7 +1159,7 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
     # Grounding guard — same friendly, dataset-aware refusal as chat(), no
     # Groq call. Reassigning followups here is picked up by the _metadata
     # closure below.
-    if not context["chunks"]:
+    if not context["chunks"] and not _has_prediction_grounding(req):
         # Second refusal in a row — ask instead of repeating. See chat().
         if _should_retry_after_refusal(clean, req.conversation_history):
             reply, cq_followups = _build_clarification(
@@ -2815,11 +2831,37 @@ def _format_prediction_context(pc) -> str:
         kind = "prediction"
 
     return (
-        f"The farmer is asking about a {kind} CropSphere just "
+        # Opens with the exact phrase the system prompt's grounding rules
+        # key on. Rule 1 says answer ONLY from the "Relevant context"
+        # provided and rule 2 says refuse when NO context is provided — so a
+        # block that never calls itself that reads to the model as "no
+        # context", and it refuses even though the farmer's own numbers are
+        # right there. That is not hypothetical: retrieval usually returns
+        # nothing for this turn, because chip text like "Explain this
+        # prediction" names no crop and no district to retrieve on.
+        f"Relevant context — the farmer's own {kind}, which CropSphere just "
         "produced for them. Ground your answer in THESE figures — they "
         "override any general dataset averages you were given above:\n"
         + "\n".join(facts)
     )
+
+
+def _has_prediction_grounding(req) -> bool:
+    """True when the request carries a prediction for the answer to be about.
+
+    Such a request is ALREADY grounded, so the retrieval-based grounding
+    guard must not refuse it. The figures are structured, enum-validated
+    fields on the request itself (see schemas.PredictionContext) — nothing
+    retrieval has to go and find, and nothing the client can author as free
+    text.
+
+    This exists because the guard equated "grounded" with "retrieval returned
+    chunks". The quick-question chips on a prediction result name no crop and
+    no district ("Explain this prediction"), so retrieval legitimately comes
+    back empty and the farmer was told their own prediction was outside the
+    dataset. Used by chat() and chat_stream() identically.
+    """
+    return getattr(req, "prediction_context", None) is not None
 
 
 def _build_messages(system: str, context: dict, req: ChatRequest, message: str) -> list:
@@ -3672,7 +3714,7 @@ def _reconstruct_previous_followups(req: ChatRequest) -> tuple:
         )
         if _is_vague_agricultural_query(prev_msg, context, prior):
             return _build_clarification(prev_msg, context, prior)[1], {}
-        if not context["chunks"]:
+        if not context["chunks"] and not _has_prediction_grounding(req):
             if _should_retry_after_refusal(prev_msg, prior):
                 return _build_clarification(prev_msg, context, prior)[1], {}
             return _refusal_followups(prev_msg), {}

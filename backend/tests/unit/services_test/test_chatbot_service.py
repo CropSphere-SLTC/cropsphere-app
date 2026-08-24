@@ -520,7 +520,9 @@ def _price_msgs(**overrides):
 
 def _price_block(**overrides):
     return next(
-        m["content"] for m in _price_msgs(**overrides) if "CropSphere just" in m["content"]
+        m["content"]
+        for m in _price_msgs(**overrides)
+        if "CropSphere just" in m["content"]
     )
 
 
@@ -532,7 +534,9 @@ def test_build_messages_without_prediction_context_is_unchanged():
     """The additive field must not perturb existing requests at all."""
     req = _make_request()
     baseline = cs._build_messages("system", _EMPTY_CONTEXT, req, "hi")
-    assert not any("yield prediction CropSphere just" in m["content"] for m in baseline)
+    assert not any(
+        "own yield prediction, which CropSphere" in m["content"] for m in baseline
+    )
 
     # Explicitly-null prediction_context produces the identical message list.
     req_null = _make_request(prediction_context=None)
@@ -541,7 +545,9 @@ def test_build_messages_without_prediction_context_is_unchanged():
 
 def test_build_messages_injects_prediction_context():
     msgs = _prediction_msgs()
-    block = [m for m in msgs if "yield prediction CropSphere just" in m["content"]]
+    block = [
+        m for m in msgs if "own yield prediction, which CropSphere" in m["content"]
+    ]
     assert len(block) == 1
     body = block[0]["content"]
     assert block[0]["role"] == "system"
@@ -590,7 +596,7 @@ def test_build_messages_ordering_preserved_with_prediction_context():
 
     system_i = 0
     rag_i = idx("Relevant context")
-    pred_i = idx("yield prediction CropSphere just")
+    pred_i = idx("own yield prediction, which CropSphere")
     fmt_i = idx(cs._FORMATTING_RULES[:40])
     hist_i = idx("earlier turn")
 
@@ -657,7 +663,7 @@ def test_analytics_logs_only_the_short_user_message_with_prediction_context():
         "19612",
         "19,961",
         "District average yield",
-        "yield prediction CropSphere just",
+        "own yield prediction, which CropSphere",
         "Model confidence: high",
         "rainfall 45 mm",
     ):
@@ -2016,6 +2022,7 @@ def test_validation_of_empty_list_is_empty():
 
 # ── price-side prediction_context ──────────────────────────────────────────
 
+
 def test_price_context_injects_price_facts():
     body = _price_block()
     assert "Rs. 78/kg" in body
@@ -2029,7 +2036,7 @@ def test_price_context_injects_price_facts():
 def test_price_context_is_named_a_price_prediction():
     """The preamble must not call a price question a yield question."""
     body = _price_block()
-    assert "price prediction CropSphere just" in body
+    assert "own price prediction, which CropSphere" in body
     assert "yield prediction" not in body
 
 
@@ -2072,7 +2079,10 @@ def test_price_context_rejects_an_unknown_source_literal():
 
     with _pytest.raises(ValidationError):
         _make_request(
-            prediction_context={**_FULL_PRICE_PREDICTION, "average_price_source": "unknown"}
+            prediction_context={
+                **_FULL_PRICE_PREDICTION,
+                "average_price_source": "unknown",
+            }
         )
 
 
@@ -2095,3 +2105,176 @@ def test_price_context_never_touches_the_user_message():
     user = [m for m in msgs if m["role"] == "user"]
     assert user[-1]["content"] == "Explain this price"
     assert "78" not in user[-1]["content"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Grounding guard vs prediction_context
+#
+# REGRESSION: tapping "Explain this prediction" on a yield result answered
+# with the out-of-scope refusal. The chip text names no crop and no district,
+# so retrieval returns nothing above _MIN_RELEVANCE, the grounding guard
+# fires, and the reply is built WITHOUT ever reaching _build_messages — which
+# is the only place prediction_context was injected. The farmer's own numbers
+# were sitting in the request the whole time.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _pc():
+    from app.models.schemas import PredictionContext
+
+    return PredictionContext(
+        crop="Carrot",
+        district="Badulla",
+        season="Maha",
+        irrigation="drip",
+        predicted_yield_kg_per_ha=19612.0,
+        average_yield_kg_per_ha=19961.0,
+    )
+
+
+def _pred_req(message, prediction_context=None):
+    from app.models.schemas import ChatRequest
+
+    return ChatRequest(
+        message=message,
+        user_id="u1",
+        conversation_history=[],
+        prediction_context=prediction_context,
+    )
+
+
+class _Settings:
+    GROQ_API_KEY = "k"
+    GROQ_MODEL = "m"
+    GROQ_MODEL_FAST = "m"
+
+
+def _fake_groq(reply_text):
+    """Stand-in for groq.Groq that returns a fixed completion."""
+    client = MagicMock()
+    client.chat.completions.create.return_value = MagicMock(
+        choices=[MagicMock(message=MagicMock(content=reply_text))]
+    )
+    return MagicMock(return_value=client), client
+
+
+def _run_chat(req, reply_text="Here is why."):
+    """Drive chat() with retrieval returning NOTHING, so the grounding guard
+    is the thing under test."""
+    empty = {"chunks": [], "sources": [], "top_score": 0.0, "confidence": "Low"}
+    groq_cls, client = _fake_groq(reply_text)
+    with (
+        patch.object(cs, "_rag_context", return_value=empty),
+        patch.dict("sys.modules", {"groq": MagicMock(Groq=groq_cls)}),
+        patch.object(cs, "_emit_analytics"),
+        patch.object(cs, "_resolve_followup_chips", return_value=([], {})),
+        patch.object(cs, "_remember_shown_chips"),
+    ):
+        return cs.chat(req, _Settings()), client
+
+
+def test_prediction_context_survives_the_grounding_guard():
+    """A prediction chip must be answered, not refused as out of scope.
+
+    The chip names no crop and no district, so retrieval is empty — but the
+    farmer's own numbers are right there in the request, which is exactly
+    what the answer should be grounded in.
+    """
+    resp, client = _run_chat(_pred_req("Explain this prediction", _pc()))
+
+    assert resp.confidence != "Out of scope"
+    assert resp.reply == "Here is why."
+    # ...and the model actually received the numbers.
+    sent = client.chat.completions.create.call_args.kwargs["messages"]
+    blob = "\n".join(m["content"] for m in sent)
+    assert "19,612" in blob and "Badulla" in blob
+
+
+def test_grounding_guard_still_refuses_without_prediction_context():
+    """Unchanged for every request that carries no context."""
+    empty = {"chunks": [], "sources": [], "top_score": 0.0, "confidence": "Low"}
+    with (
+        patch.object(cs, "_rag_context", return_value=empty),
+        patch.object(cs, "_emit_analytics"),
+    ):
+        resp = cs.chat(_pred_req("who won the world cup"), _Settings())
+
+    assert resp.confidence == "Out of scope"
+
+
+def test_stream_prediction_context_survives_the_grounding_guard():
+    """The streaming path is the client default — it must behave identically.
+
+    This is the path the reported bug actually came through: the Flutter app
+    posts to /api/chat/stream unless AppConfig.useStreamingChat is off.
+    """
+    empty = {"chunks": [], "sources": [], "score": 0.0, "confidence": "Low"}
+
+    def _fake_stream(*a, **kw):
+        chunk = MagicMock()
+        chunk.choices = [MagicMock(delta=MagicMock(content="Here is why."))]
+        return iter([chunk])
+
+    client = MagicMock()
+    client.chat.completions.create.side_effect = _fake_stream
+
+    with (
+        patch.object(cs, "_rag_context", return_value=empty),
+        patch.dict(
+            "sys.modules", {"groq": MagicMock(Groq=MagicMock(return_value=client))}
+        ),
+        patch.object(cs, "_emit_analytics"),
+        patch.object(cs, "_resolve_followup_chips", return_value=([], {})),
+        patch.object(cs, "_remember_shown_chips"),
+        patch(
+            "app.user.services.chat_history_service.persist_chat_turn",
+            return_value="c1",
+        ),
+    ):
+        events = list(
+            cs.chat_stream(
+                _pred_req("Explain this prediction", _pc()), _Settings(), "uid"
+            )
+        )
+
+    text = "".join(e.get("content", "") for e in events if e.get("type") == "text")
+    meta = [e for e in events if e.get("type") == "metadata"]
+    assert text == "Here is why."
+    assert meta and meta[0].get("confidence") != "Out of scope"
+
+
+def test_chip_tap_logs_only_the_short_message_not_the_numbers():
+    """The analytics guarantee must survive the guard change.
+
+    chat_analytics.question stays the farmer's own chip text — the injected
+    figures must never leak into the gap report.
+    """
+    empty = {"chunks": [], "sources": [], "score": 0.0, "confidence": "Low"}
+    seen = {}
+
+    def _capture(data):
+        seen.update(data)
+
+    groq_cls, _client = _fake_groq("Here is why.")
+    with (
+        patch.object(cs, "_rag_context", return_value=empty),
+        patch.dict("sys.modules", {"groq": MagicMock(Groq=groq_cls)}),
+        patch.object(cs, "log_chat_interaction", _capture),
+        patch.object(cs, "_resolve_followup_chips", return_value=([], {})),
+        patch.object(cs, "_remember_shown_chips"),
+        patch.object(cs, "_recall_shown_chips", return_value=([], {})),
+        patch.object(cs, "_reconstruct_previous_followups", return_value=([], {})),
+    ):
+        cs._run_analytics(
+            _pred_req("Explain this prediction", _pc()),
+            "Explain this prediction",
+            "answer",
+            "Moderate confidence",
+            empty,
+            None,
+            12,
+        )
+
+    assert seen["question"] == "Explain this prediction"
+    for marker in ("19,612", "19,961", "Badulla", "Maha", "drip", "Carrot"):
+        assert marker not in str(seen), f"{marker} leaked into analytics"

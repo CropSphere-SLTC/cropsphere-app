@@ -722,17 +722,35 @@ class _RecommendScreenState extends State<RecommendScreen> {
   //
   // Nothing here is a known-accepted failure; if this is ever re-themed to
   // white text, both numbers above are what it costs.
-  static final Color _headerGradientLight = _lighten(
+  /// #567556 — the header's light gradient stop.
+  ///
+  /// Computed rather than hardcoded so the relationship to fill survives a
+  /// re-theme, but it needs a saturation term as well as a lightness one:
+  /// price_screen's plain +lightness widening cannot reach this colour. The
+  /// hue is identical to fill (0.3333) and the lightness is +0.102, but the
+  /// saturation is -0.039 — a lightening that also drains a little colour,
+  /// which keeps the light end from going minty. A pure +0.102 lightness
+  /// shift gives #527852 instead.
+  ///
+  /// These two deltas reproduce #567556 exactly.
+  static final Color _headerGradientLight = _softenToward(
     AppTheme.accents.cropRec.fill,
-    0.15,
+    lightness: 0.102,
+    saturation: -0.039,
   );
 
-  /// +delta lightness in HLS, hue and saturation preserved — the same widening
-  /// price_screen's light stop uses, kept as code so the relationship to fill
-  /// survives a re-theme instead of being a second hardcoded hex.
-  static Color _lighten(Color c, double delta) {
+  /// Shift a colour in HLS, hue preserved. Kept as code, not a second
+  /// hardcoded hex, so re-theming fill moves the gradient with it.
+  static Color _softenToward(
+    Color c, {
+    required double lightness,
+    double saturation = 0,
+  }) {
     final hsl = HSLColor.fromColor(c);
-    return hsl.withLightness((hsl.lightness + delta).clamp(0.0, 1.0)).toColor();
+    return hsl
+        .withLightness((hsl.lightness + lightness).clamp(0.0, 1.0))
+        .withSaturation((hsl.saturation + saturation).clamp(0.0, 1.0))
+        .toColor();
   }
 
   Widget _pageHeader() => Container(
@@ -775,7 +793,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
                   'ta': 'பயிர் பரிந்துரையாளர்',
                 }),
                 style: TextStyle(
-                  color: AppTheme.accents.cropRec.onFill, // 5.34-7.53:1
+                  color: AppTheme.accents.cropRec.onFill, // 7.43:1 / 4.97:1
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
                 ),
@@ -786,19 +804,15 @@ class _RecommendScreenState extends State<RecommendScreen> {
                   'si': 'ඔබේ ඉඩමට වඩාත් සුදුසු භෝගය දැන් සොයන්න',
                   'ta': 'உங்கள் நிலத்திற்கு சிறந்த பயிரை இப்போது கண்டறியுங்கள்',
                 }),
-                // 0.90, not the 0.8 the other headers use — that is the
-                // measured ceiling here, not a style choice. Dark ink on this
-                // gradient does have alpha headroom (price's light stop had
-                // none at all), but less than it looks: 0.90 holds 4.55:1 at
-                // the dark anchor and 6.14:1 at the light stop, while 0.88
-                // already drops the dark end to 4.40:1 and price's own 0.8
-                // to 3.82:1 — both under the 4.5:1 normal-text floor. Full
-                // opacity (5.34:1 / 7.53:1) is the fallback if this ever
-                // needs more margin.
+                // FULL OPACITY, no alpha at all — re-measured when this
+                // accent went dark. Off-white at 0.90 (the old value, chosen
+                // for DARK ink on the old light fill) now measures 4.39:1 at
+                // the light gradient stop, under the 4.5:1 normal-text floor.
+                // 0.95 clears it at 4.67 but with almost no headroom; full
+                // opacity gives 4.97:1 there and 7.43:1 at the anchor. Same
+                // conclusion price_screen reached on its own header.
                 style: TextStyle(
-                  color: AppTheme.accents.cropRec.onFill.withValues(
-                    alpha: 0.90,
-                  ),
+                  color: AppTheme.accents.cropRec.onFill,
                   fontSize: 12,
                 ),
               ),
@@ -815,7 +829,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
               'ta': 'வாரம் ${farmWeekOfYear()}',
             }),
             style: TextStyle(
-              color: AppTheme.accents.cropRec.onFill, // 6.36-8.43:1
+              color: AppTheme.accents.cropRec.onFill, // 9.64:1 / 6.89:1 on the badge
               fontSize: 12,
               fontWeight: FontWeight.w600,
             ),
@@ -827,15 +841,17 @@ class _RecommendScreenState extends State<RecommendScreen> {
 
   /// Glass panel — the icon badge and "Week N" pill. Same treatment as
   /// price_screen's and yield_screen's (translucent tint + a faint white edge
-  /// highlight), tinted WHITE rather than price's black.
+  /// highlight), tinted BLACK at price's exact 0.20.
   ///
-  /// Direction follows the fill, as it does on the other two pages: price's
-  /// fill is a light terracotta where darkening is what preserves contrast for
-  /// its white content; this page carries DARK content, so lightening is what
-  /// preserves it. White@0.15 puts the icon and Week pill at 6.36:1 (dark end)
-  /// to 8.43:1 (light end) — comfortably AA, with no trade-off to accept.
-  /// Black@0.20 (price's exact value) would drop the same dark content to
-  /// 3.56-4.87:1, i.e. failing at the end where this gradient is darkest.
+  /// Direction follows the fill, as it does on the other two pages. This one
+  /// FLIPPED when the accent went dark: the old light-olive fill carried dark
+  /// content, so lightening preserved contrast and white@0.15 was correct
+  /// (6.36-8.43:1 then). On the new dark anchor the content is off-white, so
+  /// darkening is what preserves it — measured, not assumed:
+  ///
+  ///   black@0.20  9.64:1 (anchor) / 6.89:1 (light stop)  <- chosen
+  ///   white@0.15  5.02:1 / 3.66:1                        FAILS at light end
+  ///   white@0.25  3.94:1 / 3.03:1                        fails both
   Widget _glassBadge({
     required double borderRadius,
     required EdgeInsets padding,
@@ -843,7 +859,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
   }) => Container(
     padding: padding,
     decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: 0.15),
+      color: Colors.black.withValues(alpha: 0.20),
       borderRadius: BorderRadius.circular(borderRadius),
       border: Border.all(color: Colors.white.withValues(alpha: 0.25), width: 1),
     ),
@@ -1243,32 +1259,37 @@ class _RecommendScreenState extends State<RecommendScreen> {
         '🌧',
         _t({'en': 'Rain', 'si': 'වර්ෂාව', 'ta': 'மழை'}),
         '${w.rainfallMm.toStringAsFixed(1)} mm',
-        Colors.blue,
       ),
       (
         '🌡',
         _t({'en': 'Min Temp', 'si': 'අවම', 'ta': 'குறை'}),
         '${w.tempMinC.toStringAsFixed(1)}°C',
-        Colors.lightBlue,
       ),
       (
         '☀️',
         _t({'en': 'Max Temp', 'si': 'උපරිම', 'ta': 'அதிக'}),
         '${w.tempMaxC.toStringAsFixed(1)}°C',
-        Colors.orange,
       ),
       (
         '💧',
         _t({'en': 'Humidity', 'si': 'ආර්ද්‍රතා', 'ta': 'ஈரம்'}),
         '${w.humidityPct.toStringAsFixed(0)}%',
-        Colors.teal,
       ),
     ];
+    // Tile HEIGHT is fixed (mainAxisExtent), not derived from tile width —
+    // ported from yield_screen's _weatherGrid, which had already hit and
+    // documented this exact failure. A childAspectRatio makes height a
+    // function of COLUMN WIDTH, so the same ratio that looks right in a
+    // narrow form column blows up once the card moves to a wide pane: at
+    // 4 columns of a ~1300px panel each tile is ~320px wide, and even a
+    // generous ratio leaves a tile taller than the three short lines it
+    // holds. Fixed extent sizes the box to its content instead.
+    //
+    // Column count is 4 / 2 — both divisors of the four tiles, so the last
+    // row never carries an orphan.
     return LayoutBuilder(
       builder: (ctx, bc) {
-        // Narrow phones (< ~360 available width inside the card) get 2
-        // columns so labels/values stay readable instead of squeezed into 4.
-        final cols = bc.maxWidth < 360 ? 2 : 4;
+        final cols = bc.maxWidth >= 380 ? 4 : 2;
         return GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
@@ -1276,36 +1297,46 @@ class _RecommendScreenState extends State<RecommendScreen> {
             crossAxisCount: cols,
             crossAxisSpacing: 8,
             mainAxisSpacing: 8,
-            childAspectRatio: cols == 2 ? 1.7 : 0.95,
+            mainAxisExtent: 72,
           ),
           itemCount: tiles.length,
           itemBuilder: (_, i) {
             final t = tiles[i];
+            // Uniform surface, not a per-metric blue/orange/teal tint. The
+            // tints were the only place on this page where a container's
+            // colour carried no meaning beyond decoration, and they read as
+            // four unrelated widgets rather than one weather panel. Yield and
+            // Price both use the neutral surface; the emoji already tells the
+            // farmer which metric is which.
             return Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
               decoration: BoxDecoration(
-                color: t.$4.withValues(alpha: 0.07),
+                color: AppTheme.surfaceMuted,
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: t.$4.withValues(alpha: 0.2)),
+                border: Border.all(color: AppTheme.border),
               ),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(t.$1, style: const TextStyle(fontSize: 15)),
-                  const SizedBox(height: 3),
+                  const SizedBox(height: 2),
                   Text(
                     t.$3,
-                    style: TextStyle(
-                      fontSize: 11,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
                       fontWeight: FontWeight.bold,
-                      color: t.$4,
+                      color: AppTheme.textPrimary,
                     ),
                   ),
                   Text(
                     t.$2,
-                    style: TextStyle(
-                      fontSize: 8.5,
-                      color: t.$4.withValues(alpha: 0.8),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 9,
+                      color: AppTheme.textSecondary,
                     ),
                   ),
                 ],
@@ -1622,8 +1653,24 @@ class _RecommendScreenState extends State<RecommendScreen> {
               }),
         style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
       ),
+      // ── One documented exception to the app-wide primary-action rule ──────
+      // Primary actions stay on AppTheme.login.primaryDark everywhere else,
+      // including this page's own "Ask AI about this" block. This button uses
+      // the cropRec accent instead, tying it to the header's dark anchor —
+      // the same exception price_screen's Predict button carries, granted the
+      // same way: by explicit request.
+      //
+      // Note what it REPLACES: a hardcoded #00695C teal that predated the
+      // accent system and matched neither rule — neither primaryDark nor any
+      // cropRec token. So this is not a fresh deviation so much as an
+      // untracked one becoming a tracked one.
+      //
+      // White on #3D5A3D measures 7.70:1 — comfortably AA, and unlike price's
+      // equivalent (2.65:1, a documented failure) nothing is being accepted
+      // here. The label is white rather than the accent's off-white onFill:
+      // on a button this is a surface, not the header's text-on-fill pairing.
       style: ElevatedButton.styleFrom(
-        backgroundColor: const Color(0xFF00695C),
+        backgroundColor: AppTheme.accents.cropRec.fill,
         foregroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         elevation: 2,
@@ -1708,19 +1755,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
           _humidityCaveat(),
           const SizedBox(height: 12),
         ],
-        // The backend already sorts district-unsuitable crops last, so this
-        // divider only ever appears once — it is what makes the sort legible
-        // instead of looking like the ranking broke partway down.
-        ..._result!.recommendations.asMap().entries.expand((e) {
-          final rec = e.value;
-          final prev = e.key == 0 ? null : _result!.recommendations[e.key - 1];
-          final startsUnsuitable =
-              !rec.districtSuitable && (prev?.districtSuitable ?? true);
-          return [
-            if (startsUnsuitable) _districtDivider(),
-            _recommendationCard(rec),
-          ];
-        }),
+        _cropList(),
       ],
     );
   }
@@ -1813,6 +1848,81 @@ class _RecommendScreenState extends State<RecommendScreen> {
       ],
     ),
   );
+
+  /// The ranked crops, one or two per row depending on available width.
+  ///
+  /// SPLIT BY DISTRICT SUITABILITY, NOT BY INDEX. The divider between crops
+  /// the district grows and crops it does not has to land on a row boundary —
+  /// a divider halfway through a row would read as separating the two cards
+  /// beside each other rather than everything above from everything below.
+  /// Grouping first makes that structural: each group is laid out
+  /// independently, so the boundary IS a row boundary and an odd-sized first
+  /// group simply leaves one half-row gap rather than pushing the split
+  /// mid-row. The backend already sorts unsuitable crops last, so this
+  /// partition preserves rank order within each group.
+  Widget _cropList() {
+    final recs = _result!.recommendations;
+    final suitable = recs.where((r) => r.districtSuitable).toList();
+    final unsuitable = recs.where((r) => !r.districtSuitable).toList();
+
+    return LayoutBuilder(
+      builder: (ctx, bc) {
+        // Keyed off the width THIS LIST actually has, not the viewport class.
+        // Card width is what decides whether two-up is readable, and the two
+        // do not track each other here: on web the results sit in the right
+        // panel beside a ~450px input column, so a 1024px viewport leaves
+        // this list ~536px (two cards of ~262), while a 768px tablet — where
+        // the list runs full width at 680px — comfortably fits two of ~334.
+        // 560 is the point where cards stop being cramped; below it, one-up
+        // is genuinely the better rendering even on a "desktop" viewport.
+        final twoUp = bc.maxWidth >= 560;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ..._cropRows(suitable, twoUp),
+            if (unsuitable.isNotEmpty) ...[
+              _districtDivider(),
+              ..._cropRows(unsuitable, twoUp),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  /// One group of crops as rows of [twoUp ? 2 : 1].
+  ///
+  /// IntrinsicHeight + stretch is what keeps paired cards level: badge text
+  /// runs to one line or three depending on how many conditions failed and
+  /// whether the district note is present, so without it the shorter card
+  /// would float against a taller neighbour.
+  List<Widget> _cropRows(List<CropRecommendation> group, bool twoUp) {
+    if (!twoUp) return group.map(_recommendationCard).toList();
+    final rows = <Widget>[];
+    for (var i = 0; i < group.length; i += 2) {
+      final right = i + 1 < group.length ? group[i + 1] : null;
+      rows.add(
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: _recommendationCard(group[i])),
+              const SizedBox(width: 12),
+              // An odd group leaves the gap rather than letting the last card
+              // span the full width — a lone double-width card reads as a
+              // different kind of result.
+              Expanded(
+                child: right == null
+                    ? const SizedBox.shrink()
+                    : _recommendationCard(right),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return rows;
+  }
 
   /// Section rule introducing the crops the district does not normally grow.
   Widget _districtDivider() => Padding(

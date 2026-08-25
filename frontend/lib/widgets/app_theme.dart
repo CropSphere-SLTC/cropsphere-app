@@ -342,10 +342,29 @@ class AppFeatureAccents {
     ink: Color(0xFF4A799B), // 4.50:1 on #FCFBF6
   );
 
-  /// Muted Olive.
+  /// Deep Olive (2026-08 revision from the lighter #7CA759, by request —
+  /// that header read as washed out).
+  ///
+  /// This accent CARRIES ITS TEXT, unlike price and weather: off-white on
+  /// #3D5A3D measures 7.43:1, and 4.97:1 on the header's light gradient stop.
+  /// Both clear AA with margin, so there is no accepted-failure caveat here.
+  ///
+  /// onFill is the app's warm off-white (== login.background), not pure white:
+  /// it matches the page ground the rest of the UI is built on, and it costs
+  /// almost nothing against it (7.43 vs 7.70 for #FFFFFF).
+  ///
+  /// The previous value could NOT simply be darkened. onFill was dark ink
+  /// (#1F2A1F) at 5.34:1, and darkening a mid-green erodes dark-on-it
+  /// contrast fast — it fell under AA by -0.05 lightness (4.40:1), long
+  /// before the fill looked meaningfully darker. Going dark enough to read as
+  /// fixed meant flipping the text to off-white, which is why this is a
+  /// two-part change rather than one hex.
+  ///
+  /// ink is UNCHANGED and unaffected: it was verified as text against the
+  /// page background, never against fill.
   FeatureAccent get cropRec => const FeatureAccent(
-    fill: Color(0xFF7CA759),
-    onFill: _onLight, // 5.34:1
+    fill: Color(0xFF3D5A3D),
+    onFill: Color(0xFFFCFBF6), // 7.43:1 on fill, 4.97:1 on the light stop
     ink: Color(0xFF5D7D42), // 4.53:1 on #FCFBF6
   );
 

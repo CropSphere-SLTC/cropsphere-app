@@ -126,6 +126,87 @@ void main() {
     },
   );
 
+  group('cropRec header gradient — deep olive, AA-clean at both ends', () {
+    // 2026-08 revision. This header shipped as a lighter #7CA759 carrying
+    // DARK ink (#1F2A1F, 5.34:1) and read as washed out. It could not simply
+    // be darkened: darkening a mid-green erodes dark-on-it contrast fast, and
+    // dark ink fell under AA by -0.05 lightness (4.40:1) — long before the
+    // fill looked meaningfully darker. Going dark enough to read as fixed
+    // meant flipping the text to off-white, so this is a two-part change.
+    //
+    // Unlike price and weather, nothing here is an accepted failure: both
+    // gradient ends clear AA for normal-size text with real margin.
+    const anchor = Color(0xFF3D5A3D);
+    const lightStop = Color(0xFF567556);
+    const offWhite = Color(0xFFFCFBF6);
+
+    test('fill is #3D5A3D and onFill is the warm off-white', () {
+      expect(AppTheme.accents.cropRec.fill, anchor);
+      expect(AppTheme.accents.cropRec.onFill, offWhite);
+    });
+
+    test('onFill clears AA on the dark anchor', () {
+      expect(contrast(offWhite, anchor), greaterThanOrEqualTo(kAA));
+      expect(contrast(offWhite, anchor), closeTo(7.43, 0.02));
+    });
+
+    test('onFill clears AA on the light gradient stop', () {
+      // The binding end. The subtitle is 12px, so this is the normal-text
+      // floor, not the 3:1 large-text one.
+      expect(contrast(offWhite, lightStop), greaterThanOrEqualTo(kAA));
+      expect(contrast(offWhite, lightStop), closeTo(4.97, 0.02));
+    });
+
+    test('the subtitle runs at FULL opacity, because 0.90 fails', () {
+      // Pins the reason rather than the value: at 0.90 (the alpha that was
+      // correct for dark ink on the old light fill) off-white measures
+      // 4.39:1 on the light stop, under the floor.
+      final faded = Color.alphaBlend(offWhite.withValues(alpha: 0.90), lightStop);
+      expect(contrast(faded, lightStop), lessThan(kAA));
+      expect(contrast(faded, lightStop), closeTo(4.39, 0.03));
+    });
+
+    test('the glass badge tint is BLACK, and white would fail', () {
+      // The tint flipped with the accent. On the old light fill, dark content
+      // needed a LIGHTENING scrim (white@0.15, 6.36-8.43:1). On this dark
+      // anchor the content is off-white, so darkening is what preserves it.
+      final black20 = Color.alphaBlend(
+        Colors.black.withValues(alpha: 0.20),
+        lightStop,
+      );
+      expect(contrast(offWhite, black20), greaterThanOrEqualTo(kAA));
+      expect(contrast(offWhite, black20), closeTo(6.89, 0.02));
+
+      // Kept as documentation: the rejected alternative, at the end where it
+      // fails, so nobody re-lightens this scrim without the test catching it.
+      final white15 = Color.alphaBlend(
+        Colors.white.withValues(alpha: 0.15),
+        lightStop,
+      );
+      expect(contrast(offWhite, white15), lessThan(kAA));
+    });
+
+    test('ink is unchanged and still readable on the page background', () {
+      // ink was verified as text against #FCFBF6, never against fill, so
+      // darkening the fill does not affect it.
+      expect(AppTheme.accents.cropRec.ink, const Color(0xFF5D7D42));
+      expect(contrast(AppTheme.accents.cropRec.ink, _bg), greaterThanOrEqualTo(kAA));
+    });
+
+    test('the light stop is derivable from fill, not a free-floating hex', () {
+      // recommend_screen computes it as +0.102 lightness / -0.039 saturation
+      // in HSL. A plain lightness shift (price_screen's widening) cannot
+      // reach it — that gives #527852 — which is why the helper there takes
+      // a saturation term as well.
+      final hsl = HSLColor.fromColor(anchor);
+      final derived = hsl
+          .withLightness((hsl.lightness + 0.102).clamp(0.0, 1.0))
+          .withSaturation((hsl.saturation - 0.039).clamp(0.0, 1.0))
+          .toColor();
+      expect(derived.toARGB32(), lightStop.toARGB32());
+    });
+  });
+
   group('price header gradient — known, accepted failure across both ends', () {
     // The header is a two-stop gradient (dark top-left -> light
     // bottom-right, matching yield_screen's header). fill (#DF8A58) is the

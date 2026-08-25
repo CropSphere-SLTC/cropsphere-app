@@ -2200,12 +2200,9 @@ class _YieldScreenState extends State<YieldScreen> {
     ),
     child: Row(
       children: [
-        Container(
+        _glassBadge(
+          borderRadius: 10,
           padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(10),
-          ),
           child: SvgPicture.string(
             _navSvg(1, Colors.white),
             width: 26,
@@ -2243,12 +2240,9 @@ class _YieldScreenState extends State<YieldScreen> {
             ],
           ),
         ),
-        Container(
+        _glassBadge(
+          borderRadius: 20,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(20),
-          ),
           child: Text(
             'Week ${_weekOfYear()}',
             style: const TextStyle(
@@ -2260,6 +2254,29 @@ class _YieldScreenState extends State<YieldScreen> {
         ),
       ],
     ),
+  );
+
+  /// Glass panel — the icon badge and "Week N" pill. White tint, not
+  /// price_screen's black: that page's fill is a light terracotta, where
+  /// darkening is what keeps white text/icons legible; this page's fill is
+  /// a dark green, where lightening does the same job without any
+  /// contrast cost. Already comfortably AA both ends — 8.00:1 (dark end) /
+  /// 5.43:1 (light end) for the icon/text sitting on this exact tint — so
+  /// unlike price_screen's version, nothing here is a known trade-off,
+  /// just the shared visual treatment (tint + a faint white edge
+  /// highlight) matching that page's badges.
+  Widget _glassBadge({
+    required double borderRadius,
+    required EdgeInsets padding,
+    required Widget child,
+  }) => Container(
+    padding: padding,
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: 0.15),
+      borderRadius: BorderRadius.circular(borderRadius),
+      border: Border.all(color: Colors.white.withValues(alpha: 0.25), width: 1),
+    ),
+    child: child,
   );
 
   /// Green tick shown inside a required field once it has been answered.

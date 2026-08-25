@@ -218,6 +218,10 @@ class CropRecommendation(BaseModel):
     confidence_score: float = Field(..., ge=0, le=1)
     expected_yield_kg_per_ha: float
     expected_price_lkr_kg: float
+    # Whether M5_valid_pairs records this crop as grown in this district.
+    # Advisory — all six crops are still returned, but unsuitable ones never
+    # outrank suitable ones. Additive field; existing clients ignore it.
+    district_suitable: bool = True
     suitability_flags: Dict[str, Any]
 
 

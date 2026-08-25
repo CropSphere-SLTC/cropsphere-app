@@ -1,0 +1,74 @@
+{
+  "_comment": "Per-crop agronomic suitability bands. GENERATED \u2014 do not hand-edit. Regenerate with: python -m scripts.derive_crop_bands --write. See backend/scripts/derive_crop_bands.py for the derivation and its validation against the full training dataset.",
+  "bands": {
+    "Carrot": {
+      "humidity_max_pct": 88.0,
+      "humidity_min_pct": 65.0,
+      "ph_max": 7.0,
+      "ph_min": 6.0,
+      "rain_max_mm": 55.0,
+      "rain_min_mm": 10.0,
+      "temp_max_c": 28.0,
+      "temp_min_c": 8.0
+    },
+    "Cowpea": {
+      "humidity_max_pct": 85.0,
+      "humidity_min_pct": 55.0,
+      "ph_max": 7.5,
+      "ph_min": 5.5,
+      "rain_max_mm": 45.0,
+      "rain_min_mm": 8.0,
+      "temp_max_c": 38.0,
+      "temp_min_c": 18.0
+    },
+    "Finger millet": {
+      "humidity_max_pct": 82.0,
+      "humidity_min_pct": 50.0,
+      "ph_max": 8.0,
+      "ph_min": 5.5,
+      "rain_max_mm": 45.0,
+      "rain_min_mm": 10.0,
+      "temp_max_c": 36.0,
+      "temp_min_c": 18.0
+    },
+    "Green gram": {
+      "humidity_max_pct": 82.0,
+      "humidity_min_pct": 55.0,
+      "ph_max": 7.5,
+      "ph_min": 6.0,
+      "rain_max_mm": 40.0,
+      "rain_min_mm": 8.0,
+      "temp_max_c": 38.0,
+      "temp_min_c": 20.0
+    },
+    "Groundnut": {
+      "humidity_max_pct": 82.0,
+      "humidity_min_pct": 50.0,
+      "ph_max": 7.0,
+      "ph_min": 5.5,
+      "rain_max_mm": 40.0,
+      "rain_min_mm": 8.0,
+      "temp_max_c": 36.0,
+      "temp_min_c": 20.0
+    },
+    "Maize": {
+      "humidity_max_pct": 82.0,
+      "humidity_min_pct": 55.0,
+      "ph_max": 7.0,
+      "ph_min": 5.8,
+      "rain_max_mm": 50.0,
+      "rain_min_mm": 10.0,
+      "temp_max_c": 35.0,
+      "temp_min_c": 18.0
+    }
+  },
+  "derived_on": "2026-08-25",
+  "rules": {
+    "humidity": "crop.humidity_min_pct <= humidity_pct <= crop.humidity_max_pct",
+    "ph": "crop.ph_min <= soil_ph <= crop.ph_max",
+    "rain": "crop.rain_min_mm <= rainfall_mm <= crop.rain_max_mm",
+    "temp": "crop.temp_min_c <= temp_min_c and temp_max_c <= crop.temp_max_c"
+  },
+  "source_dataset": "CropSphere_SL_Synthetic_Weekly.csv",
+  "source_rows": 4978
+}

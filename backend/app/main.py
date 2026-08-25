@@ -14,6 +14,8 @@ from app.middleware.auth import FirebaseAuthMiddleware
 from app.middleware.rate_limit import limiter, rate_limit_exceeded_handler
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.models.loader import model_loader
+from app.user.services.crop_suitability import assert_bands_available
+from app.user.services.recommend_service import assert_feature_contract
 from app.user.routers import (
     chat_history_router,
     chat_router,
@@ -259,6 +261,14 @@ def create_app() -> FastAPI:
         # Load all ML models on startup (before yield = startup phase)
         model_loader.load_all(settings.MODEL_DIR)
         logger.info("Models loaded: %s", model_loader.status_report())
+
+        # Shift-left, same spirit as the Dockerfile's torch/dist-info guards:
+        # verify the recommendation feature vector still matches what M5 was
+        # trained on. A mismatch makes every recommendation fall back to a
+        # revenue heuristic while still returning 200 OK — invisible to health
+        # checks, and it shipped that way once already. Fail the boot instead.
+        assert_feature_contract()
+        assert_bands_available()
 
         # Warm the RAG sentence-encoder once, now, from the baked offline cache.
         # This moves the (previously per-request, network-bound) load to boot,

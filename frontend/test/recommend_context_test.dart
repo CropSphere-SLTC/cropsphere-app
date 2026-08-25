@@ -119,6 +119,46 @@ void main() {
     });
   });
 
+  group('humidity caveat trigger', () {
+    // The caveat is gated on any crop failing humidity. The gate is the whole
+    // behaviour worth testing — the widget itself is a static string.
+    bool anyFails(List<CropRecommendation> recs) =>
+        recs.any((r) => r.suitabilityFlags['humidity_suitable'] == false);
+
+    test('fires when any crop fails humidity', () {
+      expect(
+        anyFails([
+          _rec(),
+          _rec(
+            crop: 'Carrot',
+            flags: const {
+              'temp_suitable': true,
+              'rain_suitable': true,
+              'humidity_suitable': false,
+              'ph_suitable': true,
+            },
+          ),
+        ]),
+        isTrue,
+      );
+    });
+
+    test('stays hidden when humidity passes for every crop', () {
+      expect(anyFails([_rec(), _rec(crop: 'Maize')]), isFalse);
+    });
+
+    test('stays hidden when the flag is absent entirely', () {
+      // An older backend that never sends humidity_suitable must not trigger
+      // a caveat about a condition it is not reporting.
+      expect(
+        anyFails([
+          _rec(flags: const {'temp_suitable': true, 'rain_suitable': true}),
+        ]),
+        isFalse,
+      );
+    });
+  });
+
   group('PredictionContext.toJson', () {
     test('carries soil, weather and the full ranking on the wire', () {
       final ctx = PredictionContext(

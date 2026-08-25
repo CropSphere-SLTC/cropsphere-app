@@ -1707,6 +1707,11 @@ class _RecommendScreenState extends State<RecommendScreen> {
           ],
         ),
         const SizedBox(height: 12),
+        // Read BEFORE the badges it qualifies, not after them.
+        if (_anyCropFailsHumidity()) ...[
+          _humidityCaveat(),
+          const SizedBox(height: 12),
+        ],
         // The backend already sorts district-unsuitable crops last, so this
         // divider only ever appears once — it is what makes the sort legible
         // instead of looking like the ranking broke partway down.
@@ -1725,6 +1730,95 @@ class _RecommendScreenState extends State<RecommendScreen> {
       ],
     );
   }
+
+  /// True when at least one recommended crop failed the humidity condition.
+  ///
+  /// Gates [_humidityCaveat]: if humidity passed for everything, the caveat
+  /// is noise. Same reasoning as the district divider — shown once, only when
+  /// it explains something actually on screen.
+  bool _anyCropFailsHumidity() =>
+      _result?.recommendations.any(
+        (r) => r.suitabilityFlags['humidity_suitable'] == false,
+      ) ??
+      false;
+
+  /// Plain-language caveat on the humidity condition.
+  ///
+  /// WHY THIS EXISTS. The humidity bands were derived from a dataset whose
+  /// humidity column sits 3.7-16.4 points BELOW observed weather in every one
+  /// of the eight districts. The condition passes 99.6% of the time in that
+  /// data and roughly 70% (lowland) / 39% (upcountry) against real weather —
+  /// so it reports failures that real growing conditions do not warrant,
+  /// most often in humid weeks. Full evidence in
+  /// backend/docs/known_issues.md item 5.
+  ///
+  /// This is the disclosure half of a deliberate holding position: no band
+  /// value is changed, because the two real fixes (shifting the band, or
+  /// rebuilding it from observed weather) both depend on validation against
+  /// Department of Meteorology station data that we do not have. Until then
+  /// the honest move is to tell the farmer the check is strict rather than
+  /// quietly let it mark good crops down.
+  ///
+  /// Deliberately NOT the amber warning tone. The four badge tiers use colour
+  /// to say something about the farmer's land; this says something about OUR
+  /// check, so it reads as a footnote rather than a fifth severity.
+  ///
+  /// Wording is farmer-facing on purpose — no mention of datasets,
+  /// calibration or bias. It has one job: do not over-weight this single
+  /// condition.
+  Widget _humidityCaveat() => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    decoration: BoxDecoration(
+      color: AppTheme.textMuted.withValues(alpha: 0.07),
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: AppTheme.textMuted.withValues(alpha: 0.25)),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(
+          Icons.info_outline_rounded,
+          size: 16,
+          color: AppTheme.textSecondary,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: RichText(
+            text: TextSpan(
+              style: const TextStyle(
+                fontSize: 11.5,
+                height: 1.45,
+                color: AppTheme.textSecondary,
+              ),
+              children: [
+                TextSpan(
+                  text: _t({
+                    'en':
+                        'Humidity: this check is stricter than real growing conditions. ',
+                    'si':
+                        'ආර්ද්‍රතාවය: මෙම පරීක්ෂාව සැබෑ වගා තත්ත්වවලට වඩා දැඩියි. ',
+                    'ta':
+                        'ஈரப்பதம்: இந்தச் சோதனை உண்மையான பயிர்ச்செய்கை நிலைமைகளை விட கடுமையானது. ',
+                  }),
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                TextSpan(
+                  text: _t({
+                    'en':
+                        'A crop that only misses on humidity will often still grow well — weigh temperature, rainfall and soil more heavily.',
+                    'si':
+                        'ආර්ද්‍රතාවය පමණක් නොගැලපෙන භෝගයක් බොහෝ විට හොඳින් වැවෙනු ඇත — උෂ්ණත්වය, වර්ෂාපතනය සහ පස වැඩි වශයෙන් සලකා බලන්න.',
+                    'ta':
+                        'ஈரப்பதத்தில் மட்டும் தவறும் பயிர் பெரும்பாலும் நன்றாக வளரும் — வெப்பநிலை, மழைவீழ்ச்சி மற்றும் மண்ணுக்கு அதிக முக்கியத்துவம் கொடுங்கள்.',
+                  }),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 
   /// Section rule introducing the crops the district does not normally grow.
   Widget _districtDivider() => Padding(

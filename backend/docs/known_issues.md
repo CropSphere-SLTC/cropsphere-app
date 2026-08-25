@@ -255,15 +255,66 @@ Lanka Department of Meteorology station data. That is the authoritative check,
 and it should happen before anyone rebuilds band values from these numbers.
 A single grid point is not a district, and reanalysis is not a gauge.
 
-### Fix direction
+### Decision: option A (disclosure only), as a HOLDING POSITION
 
-Not by changing the aggregation. `relative_humidity_2m_min` would put Nuwara
-Eliya at 77.2% and make the flag pass, but that is reverse-engineering the
-input to reach a desired answer and would corrupt every other district.
+**No band value changed.** The Crop Recommendation results carry a
+plain-language note whenever any crop fails the humidity condition, telling
+the farmer the check is stricter than real growing conditions and to weigh
+temperature, rainfall and soil more heavily.
+See `_humidityCaveat` in `frontend/lib/screens/recommend/recommend_screen.dart`.
 
-Options are sketched but not chosen — any change here affects all eight
-districts and all six crops. See the discussion attached to this item;
-decision pending, and it needs the DoM validation above first.
+This changes no behaviour: the badge still counts humidity as a failure in its
+tier calculation, so Carrot at Nuwara Eliya still reads "Workable — 2 of 4".
+The disclosure asks the farmer to mentally correct for a number we know is
+wrong rather than correcting it ourselves. That is weaker than fixing the
+calibration and is chosen only because the fixes are blocked (below).
+
+**Option B — shift the humidity band +11 points, both ends — is the
+best-evidenced fix.** +11 is the mean understatement across the eight
+districts, and the offset is consistent rather than noisy, which is exactly
+the shape a constant correction assumes. Pass rates would move to 93% lowland
+/ 82% upcountry. It raises floors as well as ceilings, so genuinely dry weeks
+would start failing — the honest consequence of treating this as an offset.
+
+**Option C — rebuild the humidity bands from observed weather in the districts
+where `M5_valid_pairs` says each crop is actually grown — is the principled
+fix.** It corrects the source rather than patching the output, on the premise
+that a crop grown in a district is by revealed preference tolerant of that
+district's real humidity.
+
+**Both are blocked on Department of Meteorology validation.** Every observed
+figure in this item is Open-Meteo reanalysis at a single grid point per
+district over two years. B bakes an offset derived from it into the bands;
+C bakes the distribution itself in. Neither should proceed on reanalysis
+alone.
+
+**Option B2 (raise ceilings only) was rejected.** It takes the lowland pass
+rate to 100%, so the condition stops discriminating there entirely —
+replacing a flag that never passed with one that never fails, which is no
+better.
+
+**Option D (drop humidity, badge becomes N of 3)** remains the fallback if DoM
+data never materialises. It loses real signal — humidity drives fungal disease
+pressure — but it is the only option with no risk of asserting a calibration
+we cannot back.
+
+Not by changing the aggregation, in any case.
+`relative_humidity_2m_min` would put Nuwara Eliya at 77.2% and make the flag
+pass, but that is reverse-engineering the input to reach a desired answer and
+would corrupt every other district.
+
+### Translations need a native-speaker pass
+
+The caveat's Sinhala and Tamil strings were written by the implementer, not a
+native speaker. They are faithful to the English and reuse terms already in
+the file (`ආර්ද්‍රතාවය`, `ஈரப்பதம்`, `වර්ෂාපතනය`, `மழைவீழ்ச்சி` all appear in
+`_failedConditions`), but they should be reviewed before release.
+
+Register matters more here than in an ordinary field label: this sentence asks
+a farmer to **discount a failure the app itself just reported**. Too tentative
+and it reads as the app not trusting its own advice; too strong and it reads
+as permission to ignore humidity altogether, which is not what the evidence
+supports. That balance is hard to verify in a language you do not speak.
 
 ---
 

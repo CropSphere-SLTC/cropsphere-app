@@ -73,6 +73,10 @@ class MockService {
       district: request.district,
       forecasts: forecasts,
       isMock: true,
+      // Mock mode is climatology by definition — no model ran. Stated rather
+      // than left as `unknown`, so demo mode carries the same provenance
+      // contract as the real backend.
+      forecastSource: ForecastSource.climatology,
     );
   }
 

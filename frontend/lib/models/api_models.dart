@@ -167,16 +167,52 @@ class WeatherForecastWeek {
       );
 }
 
+/// Where a forecast came from, and how far it can be trusted.
+///
+/// Same honesty contract as [AveragePriceSource] on the price side:
+/// provenance travels with the number instead of being inferred.
+enum ForecastSource {
+  /// M2 forecast for a district the model handles competently.
+  model,
+
+  /// M2 forecast, but its training data is wrong for this district — it
+  /// records the hill country as lowland-hot, which collapses the predicted
+  /// rainfall. Still shown: nothing else forecasts four weeks ahead, and the
+  /// client's own Open-Meteo call returns a PAST-7-day average, not a
+  /// forecast. Shown WITH a caveat rather than passed off as reliable.
+  modelLowConfidence,
+
+  /// The LSTM was unavailable; these are flat seasonal averages.
+  climatology,
+
+  /// Field absent or unrecognised — an older backend. Treated as [model] for
+  /// display: an unknown source must not invent a warning we cannot justify.
+  unknown,
+}
+
+ForecastSource _forecastSourceFromWire(dynamic v) => switch (v) {
+  'model' => ForecastSource.model,
+  'model_low_confidence' => ForecastSource.modelLowConfidence,
+  'climatology' => ForecastSource.climatology,
+  _ => ForecastSource.unknown,
+};
+
 class WeatherResponse {
   final String district;
   final List<WeatherForecastWeek> forecasts;
   final bool isMock;
+  final ForecastSource forecastSource;
 
   WeatherResponse({
     required this.district,
     required this.forecasts,
     this.isMock = false,
+    this.forecastSource = ForecastSource.unknown,
   });
+
+  /// True when the forecast should carry a visible caveat.
+  bool get isLowConfidence =>
+      forecastSource == ForecastSource.modelLowConfidence;
 
   factory WeatherResponse.fromJson(Map<String, dynamic> json) =>
       WeatherResponse(
@@ -185,6 +221,7 @@ class WeatherResponse {
             .map((w) => WeatherForecastWeek.fromJson(w))
             .toList(),
         isMock: json['is_mock'] ?? false,
+        forecastSource: _forecastSourceFromWire(json['forecast_source']),
       );
 }
 

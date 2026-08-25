@@ -129,6 +129,20 @@ class WeatherForecastResponse(BaseModel):
     district: DistrictEnum
     forecasts: List[WeekForecast]
     is_mock: bool = False
+    # How much the forecast for THIS district can be trusted. Same honesty
+    # contract as PricePredictResponse.average_price_source: provenance
+    # travels with the number rather than being inferred by the client.
+    #
+    #   "model"                — M2 forecast, district within its competence.
+    #   "model_low_confidence" — M2 forecast, but its training data is wrong
+    #                            for this district (see
+    #                            weather_service._UNTRUSTED_FORECAST_DISTRICTS).
+    #                            Still the best available: nothing else can
+    #                            forecast four weeks forward, and the client's
+    #                            Open-Meteo call returns a PAST-7-day average,
+    #                            not a forecast, so it cannot substitute here.
+    #   "climatology"          — the LSTM was absent; flat seasonal averages.
+    forecast_source: Literal["model", "model_low_confidence", "climatology"] = "model"
 
 
 

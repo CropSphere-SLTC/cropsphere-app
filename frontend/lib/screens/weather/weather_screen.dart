@@ -1310,10 +1310,65 @@ class _WeatherScreenState extends State<WeatherScreen> {
           ],
         ),
         const SizedBox(height: 12),
+        if (result.isLowConfidence) ...[
+          _lowConfidenceNotice(),
+          const SizedBox(height: 12),
+        ],
         ...result.forecasts.map((f) => _weekCard(f)),
       ],
     );
   }
+
+  /// Shown when the backend labels this district's forecast low-confidence.
+  ///
+  /// Our weather model was trained on data that records the hill country as
+  /// lowland-hot — Nuwara Eliya at a 34 C weekly maximum against a real ~19 C
+  /// — which collapses its predicted rainfall for those districts. The
+  /// forecast is still shown because nothing else looks four weeks ahead, but
+  /// it is not presented as trustworthy.
+  ///
+  /// Same principle as the price page's real/synthetic average badge:
+  /// provenance is stated, not hidden, and never dressed up as certainty.
+  Widget _lowConfidenceNotice() => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    decoration: BoxDecoration(
+      color: AppTheme.warning.withValues(alpha: 0.08),
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: AppTheme.warning.withValues(alpha: 0.3)),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(Icons.info_rounded, size: 17, color: AppTheme.warning),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            _t({
+              'en':
+                  'Limited accuracy for this district. Our forecast model has '
+                  'less reliable data for the hill country, so rainfall here '
+                  'may be under-estimated. Treat these figures as a rough '
+                  'guide.',
+              'si':
+                  'මෙම දිස්ත්‍රික්කය සඳහා නිරවද්‍යතාව සීමිතයි. කඳුකර ප්‍රදේශ සඳහා '
+                  'අපගේ ආකෘතියේ දත්ත එතරම් විශ්වාස නොවන බැවින්, මෙහි වර්ෂාපතනය '
+                  'අඩුවෙන් ඇස්තමේන්තු විය හැක. මෙම අගයන් දළ මාර්ගෝපදේශයක් ලෙස ගන්න.',
+              'ta':
+                  'இந்த மாவட்டத்திற்கு துல்லியம் குறைவு. மலைநாட்டுப் பகுதிகளுக்கு '
+                  'எங்கள் மாதிரியின் தரவு நம்பகத்தன்மை குறைவு, எனவே இங்கு மழைவீழ்ச்சி '
+                  'குறைவாக மதிப்பிடப்படலாம். இந்த எண்களை தோராயமான வழிகாட்டியாகக் கொள்ளுங்கள்.',
+            }),
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.4,
+              fontWeight: FontWeight.w500,
+              color: AppTheme.warning,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 
   Widget _weekCard(WeatherForecastWeek week) {
     final (adviceLabel, adviceDetail, adviceColor, adviceIcon) = _adviceFor(

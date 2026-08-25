@@ -111,7 +111,7 @@ def _rank(req: RecommendRequest, results: list, weather) -> List[CropRecommendat
     probabilities = _m5_probabilities(req, weather)
     valid_districts = model_loader.get_model("recommend_valid_pairs") or {}
 
-    conditions = _observed_conditions(req, weather)
+    conditions = _observed_conditions(req)
     scored = []
 
     for crop, y_resp, p_resp in results:
@@ -156,13 +156,37 @@ def _rank(req: RecommendRequest, results: list, weather) -> List[CropRecommendat
     ]
 
 
-def _observed_conditions(req: RecommendRequest, weather) -> Dict[str, float]:
-    """The conditions the crop is judged against — forecast first, request as fallback."""
+def _observed_conditions(req: RecommendRequest) -> Dict[str, float]:
+    """The conditions the crop is judged against — the REQUEST, always.
+
+    These are the numbers the farmer's own weather card showed them: the
+    client fetches observed weather and sends it with the request. Judging a
+    crop on anything else means showing one set of figures and grading on
+    another, which is wrong regardless of which source is more accurate.
+
+    This used to prefer the M2 forecast and fall back to the request. That
+    silently substituted modelled values for observed ones — for Nuwara
+    Eliya the card read 1.4mm / 13.6-20.7 C / 98% while the flags were
+    computed on 1.6mm / 16.5-27.3 C / 91.9%. It also inherited M2's
+    hill-country collapse (see weather_service._seed_excursions), so the
+    worst-affected districts were exactly the ones being judged on the least
+    trustworthy numbers.
+
+    The forecast is still used where it belongs: as an INPUT to the M5
+    feature row (_m5_features), which is a model consuming a model, not a
+    farmer-facing claim.
+
+    KNOWN, STILL OPEN: the client's rainfall is a mean of DAILY totals while
+    the agronomic bands are weekly, and its humidity is a mean of daily
+    MAXIMA while the bands expect a representative value. Both make their
+    conditions fail far more often than they should. Tracked separately as
+    the farm_context.dart unit fixes — NOT closed by this change.
+    """
     return {
-        "temp_min_c": weather.temp_min_c if weather else req.temp_min_c,
-        "temp_max_c": weather.temp_max_c if weather else req.temp_max_c,
-        "rainfall_mm": weather.rainfall_mm if weather else req.rainfall_mm,
-        "humidity_pct": weather.humidity_pct if weather else req.humidity_pct,
+        "temp_min_c": req.temp_min_c,
+        "temp_max_c": req.temp_max_c,
+        "rainfall_mm": req.rainfall_mm,
+        "humidity_pct": req.humidity_pct,
         "soil_ph": req.soil_ph,
     }
 

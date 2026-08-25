@@ -16,6 +16,7 @@ from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.models.loader import model_loader
 from app.user.services.crop_suitability import assert_bands_available
 from app.user.services.recommend_service import assert_feature_contract
+from app.user.services.weather_service import assert_weather_seeds_in_range
 from app.user.routers import (
     chat_history_router,
     chat_router,
@@ -269,6 +270,10 @@ def create_app() -> FastAPI:
         # checks, and it shipped that way once already. Fail the boot instead.
         assert_feature_contract()
         assert_bands_available()
+        # Not an assertion despite the name shape: four districts breach
+        # the M2 scaler's fitted range today and two of them forecast
+        # fine, so this logs loudly rather than refusing to boot.
+        assert_weather_seeds_in_range()
 
         # Warm the RAG sentence-encoder once, now, from the baked offline cache.
         # This moves the (previously per-request, network-bound) load to boot,

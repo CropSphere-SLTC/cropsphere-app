@@ -13,7 +13,7 @@ figure are given.
 
 ---
 
-## 1. Rainfall reaches the bands as a daily mean, not a weekly total
+## 1. ~~Rainfall reaches the bands as a daily mean, not a weekly total~~ — RESOLVED
 
 **Where:** `frontend/lib/utils/farm_context.dart`, `fetchFarmWeather`
 
@@ -32,13 +32,25 @@ close to never in production.
 
 **Impact:** the rainfall condition fails for all six crops in almost any week.
 
-**Fix direction:** sum rather than average, or multiply the mean by 7 — but
-confirm which the bands actually want first, and note that Open-Meteo's
-`past_days=7&forecast_days=1` window is 8 days, not 7.
+**FIXED.** `fetchFarmWeather` now SUMS `precipitation_sum` over the window
+instead of averaging it, and the window is `past_days=7&forecast_days=0` —
+exactly 7 complete, observed days. The previous 8-day window mixed a forecast
+day into a figure presented as observed and inflated a weekly total by ~14%.
+
+The `.clamp(0, 300)` ceiling went to `500`, matching the backend's own bound
+(`RecommendRequest.rainfall_mm` is `ge=0, le=500`). 300 was sized for the
+daily-mean reading, where it was unreachable; as a weekly total it is
+reachable in a monsoon week and would have clipped exactly the extremes a
+farmer most needs advice about.
+
+Measured after the fix: Nuwara Eliya 22.8 mm/wk, Anuradhapura 7.0 mm/wk. The
+rainfall condition now discriminates — it passes for every crop at Nuwara
+Eliya and fails for every crop at Anuradhapura's genuinely dry week, which is
+the behaviour the bands describe.
 
 ---
 
-## 2. Humidity reaches the bands as a mean of daily maxima
+## 2. ~~Humidity reaches the bands as a mean of daily maxima~~ — RESOLVED
 
 **Where:** same file, same function
 
@@ -61,7 +73,15 @@ now always fails.
 **Impact:** the humidity condition fails for all six crops, in the hill country
 especially.
 
-**Fix direction:** request `relative_humidity_2m_mean` instead of `_max`.
+**FIXED.** `fetchFarmWeather` now requests `relative_humidity_2m_mean`, which
+Open-Meteo exposes directly, instead of `relative_humidity_2m_max`.
+
+Measured after the fix: Anuradhapura 66.1% against that district's band-dataset
+range of 54.8–73.9 (mean 64.9) — consistent. The aggregation is now comparable
+to what the bands were derived from.
+
+**It does not make the humidity condition pass in the hill country**, and that
+is not a shortcoming of this fix — see item 5.
 
 ---
 
@@ -139,20 +159,66 @@ Gate derived by `python -m scripts.check_weather_trust`, which fails if
 
 ---
 
+## 5. Band dataset understates real hill-country humidity
+
+**Where:** `models/files/CropSphere_SL_Synthetic_Weekly.csv`, humidity_pct for
+Nuwara Eliya
+
+Surfaced by fixing item 2. With the correct aggregation in place, observed
+humidity still fails every crop band at Nuwara Eliya:
+
+| Source | Nuwara Eliya humidity |
+|---|---|
+| Band dataset (bands derived from this) | 73.6–89.1, mean **81.6** |
+| M2 dataset | 78.9–94.9, mean 89.2 |
+| **Observed (Open-Meteo, past 7 days)** | **93.0** |
+
+Band ceilings are 82% for four crops, 85% for Cowpea, 88% for Carrot. An
+observed 93.0% clears none of them, so `humidity_suitable` fails for all six
+crops at Nuwara Eliya regardless of conditions.
+
+Nuwara Eliya sits at ~1,910 m in a cloud-forest zone; ~93% mean relative
+humidity is normal there, and carrots are grown in it commercially. The band
+dataset's 81.6 mean does not describe that district. Note the M2 dataset is
+much CLOSER to reality on humidity (89.2) even though it is the one that is
+wrong on temperature (item 4) — the two synthetic sets are each wrong about
+different variables.
+
+Lowland districts are unaffected: Anuradhapura's observed 66.1 sits mid-band.
+
+**Impact:** one of four conditions is permanently unavailable at Nuwara Eliya
+and probably Badulla. Carrot there reads "Workable — 2 of 4" (temperature and
+rainfall pass, humidity and soil pH fail) where it should plausibly read
+higher.
+
+**Fix direction:** NOT by changing the aggregation. Choosing
+`relative_humidity_2m_min` would put Nuwara Eliya at 77.2% and make the flag
+pass, but that is reverse-engineering the input to reach a desired answer, and
+it would corrupt every other district. The honest options are to widen the
+humidity band for high-elevation districts using real observations, or to
+regenerate the synthetic dataset with correct hill-country humidity. Both are
+band/data work, out of scope for a client-side aggregation fix.
+
+---
+
 ## How they interact
 
-- **1 and 2 are why the badges are wrong today.** Both conditions fail for
-  every crop regardless of which weather source is used, which is why
-  eaab9fa's fix to `_observed_conditions` — real, and it removed a
-  display-vs-evaluation mismatch — changed nothing a farmer sees.
+- **1 and 2 were why the badges were wrong.** Both are now fixed, and the
+  badges discriminate: Anuradhapura returns five lowland crops at "Good match
+  — 3 of 4, watch rainfall" and Carrot at 2 of 4 failing temperature, which is
+  correct for the dry zone. Fixing them is also what finally gave
+  eaab9fa's `_observed_conditions` change something visible to do.
+- **5 was surfaced by fixing 2**, the same way 3 was surfaced by the rainfall
+  reseed. Correcting an input reveals whether the reference data it is
+  compared against was ever right.
 - **3 was created by fixing rainfall, not by the reseed being wrong.** It is
   the second half of a compensating pair.
 - **4 is upstream of everything** and is the only one that cannot be fixed in
   this codebase.
 
-Suggested order: 1 and 2 together (they are the same function and the only
-ones that change what farmers see), then 3, then 4 when retraining is
-possible.
+Suggested order: ~~1 and 2~~ (done), then 5 (it is the only remaining defect
+that changes what a farmer sees, and it affects one district), then 3, then 4
+when retraining is possible.
 
 ## Reproducing
 

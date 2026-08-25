@@ -99,7 +99,12 @@ SoilTypical soilDefaultsFor(String district) =>
 
 // ── Weather ──────────────────────────────────────────────────────────────────
 
-/// The four weather fields M5 needs, averaged over the past week.
+/// The four weather fields M5 needs, aggregated over the past week.
+///
+/// NOT all averages: rainfallMm is a weekly TOTAL (rain accumulates), the
+/// other three are weekly means. See [fetchFarmWeather] — treating rainfall
+/// as a mean is the bug that made the rainfall suitability condition fail for
+/// every crop in almost every week.
 ///
 /// Distinct from the dashboard's own `_WeatherData` (current conditions —
 /// temp/rain-chance/wind, for the weather card). This one is the weekly
@@ -118,7 +123,37 @@ class FarmWeather {
   });
 }
 
-/// Past-7-day weather averages for a district, from Open-Meteo (free, no key).
+/// Observed weather for a district over the past 7 complete days, aggregated
+/// to match what the prediction models and the agronomic suitability bands
+/// were trained on.
+///
+/// AGGREGATION MATTERS HERE, and getting it wrong is not a rounding error.
+/// These four values are compared field-by-field against per-crop bands
+/// derived from weekly training data (backend/scripts/derive_crop_bands.py).
+/// A value on the wrong scale does not degrade the comparison — it fails it
+/// every time, for every crop.
+///
+/// Two such faults were fixed here. Both made their condition fail
+/// universally, which is what made every crop read "1 of 4 conditions ideal"
+/// no matter the weather:
+///
+///  * RAINFALL was the MEAN of daily totals, so mm/day, compared against
+///    weekly bands whose floors are 8-10mm. Roughly 7x too small;
+///    rain_suitable passes 57.7% of the time in training and almost never in
+///    production. Now a SUM over the window.
+///  * HUMIDITY was the mean of daily PEAKS, which sits near saturation most
+///    days. Training humidity_pct runs 52.0-89.1 and its condition passes
+///    99.6% of the time; the mean of daily maxima for Nuwara Eliya measures
+///    100.0 — above every band ceiling (82-88) and above the training maximum
+///    itself. Now relative_humidity_2m_mean, which Open-Meteo exposes
+///    directly.
+///
+/// WINDOW: past_days=7 with forecast_days=0 — exactly 7 complete, OBSERVED
+/// days. The previous call added forecast_days=1, giving an 8-day window that
+/// mixed a forecast day into a figure presented as observed and inflated a
+/// weekly total by ~14%. One window, fully observed, so "rainfall this past
+/// week" means precisely that to the farmer being judged on it.
+///
 /// Throws on an unknown district, a non-200 response, or timeout — callers
 /// decide whether to surface an error or fall back to manual entry.
 Future<FarmWeather> fetchFarmWeather(String district) async {
@@ -130,8 +165,8 @@ Future<FarmWeather> fetchFarmWeather(String district) async {
     'https://api.open-meteo.com/v1/forecast'
     '?latitude=$lat&longitude=$lon'
     '&daily=precipitation_sum,temperature_2m_max,temperature_2m_min,'
-    'relative_humidity_2m_max'
-    '&past_days=7&forecast_days=1&timezone=Asia%2FColombo',
+    'relative_humidity_2m_mean'
+    '&past_days=7&forecast_days=0&timezone=Asia%2FColombo',
   );
   final res = await http.get(uri).timeout(const Duration(seconds: 15));
   if (res.statusCode != 200) {
@@ -139,19 +174,38 @@ Future<FarmWeather> fetchFarmWeather(String district) async {
   }
   final json = jsonDecode(res.body) as Map<String, dynamic>;
   final daily = json['daily'] as Map<String, dynamic>;
+  List<double> series(String key) => (daily[key] as List? ?? const [])
+      .whereType<num>()
+      .map((e) => e.toDouble())
+      .toList();
+
+  /// Mean over the window — for quantities that ARE daily values
+  /// (temperature, relative humidity).
   double avg(String key) {
-    final vals = (daily[key] as List)
-        .whereType<num>()
-        .map((e) => e.toDouble())
-        .toList();
+    final vals = series(key);
     if (vals.isEmpty) return 0;
     return vals.reduce((a, b) => a + b) / vals.length;
   }
 
+  /// Total over the window — for quantities that ACCUMULATE (rainfall).
+  /// Nulls are dropped rather than read as zero: a missing day should shorten
+  /// the window, not silently deflate the total.
+  double total(String key) {
+    final vals = series(key);
+    if (vals.isEmpty) return 0;
+    return vals.reduce((a, b) => a + b);
+  }
+
   return FarmWeather(
-    rainfallMm: avg('precipitation_sum').clamp(0, 300),
+    // Ceiling raised 300 -> 500 to match the backend's own bound
+    // (RecommendRequest.rainfall_mm is ge=0, le=500). 300 was sized for the
+    // daily-mean reading, where it was unreachable anyway — 300mm in one day
+    // is close to a national record. As a WEEKLY total it is reachable in a
+    // monsoon week, so it would have clipped exactly the extremes a farmer
+    // most needs advice about.
+    rainfallMm: total('precipitation_sum').clamp(0, 500),
     tempMinC: avg('temperature_2m_min').clamp(0, 45),
     tempMaxC: avg('temperature_2m_max').clamp(5, 50),
-    humidityPct: avg('relative_humidity_2m_max').clamp(0, 100),
+    humidityPct: avg('relative_humidity_2m_mean').clamp(0, 100),
   );
 }

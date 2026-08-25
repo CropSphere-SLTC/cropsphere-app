@@ -1,30 +1,40 @@
 // lib/screens/weather/weather_screen.dart
 // ─────────────────────────────────────────────────────────────────────────────
-//  CropSphere — Weather Forecast (v2)
+//  CropSphere — Weather Forecast (v3)
 //
-//  CHANGES FROM v1
-//  ✅ Same shell as Dashboard/Yield/Price: top nav bar (active tab bold +
-//     highlighted), language pill, responsive mobile/tablet/web layout,
-//     sticky "Get Forecast" bar on mobile/tablet.
-//  ✅ Fully trilingual (en/si/ta) throughout — district names, week labels,
-//     stat labels, advice text.
-//  ✅ Quick-select district chips (tap-and-go, like Yield/Price crop chips).
-//  ✅ "Weeks ahead" chips use farmer-friendly labels ("1 week", "2 weeks"...)
-//     instead of bare numbers.
-//  ✅ Each week's forecast gets a plain-language advice banner (heavy rain /
-//     dry spell / good conditions) derived from the rainfall figure —
-//     not just raw numbers.
-//  ✅ Collapsible "Weather & Farming Tips" card, general seasonal advice.
+//  CHANGES FROM v2 — redesign matching Yield/Price's post-redesign pattern:
+//  ✅ AppTheme.accents.weather header (gradient, glass icon badge, Week
+//     pill) instead of a hardcoded blue — same structure as price_screen's
+//     header, see _pageHeader.
+//  ✅ Quick-select district chips removed — the searchable dropdown is now
+//     the sole district selector (matches Yield/Price).
+//  ✅ District field is a type-to-filter RawAutocomplete dropdown with an
+//     inline checkmark, ported from price_screen's `_searchableDropdown`.
+//  ✅ Two-column layout at >=1024px — inputs left (header, location, range,
+//     tips, Get Forecast), results right (forecast cards + Ask AI) — same
+//     1024px threshold and left-column width formula as price_screen.
+//  ✅ "Get Forecast" button uses AppTheme.accents.weather.fill, by explicit
+//     request — the second such exception to "primary actions stay green",
+//     after price_screen's "Predict Price" button.
+//  ✅ "Ask AI about this" — same predictionHandoff mechanism as Yield/Price,
+//     4 weather-specific starter chips (kWeatherStarters).
+//  ✅ The advice banner's emoji prefixes are gone — the icon already drawn
+//     alongside each banner (adviceIcon) is the only glyph now.
+//  ✅ Fully trilingual (en/si/ta) throughout — unchanged from v2.
+//  ✅ Weather forecast logic, the ML call, and the "Good Growing
+//     Conditions" interpretation wording are unchanged — only presentation.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../../app_lang.dart';
 import '../../models/api_models.dart';
+import '../../services/prediction_handoff.dart';
 import '../../services/service_factory.dart';
 import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
 import '../../widgets/app_top_bar.dart';
+import '../../widgets/followup_chip.dart';
 import '../../widgets/skeleton_loading.dart';
 
 typedef _L = Map<String, String>;
@@ -77,7 +87,8 @@ const List<_L> _weekOptions = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  General weather & farming tips — trilingual
+//  General weather & farming tips — trilingual. Unchanged from v2, just
+//  relocated into the left column (see _formColumn).
 // ─────────────────────────────────────────────────────────────────────────────
 class _Tip {
   final _L title;
@@ -230,6 +241,15 @@ String _navSvg(int i, Color color) {
   };
 }
 
+int _weekOfYear() {
+  final now = DateTime.now();
+  final soy = DateTime(now.year, 1, 1);
+  return (((now.difference(soy).inDays + soy.weekday - 1) / 7).ceil()).clamp(
+    1,
+    52,
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  WeatherScreen
 // ─────────────────────────────────────────────────────────────────────────────
@@ -252,6 +272,13 @@ class _WeatherScreenState extends State<WeatherScreen> {
   String? _errorMessage;
   bool _tipsExpanded = false;
 
+  // ── Searchable district dropdown text state ────────────────────────────
+  // Same pattern as price_screen/yield_screen: the controller is owned HERE
+  // (not left to RawAutocomplete) so _syncSearchField can reach into it on
+  // focus change.
+  final _districtSearchCtrl = TextEditingController();
+  final _districtFocus = FocusNode();
+
   String get _langKey {
     final l = AppLangProvider.lang(context);
     if (l == AppLang.si) return 'si';
@@ -260,6 +287,45 @@ class _WeatherScreenState extends State<WeatherScreen> {
   }
 
   String _t(_L m) => m[_langKey] ?? m['en']!;
+
+  @override
+  void initState() {
+    super.initState();
+    _districtFocus.addListener(
+      () => _syncSearchField(
+        _districtFocus,
+        _districtSearchCtrl,
+        _districtLabel(_langKey, _selectedDistrict),
+      ),
+    );
+  }
+
+  /// Keeps the searchable dropdown honest across focus changes. Ported
+  /// verbatim from price_screen/yield_screen — see either for the full
+  /// rationale.
+  void _syncSearchField(
+    FocusNode node,
+    TextEditingController ctrl,
+    String selected,
+  ) {
+    if (node.hasFocus) {
+      if (ctrl.text.isNotEmpty) {
+        ctrl.clear();
+      } else {
+        ctrl.value = const TextEditingValue(text: ' ');
+        ctrl.clear();
+      }
+      return;
+    }
+    if (ctrl.text != selected) ctrl.text = selected;
+  }
+
+  @override
+  void dispose() {
+    _districtSearchCtrl.dispose();
+    _districtFocus.dispose();
+    super.dispose();
+  }
 
   Future<void> _forecast() async {
     // District and Forecast Range are required — nothing is pre-selected,
@@ -311,14 +377,17 @@ class _WeatherScreenState extends State<WeatherScreen> {
   }
 
   /// Plain-language advice derived from the week's rainfall figure —
-  /// (label, detail, color, icon). No raw jargon, just what to do.
+  /// (label, detail, color, icon). Interpretation logic and wording are
+  /// UNCHANGED from v2 — only the emoji that used to prefix each label is
+  /// gone; `adviceIcon` (already drawn alongside the label in _weekCard) is
+  /// now the only glyph carrying that meaning.
   (String, String, Color, IconData) _adviceFor(WeatherForecastWeek w) {
     if (w.rainfallMm >= 60) {
       return (
         _t({
-          'en': '⚠️ Heavy Rain Expected',
-          'si': '⚠️ තද වර්ෂාව අපේක්ෂිතයි',
-          'ta': '⚠️ கனமழை எதிர்பார்க்கப்படுகிறது',
+          'en': 'Heavy Rain Expected',
+          'si': 'තද වර්ෂාව අපේක්ෂිතයි',
+          'ta': 'கனமழை எதிர்பார்க்கப்படுகிறது',
         }),
         _t({
           'en': 'Check drainage and avoid spraying — rain will wash it off.',
@@ -333,9 +402,9 @@ class _WeatherScreenState extends State<WeatherScreen> {
     if (w.rainfallMm <= 10 && w.tempMaxC >= 30) {
       return (
         _t({
-          'en': '☀️ Dry & Hot Week',
-          'si': '☀️ වියළි හා උණුසුම් සතියක්',
-          'ta': '☀️ உலர்ந்த வெப்பமான வாரம்',
+          'en': 'Dry & Hot Week',
+          'si': 'වියළි හා උණුසුම් සතියක්',
+          'ta': 'உலர்ந்த வெப்பமான வாரம்',
         }),
         _t({
           'en':
@@ -350,9 +419,9 @@ class _WeatherScreenState extends State<WeatherScreen> {
     }
     return (
       _t({
-        'en': '✅ Good Growing Conditions',
-        'si': '✅ හොඳ වගා තත්ත්ව',
-        'ta': '✅ நல்ல வளர்ச்சி நிலைமைகள்',
+        'en': 'Good Growing Conditions',
+        'si': 'හොඳ වගා තත්ත්ව',
+        'ta': 'நல்ல வளர்ச்சி நிலைமைகள்',
       }),
       _t({
         'en': 'Balanced rain and temperature — normal field work is safe.',
@@ -366,6 +435,127 @@ class _WeatherScreenState extends State<WeatherScreen> {
     );
   }
 
+  /// The short condition key each week resolves to — same three-way split
+  /// as [_adviceFor], expressed as a bounded token instead of display text.
+  /// Feeds the weather-shaped `prediction_context` sent to chat (Step 8).
+  String _conditionKey(WeatherForecastWeek w) {
+    if (w.rainfallMm >= 60) return 'heavy_rain';
+    if (w.rainfallMm <= 10 && w.tempMaxC >= 30) return 'dry_hot';
+    return 'good';
+  }
+
+  // ── AI chat handoff ────────────────────────────────────────────────────────
+  /// The forecast this conversation is about, sent invisibly on every
+  /// request in the resulting conversation. Same single-slot handoff
+  /// mechanism as yield/price — see [_askAi].
+  ///
+  /// forecastWeeks carries enough per-week detail (rainfall, min/max temp,
+  /// humidity, and the same growing-conditions interpretation shown on the
+  /// card) for the assistant to meaningfully explain or advise on the
+  /// forecast, not just restate the district.
+  PredictionContext _predictionContext() {
+    final r = _result;
+    return PredictionContext(
+      district: _selectedDistrict,
+      weeksAhead: _weeksAhead,
+      forecastWeeks: r?.forecasts
+          .map(
+            (w) => PredictionWeatherWeek(
+              weekNumber: w.weekNumber,
+              date: w.date,
+              rainfallMm: w.rainfallMm,
+              tempMinC: w.tempMinC,
+              tempMaxC: w.tempMaxC,
+              humidityPct: w.humidityPct,
+              condition: _conditionKey(w),
+            ),
+          )
+          .toList(),
+    );
+  }
+
+  /// Publish the forecast to the chat screen and switch to the AI Chat tab.
+  /// Identical mechanism to yield/price_screen — see prediction_handoff.dart.
+  void _askAi({String? question}) {
+    if (_result == null) return;
+    predictionHandoff.value = PredictionHandoff(
+      _predictionContext(),
+      question: question,
+    );
+    widget.onNavigate?.call(6); // AI Chat tab
+  }
+
+  /// Shared styling for every action in the "Ask AI about this" block —
+  /// primaryDark, not the weather accent: these are primary actions, and
+  /// the accent rules keep those consistent app-wide (same as price_screen's
+  /// _askAiButtonStyle).
+  ButtonStyle get _askAiButtonStyle => ElevatedButton.styleFrom(
+    backgroundColor: AppTheme.login.primaryDark,
+    foregroundColor: Colors.white,
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    elevation: 2,
+  );
+
+  /// The four weather questions live HERE, on the result, not on an
+  /// otherwise blank chat screen — same placement as price_screen's
+  /// _askAiBlock.
+  Widget _askAiBlock() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _sectionTitle(
+        _t({
+          'en': 'Ask AI about this',
+          'si': 'මේ ගැන AI වෙතින් අසන්න',
+          'ta': 'இதைப் பற்றி AI-இடம் கேளுங்கள்',
+        }),
+        Icons.auto_awesome,
+      ),
+      const SizedBox(height: 10),
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final q in kWeatherStarters)
+            ElevatedButton(
+              // Only the short visible text is sent as the message; the
+              // forecast rides along in prediction_context.
+              onPressed: () => _askAi(question: q),
+              style: _askAiButtonStyle,
+              child: Text(
+                q,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+        ],
+      ),
+      const SizedBox(height: 12),
+      ElevatedButton.icon(
+        onPressed: _askAi,
+        icon: SvgPicture.string(
+          _navSvg(6, Colors.white),
+          width: 18,
+          height: 18,
+        ),
+        label: Text(
+          _t({
+            'en': 'Ask something else about this',
+            'si': 'මේ ගැන වෙනත් දෙයක් අසන්න',
+            'ta': 'இதைப் பற்றி வேறு ஏதாவது கேளுங்கள்',
+          }),
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+        ),
+        style: _askAiButtonStyle,
+      ),
+    ],
+  );
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  BUILD
+  // ══════════════════════════════════════════════════════════════════════════
   @override
   Widget build(BuildContext context) {
     AppLangProvider.of(context);
@@ -375,13 +565,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
         return Column(
           children: [
             _buildTopBar(context),
-            Expanded(
-              child: w >= 960
-                  ? _buildWebLayout()
-                  : w >= 600
-                  ? _buildTabletLayout()
-                  : _buildMobileLayout(),
-            ),
+            Expanded(child: _buildDetailsTab(w)),
           ],
         );
       },
@@ -392,207 +576,166 @@ class _WeatherScreenState extends State<WeatherScreen> {
   // widget now instead of six independent copies of this same bar.
   Widget _buildTopBar(BuildContext context) => AppTopBar(
     activeIndex: 3,
-    activeBg: const Color(0xFFE3F2FD),
-    activeColor: const Color(0xFF1565C0),
+    activeBg: AppTheme.accents.weather.fill.withValues(alpha: 0.16),
+    activeColor: AppTheme.accents.weather.ink,
     onNavigate: widget.onNavigate,
   );
 
-  // ── Mobile / tablet: unchanged single-column stack with a sticky
-  //    "Get Forecast" bar. Web: compact 2-column grid so every input is
-  //    visible without scrolling — see _formColumn. ─────────────────────────
-  Widget _buildMobileLayout() => Stack(
-    children: [
-      SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
-        child: _formColumn(isWeb: false),
-      ),
-      _stickyForecastButton(),
-    ],
-  );
+  // 1024 is the two-column threshold — same as price_screen/yield_screen:
+  // below it the page stacks into ONE column (header -> inputs -> Get
+  // Forecast -> result) rather than squeezing a results panel alongside
+  // the form.
+  Widget _buildDetailsTab(double width) {
+    if (width >= 1024) return _buildWebDetails(width);
+    if (width >= 600) return _buildTabletDetails(width);
+    return _buildMobileDetails(width);
+  }
 
-  Widget _buildTabletLayout() => Stack(
-    children: [
-      LayoutBuilder(
-        builder: (ctx, bc) {
-          final hPad = ((bc.maxWidth - 700) / 2).clamp(0.0, 200.0);
-          return SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(hPad + 16, 14, hPad + 16, 100),
-            child: _formColumn(isWeb: false),
-          );
-        },
-      ),
-      _stickyForecastButton(),
-    ],
-  );
-
-  // Web: no more splitting the screen into a form panel + a separate
-  // results panel (that produced a mostly-empty right side before the
-  // farmer had a result). Instead, a compact 2-column grid holds every
-  // input, with the button/result shown full-width beneath it. No
-  // IntrinsicHeight anywhere, so it stays compatible with any scrollable
-  // content inside either column.
-  Widget _buildWebLayout() => LayoutBuilder(
-    builder: (ctx, bc) {
-      final maxW = 1000.0;
-      final hPad = ((bc.maxWidth - maxW) / 2).clamp(14.0, 120.0);
-      return SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(hPad, 14, hPad, 24),
-        child: _formColumn(isWeb: true),
-      );
-    },
-  );
-
-  Widget _formColumn({required bool isWeb}) {
-    final locationBlock = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildMobileDetails(double width) {
+    final bool isSmall = width < 340;
+    final double hPad = isSmall ? 12 : 14;
+    return Stack(
       children: [
-        _districtQuickChips(),
-        const SizedBox(height: 16),
-        _sectionTitle(
-          _t({'en': 'Location', 'si': 'ස්ථානය', 'ta': 'இடம்'}),
-          Icons.location_on,
+        SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(hPad, 14, hPad, 180),
+          child: _formColumn(),
         ),
-        const SizedBox(height: 10),
-        _districtDropdownCard(),
-      ],
-    );
-
-    final rangeBlock = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionTitle(
-          _t({
-            'en': 'Forecast Range',
-            'si': 'අනාවැකි කාලය',
-            'ta': 'முன்னறிவிப்பு காலம்',
-          }),
-          Icons.calendar_month,
-        ),
-        const SizedBox(height: 10),
-        _weeksAheadCard(),
-      ],
-    );
-
-    final tipsBlock = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionTitle(
-          _t({
-            'en': 'Weather & Farming Tips',
-            'si': 'කාලගුණ හා ගොවිතැන් ඉඟි',
-            'ta': 'வானிலை & விவசாய குறிப்புகள்',
-          }),
-          Icons.tips_and_updates,
-        ),
-        const SizedBox(height: 10),
-        _tipsCard(),
-      ],
-    );
-
-    // ── Mobile / tablet: unchanged single-column stack ─────────────────────
-    if (!isWeb) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _pageHeader(),
-          const SizedBox(height: 16),
-          locationBlock,
-          const SizedBox(height: 20),
-          rangeBlock,
-          const SizedBox(height: 20),
-          tipsBlock,
-          const SizedBox(height: 16),
-          if (_isLoading) _resultSkeleton(),
-          if (_errorMessage != null) _errorCard(),
-          if (_result != null) _resultSection(),
-          if (_result == null && _errorMessage == null && !_isLoading)
-            _emptyResultPlaceholder(),
-        ],
-      );
-    }
-
-    // ── Web: compact 2-column grid — Location on the left, Forecast Range
-    //    + Tips on the right, result/button full-width beneath. ────────────
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _pageHeader(),
-        const SizedBox(height: 14),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(flex: 5, child: locationBlock),
-            const SizedBox(width: 16),
-            Expanded(
-              flex: 4,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [rangeBlock, const SizedBox(height: 14), tipsBlock],
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton.icon(
-            onPressed: _isLoading ? null : _forecast,
-            icon: _isLoading
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
-                : const Icon(Icons.wb_sunny),
-            label: Text(
-              _isLoading
-                  ? _t({
-                      'en': 'Getting forecast...',
-                      'si': 'අනාවැකිය ලබාගනිමින්...',
-                      'ta': 'முன்னறிவிப்பு பெறப்படுகிறது...',
-                    })
-                  : _t({
-                      'en': 'Get Forecast',
-                      'si': 'අනාවැකිය ලබාගන්න',
-                      'ta': 'முன்னறிவிப்பு பெறவும்',
-                    }),
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF1565C0),
-              foregroundColor: Colors.white,
-              minimumSize: const Size.fromHeight(52),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        if (_isLoading) _resultSkeleton(),
-        if (_errorMessage != null) _errorCard(),
-        if (_result != null) _resultSection(),
-        if (_result == null && _errorMessage == null && !_isLoading)
-          _emptyResultPlaceholder(),
+        _stickyForecastButton(),
       ],
     );
   }
 
+  Widget _buildTabletDetails(double width) {
+    final targetContentW = width < 760 ? width - 32 : 680.0;
+    final hPad = ((width - targetContentW) / 2).clamp(16.0, 220.0);
+    return Stack(
+      children: [
+        SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(hPad, 14, hPad, 180),
+          child: _formColumn(),
+        ),
+        _stickyForecastButton(),
+      ],
+    );
+  }
+
+  // Web (>=1024dp): inputs on the left, forecast result on the right — same
+  // fraction/clamp as price_screen's _buildWebDetails.
+  Widget _buildWebDetails(double width) {
+    final leftW = (width * 0.44).clamp(360.0, 560.0);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          width: leftW,
+          child: Stack(
+            children: [
+              SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 16, 12, 100),
+                child: _formColumn(webLeft: true),
+              ),
+              _stickyForecastButton(),
+            ],
+          ),
+        ),
+        Container(width: 1, color: AppTheme.login.borderSubtle),
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 20, 28),
+            child: _rightPanel(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Form column — Header, Location, Forecast Range, Tips. Below 1024dp
+  //    the result/empty state is appended here too, after the button. ──────
+  Widget _formColumn({bool webLeft = false}) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _pageHeader(),
+      const SizedBox(height: 16),
+      _sectionTitle(
+        _t({'en': 'Location', 'si': 'ස්ථානය', 'ta': 'இடம்'}),
+        Icons.location_on,
+      ),
+      const SizedBox(height: 10),
+      _locationCard(),
+      const SizedBox(height: 20),
+      _sectionTitle(
+        _t({
+          'en': 'Forecast Range',
+          'si': 'අනාවැකි කාලය',
+          'ta': 'முன்னறிவிப்பு காலம்',
+        }),
+        Icons.calendar_month,
+      ),
+      const SizedBox(height: 10),
+      _weeksAheadCard(),
+      const SizedBox(height: 20),
+      _sectionTitle(
+        _t({
+          'en': 'Weather & Farming Tips',
+          'si': 'කාලගුණ හා ගොවිතැන් ඉඟි',
+          'ta': 'வானிலை & விவசாய குறிப்புகள்',
+        }),
+        Icons.tips_and_updates,
+      ),
+      const SizedBox(height: 10),
+      _tipsCard(),
+      // Single-column (<1024dp): the result follows the inputs. The Get
+      // Forecast button itself stays pinned in the sticky bar over this
+      // scroll view.
+      if (!webLeft) ...[
+        const SizedBox(height: 16),
+        if (_isLoading) _resultSkeleton(),
+        if (_errorMessage != null) _errorCard(),
+        if (_result != null) ..._resultBody(),
+        if (_result == null && _errorMessage == null && !_isLoading)
+          _emptyResultPlaceholder(),
+      ],
+    ],
+  );
+
+  Widget _rightPanel() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      if (_isLoading) ...[_resultSkeleton(), const SizedBox(height: 14)],
+      if (_errorMessage != null) ...[_errorCard(), const SizedBox(height: 14)],
+      if (_result != null) ..._resultBody(),
+      if (_result == null && _errorMessage == null && !_isLoading)
+        _emptyResultPlaceholder(),
+    ],
+  );
+
+  // Header gradient's lighter stop — header-local, not part of
+  // AppFeatureAccents.weather, same precedent as price_screen's own
+  // _headerGradientLight. +0.15 HLS lightness from the dark anchor
+  // (accents.weather.fill), hue/saturation preserved — identical formula to
+  // price's, so the two headers carry the same gradient "intensity".
+  //
+  // KNOWN, ACCEPTED CONTRAST FAILURE, same shape as price's: white text on
+  // this header does not clear AA at either end — see
+  // AppFeatureAccents.weather's doc comment for the numbers.
+  static const Color _headerGradientLight = Color(0xFF7DA4C1);
+
+  // ── Page header ────────────────────────────────────────────────────────────
+  // Same structure as price_screen's _pageHeader: gradient (dark top-left ->
+  // light bottom-right), icon in a glass badge on the left, title/subtitle,
+  // "Week N" glass pill on the right.
   Widget _pageHeader() => Container(
     padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(
-      gradient: const LinearGradient(
-        colors: [Color(0xFF1565C0), Color(0xFF1E88E5)],
+      gradient: LinearGradient(
+        colors: [AppTheme.accents.weather.fill, _headerGradientLight],
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
       ),
       borderRadius: BorderRadius.circular(14),
       boxShadow: [
         BoxShadow(
-          color: const Color(0xFF1565C0).withValues(alpha: 0.3),
+          color: AppTheme.accents.weather.fill.withValues(alpha: 0.3),
           blurRadius: 10,
           offset: const Offset(0, 4),
         ),
@@ -600,14 +743,11 @@ class _WeatherScreenState extends State<WeatherScreen> {
     ),
     child: Row(
       children: [
-        Container(
+        _glassBadge(
+          borderRadius: 10,
           padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(10),
-          ),
           child: SvgPicture.string(
-            _navSvg(3, Colors.white),
+            _navSvg(3, AppTheme.accents.weather.onFill),
             width: 26,
             height: 26,
           ),
@@ -623,8 +763,8 @@ class _WeatherScreenState extends State<WeatherScreen> {
                   'si': 'කාලගුණ අනාවැකිය',
                   'ta': 'வானிலை முன்னறிவிப்பு',
                 }),
-                style: const TextStyle(
-                  color: Colors.white,
+                style: TextStyle(
+                  color: AppTheme.accents.weather.onFill,
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
                 ),
@@ -636,119 +776,269 @@ class _WeatherScreenState extends State<WeatherScreen> {
                   'ta': 'AI-சார்ந்த வாராந்திர முன்னறிவிப்பு',
                 }),
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.75),
+                  color: AppTheme.accents.weather.onFill,
                   fontSize: 12,
                 ),
               ),
             ],
           ),
         ),
+        _glassBadge(
+          borderRadius: 20,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          child: Text(
+            'Week ${_weekOfYear()}',
+            style: TextStyle(
+              color: AppTheme.accents.weather.onFill,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
       ],
     ),
   );
 
-  Widget _districtQuickChips() => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        _t({
-          'en': 'Quick select:',
-          'si': 'ඉක්මන් තේරීම:',
-          'ta': 'விரைவு தேர்வு:',
-        }),
-        style: const TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: AppTheme.textMuted,
-        ),
-      ),
-      const SizedBox(height: 7),
-      Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: _districtKeys.map((d) {
-          final active = _selectedDistrict == d;
-          return GestureDetector(
-            onTap: () => setState(() {
-              _selectedDistrict = d;
-              _result = null;
-            }),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-              decoration: BoxDecoration(
-                color: active ? const Color(0xFF1565C0) : Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: active
-                      ? const Color(0xFF1565C0)
-                      : const Color(0xFFBBDEFB),
-                  width: active ? 2 : 1.5,
-                ),
-                boxShadow: active
-                    ? [
-                        BoxShadow(
-                          color: const Color(0xFF1565C0).withValues(alpha: 0.2),
-                          blurRadius: 6,
-                          offset: const Offset(0, 2),
-                        ),
-                      ]
-                    : [],
-              ),
-              child: Text(
-                '📍 ${_districtLabel(_langKey, d)}',
-                style: TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w600,
-                  color: active ? Colors.white : AppTheme.textPrimary,
-                ),
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    ],
+  /// Glass panel — icon badge and "Week N" pill. Same treatment as
+  /// price_screen's `_glassBadge`: translucent black tint + a faint white
+  /// edge, no blur (see price_screen's comment for why). Unlike price's,
+  /// the dark end of THIS gradient clears AA once tinted — see
+  /// AppFeatureAccents.weather's doc comment / accent_contrast_test.dart.
+  Widget _glassBadge({
+    required double borderRadius,
+    required EdgeInsets padding,
+    required Widget child,
+  }) => Container(
+    padding: padding,
+    decoration: BoxDecoration(
+      color: Colors.black.withValues(alpha: 0.20),
+      borderRadius: BorderRadius.circular(borderRadius),
+      border: Border.all(color: Colors.white.withValues(alpha: 0.25), width: 1),
+    ),
+    child: child,
   );
 
-  Widget _districtDropdownCard() => _card(
-    child: DropdownButtonFormField<String>(
-      initialValue: _selectedDistrict,
-      hint: Text(
-        _t({
-          'en': 'Select District',
-          'si': 'දිස්ත්‍රික්කය තෝරන්න',
-          'ta': 'மாவட்டத்தை தேர்ந்தெடுக்கவும்',
-        }),
-      ),
-      decoration: InputDecoration(
-        labelText: _t({
-          'en': 'Select District',
-          'si': 'දිස්ත්‍රික්කය තෝරන්න',
-          'ta': 'மாவட்டத்தை தேர்ந்தெடுக்கவும்',
-        }),
-        prefixIcon: const Icon(
-          Icons.location_on,
-          color: Color(0xFF1565C0),
-          size: 20,
-        ),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 12,
-          vertical: 10,
-        ),
-      ),
-      items: _districtKeys
-          .map(
-            (d) => DropdownMenuItem(
-              value: d,
-              child: Text(_districtLabel(_langKey, d)),
-            ),
-          )
-          .toList(),
-      onChanged: (v) => setState(() {
-        _selectedDistrict = v;
+  /// Inline validation tick for the district field — verbatim copy of
+  /// price_screen's `_fieldCheck`, so a farmer moving between forms sees one
+  /// signal, not two dialects of one.
+  Widget _fieldCheck(bool done) => Padding(
+    padding: const EdgeInsets.only(right: 2),
+    child: Icon(
+      done ? Icons.check_circle : Icons.radio_button_unchecked,
+      size: 19,
+      color: done ? AppTheme.success : AppTheme.login.borderSubtle,
+    ),
+  );
+
+  // ── Location card — a single searchable district dropdown ─────────────────
+  Widget _locationCard() => _card(
+    child: _searchableDropdown(
+      label: _t({
+        'en': 'Select District',
+        'si': 'දිස්ත්‍රික්කය තෝරන්න',
+        'ta': 'மாவட்டத்தை தேர்ந்தெடுக்கவும்',
+      }),
+      value: _selectedDistrict,
+      items: _districtKeys,
+      icon: Icons.location_on,
+      itemLabel: (d) => _districtLabel(_langKey, d),
+      controller: _districtSearchCtrl,
+      focusNode: _districtFocus,
+      onChanged: (val) => setState(() {
+        _selectedDistrict = val;
         _result = null;
       }),
+    ),
+  );
+
+  /// Type-to-filter dropdown — price_screen's `_searchableDropdown`, ported
+  /// with only the accent tokens changed (weather instead of price). Filter
+  /// matches either the English key or the translated label, same reasoning
+  /// as price's version.
+  Widget _searchableDropdown({
+    required String label,
+    required String? value,
+    required List<String> items,
+    required IconData icon,
+    required ValueChanged<String?> onChanged,
+    required TextEditingController controller,
+    required FocusNode focusNode,
+    required String Function(String) itemLabel,
+    String? hint,
+    bool enabled = true,
+  }) => LayoutBuilder(
+    builder: (ctx, bc) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        RawAutocomplete<String>(
+          textEditingController: controller,
+          focusNode: focusNode,
+          displayStringForOption: itemLabel,
+          optionsBuilder: (TextEditingValue v) {
+            if (!enabled) return const Iterable<String>.empty();
+            final q = v.text.trim().toLowerCase();
+            if (q.isEmpty ||
+                q == itemLabel(value ?? '').toLowerCase() ||
+                q == (value ?? '').toLowerCase()) {
+              return items;
+            }
+            return items.where(
+              (e) =>
+                  e.toLowerCase().contains(q) ||
+                  itemLabel(e).toLowerCase().contains(q),
+            );
+          },
+          onSelected: (sel) {
+            onChanged(sel);
+            focusNode.unfocus();
+          },
+          fieldViewBuilder: (ctx, ctrl, fn, onFieldSubmitted) => TextFormField(
+            controller: ctrl,
+            focusNode: fn,
+            enabled: enabled,
+            onFieldSubmitted: (_) => onFieldSubmitted(),
+            style: TextStyle(fontSize: 14, color: AppTheme.login.textPrimary),
+            decoration: InputDecoration(
+              labelText: label,
+              hintText: enabled
+                  ? _t({
+                      'en': 'Type to search',
+                      'si': 'සෙවීමට ටයිප් කරන්න',
+                      'ta': 'தேட தட்டச்சு செய்க',
+                    })
+                  : null,
+              hintStyle: TextStyle(
+                color: AppTheme.login.textSecondary,
+                fontSize: 13,
+              ),
+              labelStyle: TextStyle(color: AppTheme.login.textSecondary),
+              prefixIcon: Icon(
+                icon,
+                color: enabled
+                    ? AppTheme.accents.weather.ink
+                    : AppTheme.login.textSecondary,
+                size: 20,
+              ),
+              suffixIconConstraints: const BoxConstraints(
+                minWidth: 0,
+                minHeight: 0,
+              ),
+              suffixIcon: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _fieldCheck(value != null),
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Icon(
+                      Icons.arrow_drop_down,
+                      color: enabled
+                          ? AppTheme.accents.weather.ink
+                          : AppTheme.login.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: AppTheme.login.borderSubtle),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: AppTheme.login.borderSubtle),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(
+                  color: AppTheme.login.focusRing,
+                  width: 2,
+                ),
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 10,
+              ),
+              filled: !enabled,
+              fillColor: enabled ? null : AppTheme.disabledSurface,
+            ),
+          ),
+          optionsViewBuilder: (ctx, onSelected, options) => Align(
+            alignment: Alignment.topLeft,
+            child: Material(
+              elevation: 4,
+              borderRadius: BorderRadius.circular(8),
+              color: AppTheme.login.background,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: 240,
+                  maxWidth: bc.maxWidth,
+                ),
+                child: SizedBox(
+                  width: bc.maxWidth,
+                  child: ListView.builder(
+                    padding: EdgeInsets.zero,
+                    shrinkWrap: true,
+                    itemCount: options.length,
+                    itemBuilder: (c, i) {
+                      final opt = options.elementAt(i);
+                      final isSelected = opt == value;
+                      return InkWell(
+                        onTap: () => onSelected(opt),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 11,
+                          ),
+                          color: isSelected
+                              ? AppTheme.accents.weather.fill.withValues(
+                                  alpha: 0.14,
+                                )
+                              : null,
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  itemLabel(opt),
+                                  style: TextStyle(
+                                    fontSize: 13.5,
+                                    fontWeight: isSelected
+                                        ? FontWeight.w700
+                                        : FontWeight.w500,
+                                    color: isSelected
+                                        ? AppTheme.accents.weather.ink
+                                        : AppTheme.login.textPrimary,
+                                  ),
+                                ),
+                              ),
+                              if (isSelected)
+                                Icon(
+                                  Icons.check,
+                                  size: 16,
+                                  color: AppTheme.accents.weather.ink,
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        if (hint != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 4, left: 4),
+            child: Text(
+              hint,
+              style: TextStyle(
+                fontSize: 11,
+                color: AppTheme.login.textSecondary,
+              ),
+            ),
+          ),
+      ],
     ),
   );
 
@@ -769,13 +1059,13 @@ class _WeatherScreenState extends State<WeatherScreen> {
               alignment: Alignment.center,
               decoration: BoxDecoration(
                 color: active
-                    ? const Color(0xFF1565C0)
-                    : const Color(0xFF1565C0).withValues(alpha: 0.06),
+                    ? AppTheme.accents.weather.fill
+                    : AppTheme.accents.weather.fill.withValues(alpha: 0.06),
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
                   color: active
-                      ? const Color(0xFF1565C0)
-                      : const Color(0xFF1565C0).withValues(alpha: 0.25),
+                      ? AppTheme.accents.weather.fill
+                      : AppTheme.accents.weather.fill.withValues(alpha: 0.25),
                   width: active ? 2 : 1.2,
                 ),
               ),
@@ -784,7 +1074,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
                 style: TextStyle(
                   fontSize: 12.5,
                   fontWeight: FontWeight.w700,
-                  color: active ? Colors.white : const Color(0xFF1565C0),
+                  color: active ? Colors.white : AppTheme.accents.weather.ink,
                 ),
               ),
             ),
@@ -796,9 +1086,11 @@ class _WeatherScreenState extends State<WeatherScreen> {
 
   Widget _tipsCard() => Container(
     decoration: BoxDecoration(
-      border: Border.all(color: const Color(0xFFBBDEFB)),
+      border: Border.all(
+        color: AppTheme.accents.weather.fill.withValues(alpha: 0.3),
+      ),
       borderRadius: BorderRadius.circular(12),
-      color: const Color(0xFFE3F2FD).withValues(alpha: 0.4),
+      color: AppTheme.accents.weather.fill.withValues(alpha: 0.05),
     ),
     child: Column(
       children: [
@@ -809,10 +1101,10 @@ class _WeatherScreenState extends State<WeatherScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             child: Row(
               children: [
-                const Icon(
+                Icon(
                   Icons.tips_and_updates,
                   size: 18,
-                  color: Color(0xFF1565C0),
+                  color: AppTheme.accents.weather.ink,
                 ),
                 const SizedBox(width: 9),
                 Expanded(
@@ -823,17 +1115,17 @@ class _WeatherScreenState extends State<WeatherScreen> {
                       'ta':
                           'இந்த முன்னறிவிப்பை உங்கள் பண்ணையில் பயன்படுத்துவது',
                     }),
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12.5,
                       fontWeight: FontWeight.w700,
-                      color: Color(0xFF1565C0),
+                      color: AppTheme.accents.weather.ink,
                     ),
                   ),
                 ),
                 Icon(
                   _tipsExpanded ? Icons.expand_less : Icons.expand_more,
                   size: 18,
-                  color: const Color(0xFF1565C0),
+                  color: AppTheme.accents.weather.ink,
                 ),
               ],
             ),
@@ -903,6 +1195,18 @@ class _WeatherScreenState extends State<WeatherScreen> {
     ),
   );
 
+  // "Get Forecast" — AppTheme.accents.weather.fill, by explicit request.
+  //
+  // This is the SECOND explicit, requested exception to "primary actions
+  // stay on primaryDark" — the first is price_screen's "Predict Price"
+  // button (see AppFeatureAccents' class doc comment). Every other primary
+  // action on this screen, and weather's own "Ask AI about this" actions,
+  // still use primaryDark.
+  //
+  // KNOWN, ACCEPTED CONTRAST FAILURE, inherited from accents.weather.fill:
+  // white on #4E7FA3 is 4.30:1 — under the 4.5:1 AA text floor, though it
+  // clears the 3:1 non-text floor (see AppFeatureAccents.weather's doc
+  // comment / accent_contrast_test.dart for the full numbers).
   Widget _stickyForecastButton() => Positioned(
     bottom: 0,
     left: 0,
@@ -950,7 +1254,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
               style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
             ),
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF1565C0),
+              backgroundColor: AppTheme.accents.weather.fill,
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -961,6 +1265,10 @@ class _WeatherScreenState extends State<WeatherScreen> {
       ),
     ),
   );
+
+  // ── Result — "Forecast for X" heading, the stacked weekly cards (all
+  //    weeks expanded, unchanged), then "Ask AI about this". ────────────────
+  List<Widget> _resultBody() => [_resultSection(), const SizedBox(height: 16), _askAiBlock()];
 
   Widget _resultSection() {
     final result = _result!;
@@ -979,10 +1287,10 @@ class _WeatherScreenState extends State<WeatherScreen> {
                   'ta':
                       '${_districtLabel('ta', _selectedDistrict)}-க்கான முன்னறிவிப்பு',
                 }),
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w800,
-                  color: Color(0xFF0D47A1),
+                  color: AppTheme.accents.weather.ink,
                 ),
               ),
             ),
@@ -1031,7 +1339,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
                     vertical: 4,
                   ),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF1565C0),
+                    color: AppTheme.accents.weather.fill,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
@@ -1063,6 +1371,9 @@ class _WeatherScreenState extends State<WeatherScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Interpretation banner — Step 9: the emoji that used to
+                // prefix `adviceLabel` is gone; this Icon is the only glyph
+                // now. Interpretation logic/wording is otherwise unchanged.
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 12,
@@ -1114,7 +1425,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
                       '🌧',
                       _t({'en': 'Rain', 'si': 'වර්ෂාව', 'ta': 'மழை'}),
                       '${week.rainfallMm.toStringAsFixed(0)} mm',
-                      const Color(0xFF1565C0),
+                      AppTheme.accents.weather.ink,
                     ),
                     _weatherStat(
                       '🌡',
@@ -1152,6 +1463,9 @@ class _WeatherScreenState extends State<WeatherScreen> {
     );
   }
 
+  // Per-stat emoji (🌧🌡☀️💧) are UNCHANGED — Step 9 scopes the icon
+  // replacement to the "Good Growing Conditions"-style interpretation
+  // banner only, which already carries its own Icon widget (adviceIcon).
   Widget _weatherStat(String emoji, String label, String value, Color color) {
     return Expanded(
       child: Container(
@@ -1195,14 +1509,16 @@ class _WeatherScreenState extends State<WeatherScreen> {
   Widget _emptyResultPlaceholder() => Container(
     padding: const EdgeInsets.all(24),
     decoration: BoxDecoration(
-      color: const Color(0xFFE3F2FD).withValues(alpha: 0.5),
+      color: AppTheme.accents.weather.fill.withValues(alpha: 0.06),
       borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: const Color(0xFFBBDEFB)),
+      border: Border.all(
+        color: AppTheme.accents.weather.fill.withValues(alpha: 0.3),
+      ),
     ),
     child: Column(
       children: [
         SvgPicture.string(
-          _navSvg(3, const Color(0xFF90A4C4)),
+          _navSvg(3, AppTheme.accents.weather.fill.withValues(alpha: 0.55)),
           width: 48,
           height: 48,
         ),
@@ -1267,9 +1583,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
   );
 
   /// Shown in place of the empty placeholder while a forecast is in
-  /// flight — the result card is text-heavy (headline conditions +
-  /// narrative breakdown), so Typewriter fits: bars reveal left-to-right
-  /// like the eventual text being "written in".
+  /// flight — the result card is text-heavy, so Typewriter fits.
   Widget _resultSkeleton() => _card(
     child: const TypewriterSkeleton(
       lineWidthFractions: [0.5, 1.0, 0.9, 0.7, 0.85, 0.4],
@@ -1279,14 +1593,14 @@ class _WeatherScreenState extends State<WeatherScreen> {
 
   Widget _sectionTitle(String title, IconData icon) => Row(
     children: [
-      Icon(icon, size: 16, color: const Color(0xFF1565C0)),
+      Icon(icon, size: 16, color: AppTheme.accents.weather.ink),
       const SizedBox(width: 6),
       AnimatedLangText(
         title,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 15,
           fontWeight: FontWeight.w700,
-          color: Color(0xFF0D47A1),
+          color: AppTheme.accents.weather.ink,
         ),
       ),
     ],

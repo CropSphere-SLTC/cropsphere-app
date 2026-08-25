@@ -249,21 +249,46 @@ class PredictionWeather(BaseModel):
     solar_radiation_mj: Optional[float] = Field(default=None, ge=0, le=35)
 
 
+class PredictionWeatherWeek(BaseModel):
+    """One week of a multi-week weather forecast the farmer is asking about.
+
+    Distinct from [PredictionWeather] above: that one is a single snapshot
+    fed INTO a yield prediction as a model input; this is one row OUT OF a
+    weather forecast itself (weather_screen's "Ask AI about this"), so
+    PredictionContext.forecast_weeks below is a short list of these rather
+    than reusing the singular model.
+
+    `condition` is a bounded three-way Literal, not the display label the
+    client renders — the same reasoning as `average_price_source` below:
+    _format_prediction_context maps it to its own English phrase server-side,
+    so nothing client-authored reaches the prompt as free text.
+    """
+
+    week_number: int = Field(..., ge=1, le=4)
+    date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
+    rainfall_mm: float = Field(..., ge=0, le=500)
+    temp_min_c: float = Field(..., ge=-5, le=45)
+    temp_max_c: float = Field(..., ge=0, le=50)
+    humidity_pct: float = Field(..., ge=0, le=100)
+    condition: Literal["heavy_rain", "dry_hot", "good"]
+
+
 class PredictionContext(BaseModel):
     """A prediction the farmer is asking about, attached to a chat message so
     the LLM can ground its answer in these specific numbers instead of generic
     dataset figures.
 
-    Carries EITHER a yield prediction or a price prediction. The two share
-    crop/district/season and are otherwise disjoint, so rather than a second
-    model and a second request field they live in one optional-everything
-    block: the client sends whatever its screen produced, and
+    Carries EITHER a yield prediction, a price prediction, or a weather
+    forecast. The three share crop/district/season (weather only ever sets
+    district) and are otherwise disjoint, so rather than a third model and a
+    third request field they live in one optional-everything block: the
+    client sends whatever its screen produced, and
     _format_prediction_context renders only the fields that are set.
 
     Every field is optional — the client sends whatever the prediction
     produced. Crop/district/season/irrigation are ENUMS, not free strings, and
-    the price fields below are bounded floats, booleans, or Literals: nothing
-    here is client-authored prose, so this block cannot become a
+    the price/weather fields below are bounded floats, booleans, or Literals:
+    nothing here is client-authored prose, so this block cannot become a
     prompt-injection vector the way an arbitrary text field would.
     """
 
@@ -293,6 +318,12 @@ class PredictionContext(BaseModel):
 
     confidence: Optional[ConfidenceEnum] = None
     weather: Optional[PredictionWeather] = None
+
+    # ── Weather-forecast-side fields ─────────────────────────────────────────
+    weeks_ahead: Optional[int] = Field(default=None, ge=1, le=4)
+    forecast_weeks: Optional[List[PredictionWeatherWeek]] = Field(
+        default=None, max_length=4
+    )
 
 
 class ChatRequest(BaseModel):

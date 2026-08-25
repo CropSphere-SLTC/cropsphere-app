@@ -236,11 +236,20 @@ class AppLoginTheme {
 //
 //   fill      white   #1F2A1F   as text on #FCFBF6
 //   #3A8943   4.34✗   3.43✗     4.19✗     Sea Green — fails BOTH on the fill
-//   #AB5524   5.18✓   —         —         Terracotta — deepened from #DF8A58
-//                                          (2.65✗ white) specifically so white
-//                                          could be used; see price's entry
-//                                          below for the trade made there.
-//   #2D689B   5.89✓   2.53✗     5.69✓     Deep Blue — the only self-sufficient one
+//   #DF8A58   2.65✗   5.62✓     2.56✗     Terracotta — see price's entry below:
+//                                          reverted here from a deepened
+//                                          #AB5524 (5.18✓ white) that existed
+//                                          specifically to fix this row. White
+//                                          onFill was kept anyway, by request —
+//                                          this is now a KNOWN, ACCEPTED
+//                                          failure, not an oversight.
+//   #4E7FA3   4.30✗   3.47✗     4.15✗     Deep Blue, muted (2026-08) — no
+//                                          longer self-sufficient; see
+//                                          weather's own entry below. Was
+//                                          #2D689B (5.89✓ white, 2.53✗
+//                                          #1F2A1F, 5.69✓ as text), the only
+//                                          self-sufficient hue before this
+//                                          revision.
 //   #7CA759   2.79✗   5.34✓     2.69✗     Muted Olive
 //   #BA9454   2.82✗   5.29✓     2.72✗     Ochre
 //
@@ -289,24 +298,48 @@ class AppFeatureAccents {
     ink: _hunter, // 6.67:1 on #FCFBF6
   );
 
-  /// Terracotta. Deepened from the original #DF8A58 by request, to carry
-  /// white header text instead of dark — #DF8A58 measured white at 2.65:1
-  /// (fails even the 3:1 non-text floor); this hue, same family (hue 0.060
-  /// vs 0.062, similar saturation) at lower lightness, measures 5.18:1 —
-  /// real margin, not a bare pass. ink is unchanged: it was independently
-  /// verified against the page background, not against fill, so darkening
-  /// fill doesn't affect its correctness.
+  /// Terracotta.
+  ///
+  /// KNOWN, ACCEPTED CONTRAST FAILURE — read before touching this again.
+  /// This shipped once already as a deepened #AB5524 specifically so white
+  /// onFill would clear AA (5.18:1). By explicit request this was reverted
+  /// to the original #DF8A58, WITH onFill kept at white — which measures
+  /// 2.65:1 here, under even the 3:1 non-text floor. That is not a bug in
+  /// this getter; it is what was asked for, twice, after the trade-off (and
+  /// its downstream effects — the header gradient's light stop, the icon
+  /// badge scrim, the Predict Price button) was shown with numbers each
+  /// time. If this needs to pass AA again, #AB5524 is the value that did —
+  /// see git history for this file around "deepen the header fill".
+  ///
+  /// ink is unaffected either way: it was independently verified against
+  /// the page background, not against fill.
   FeatureAccent get price => const FeatureAccent(
-    fill: Color(0xFFAB5524),
-    onFill: Colors.white, // 5.18:1
-    ink: Color(0xFFB75A23), // 4.50:1 on #FCFBF6
+    fill: Color(0xFFDF8A58),
+    onFill: Colors.white, // 2.65:1 — FAILS AA, accepted, see above
+    ink: Color(0xFFB75A23), // 4.50:1 on #FCFBF6, unaffected by fill
   );
 
-  /// Deep Blue — dark enough to take white text and to serve as its own ink.
+  /// Deep Blue, muted (2026-08 revision from #2D689B — more muted, closer to
+  /// the rest of the accent palette, by explicit request).
+  ///
+  /// KNOWN, ACCEPTED CONTRAST FAILURE — read before touching this again.
+  /// #2D689B was self-sufficient: fill doubled as its own ink, and white
+  /// onFill cleared AA with real margin (5.89:1). This muted revision no
+  /// longer does — white onFill measures 4.30:1, login.textPrimary onFill
+  /// 3.47:1, BOTH under the 4.5:1 text floor (white still clears the 3:1
+  /// non-text floor, textPrimary does not). White was kept anyway, shown
+  /// both failing numbers first — same shape of trade-off as price's
+  /// terracotta above, not an oversight. If this needs to pass AA again,
+  /// #4C7B9F is the minimal darkening that gets white onFill to 4.52:1 (see
+  /// git history around this comment if revisited).
+  ///
+  /// ink is a SEPARATE, independently-darkened value for the first time on
+  /// this accent (previously == fill) — same HLS-darkening method used for
+  /// cropRec/demand's ink tokens, verified only against the page background.
   FeatureAccent get weather => const FeatureAccent(
-    fill: Color(0xFF2D689B),
-    onFill: Colors.white, // 5.89:1
-    ink: Color(0xFF2D689B), // 5.69:1 on #FCFBF6
+    fill: Color(0xFF4E7FA3),
+    onFill: Colors.white, // 4.30:1 — FAILS AA, accepted, see above
+    ink: Color(0xFF4A799B), // 4.50:1 on #FCFBF6
   );
 
   /// Muted Olive.

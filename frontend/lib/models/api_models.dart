@@ -508,7 +508,48 @@ class PredictionWeather {
   };
 }
 
-/// A yield prediction the farmer is asking the AI about.
+/// One week of a multi-week weather forecast the farmer is asking about.
+/// Field names match the backend's `PredictionWeatherWeek` schema exactly.
+///
+/// Distinct from [PredictionWeather] above: that one is a single snapshot
+/// fed INTO a yield prediction; this is one row OUT OF a weather forecast
+/// itself (weather_screen's "Ask AI about this").
+///
+/// [condition] is 'heavy_rain' | 'dry_hot' | 'good' — the same three-way
+/// split as weather_screen's `_adviceFor`, expressed as a bounded token
+/// rather than display text; the backend maps it to its own English phrase.
+class PredictionWeatherWeek {
+  final int weekNumber;
+  final String date;
+  final double rainfallMm;
+  final double tempMinC;
+  final double tempMaxC;
+  final double humidityPct;
+  final String condition;
+
+  const PredictionWeatherWeek({
+    required this.weekNumber,
+    required this.date,
+    required this.rainfallMm,
+    required this.tempMinC,
+    required this.tempMaxC,
+    required this.humidityPct,
+    required this.condition,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'week_number': weekNumber,
+    'date': date,
+    'rainfall_mm': rainfallMm,
+    'temp_min_c': tempMinC,
+    'temp_max_c': tempMaxC,
+    'humidity_pct': humidityPct,
+    'condition': condition,
+  };
+}
+
+/// A yield prediction, price prediction, or weather forecast the farmer is
+/// asking the AI about.
 ///
 /// Sent on [ChatRequest.predictionContext] so the backend can inject these
 /// specific figures into the LLM's context (see the backend's
@@ -549,6 +590,11 @@ class PredictionContext {
   final String? confidence;
   final PredictionWeather? weather;
 
+  // ── Weather-forecast-side fields ──────────────────────────────────────────
+  // Set by the weather screen instead of the yield/price fields above.
+  final int? weeksAhead;
+  final List<PredictionWeatherWeek>? forecastWeeks;
+
   const PredictionContext({
     this.crop,
     this.district,
@@ -569,6 +615,8 @@ class PredictionContext {
     this.festivalWeek,
     this.confidence,
     this.weather,
+    this.weeksAhead,
+    this.forecastWeeks,
   });
 
   /// One-line "Carrot · Badulla · 19612 kg/ha" summary for the chat screen's
@@ -581,6 +629,7 @@ class PredictionContext {
       '${predictedYieldKgPerHa!.toStringAsFixed(0)} kg/ha',
     if (predictedPriceLkrKg != null)
       'Rs. ${predictedPriceLkrKg!.toStringAsFixed(0)}/kg',
+    if (weeksAhead != null) '$weeksAhead-week forecast',
   ].join(' · ');
 
   Map<String, dynamic> toJson() => {
@@ -607,6 +656,9 @@ class PredictionContext {
     if (festivalWeek != null) 'festival_week': festivalWeek,
     if (confidence != null) 'confidence': confidence,
     if (weather != null) 'weather': weather!.toJson(),
+    if (weeksAhead != null) 'weeks_ahead': weeksAhead,
+    if (forecastWeeks != null)
+      'forecast_weeks': forecastWeeks!.map((w) => w.toJson()).toList(),
   };
 }
 

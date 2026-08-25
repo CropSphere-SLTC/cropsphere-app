@@ -62,7 +62,12 @@ void main() {
   });
 
   group('accent onFill is readable on its own fill', () {
+    // price and weather are excluded here deliberately — both are documented
+    // exceptions (see AppFeatureAccents.price/.weather's doc comments and the
+    // 'price header' / 'weather header' tests below, which pin each failure
+    // explicitly instead of silently excluding it from coverage).
     accents.forEach((name, a) {
+      if (name == 'price' || name == 'weather') return;
       test('$name onFill >= 4.5:1 on fill', () {
         expect(
           contrast(a.onFill, a.fill),
@@ -83,110 +88,112 @@ void main() {
     });
   });
 
-  test('price fill is deepened terracotta, chosen so white text works', () {
-    // Originally #DF8A58 with dark onFill (white measured 2.65:1 there —
-    // fails even the 3:1 non-text floor). Deepened to #AB5524 by request so
-    // the header could carry white text instead — same hue family (0.060 vs
-    // 0.062), lower lightness. This pin is a design decision, not an
-    // incidental value; if it changes again, re-verify onFill below it.
-    expect(AppTheme.accents.price.fill, const Color(0xFFAB5524));
-  });
-
-  test(
-    'price header takes WHITE text — 5.18:1, real margin not a bare pass',
+  group(
+    'price fill: known, accepted contrast failure — read before "fixing"',
     () {
-      expect(AppTheme.accents.price.onFill, Colors.white);
-      expect(
-        contrast(Colors.white, AppTheme.accents.price.fill),
-        greaterThanOrEqualTo(kAA),
-      );
-      // The original fill is documented here specifically so nobody re-lightens
-      // price.fill back toward #DF8A58 without noticing white stops working.
-      const originalFill = Color(0xFFDF8A58);
-      expect(
-        contrast(Colors.white, originalFill),
-        lessThan(kAANonText),
-        reason: 'The original fill genuinely cannot carry white text.',
-      );
+      // History: shipped as #DF8A58 with dark onFill (correct — 5.62:1).
+      // Deepened to #AB5524 specifically so white onFill could pass instead
+      // (5.18:1, real margin). Then reverted back to #DF8A58 BY REQUEST, with
+      // onFill kept at white — shown the failing number (2.65:1) each time
+      // this was asked for. This is not an oversight; do not silently
+      // "correct" it back to #AB5524 or to dark text without asking first.
+      // See AppFeatureAccents.price's doc comment in app_theme.dart for the
+      // full history.
+
+      test('fill is #DF8A58, onFill is white', () {
+        expect(AppTheme.accents.price.fill, const Color(0xFFDF8A58));
+        expect(AppTheme.accents.price.onFill, Colors.white);
+      });
+
+      test('white on fill fails AA — and even the non-text floor', () {
+        expect(
+          contrast(Colors.white, AppTheme.accents.price.fill),
+          lessThan(kAANonText),
+          reason:
+              '2.65:1 — this is the accepted failure, not a regression to fix.',
+        );
+      });
+
+      test('the deepened alternative that DID pass is preserved here', () {
+        // #AB5524 is what onFill would need fill to be for white to clear AA
+        // (5.18:1) — kept as a literal in case this is ever revisited.
+        const passingAlternative = Color(0xFFAB5524);
+        expect(
+          contrast(Colors.white, passingAlternative),
+          greaterThanOrEqualTo(kAA),
+        );
+      });
     },
   );
 
-  group('price header gradient', () {
-    // The header moved from a flat AppTheme.accents.price.fill to a
-    // two-stop gradient (dark top-left -> light bottom-right, matching
-    // yield_screen's header). fill (#AB5524) is the dark anchor, unchanged;
-    // the light anchor is price_screen's own private
+  group('price header gradient — known, accepted failure across both ends', () {
+    // The header is a two-stop gradient (dark top-left -> light
+    // bottom-right, matching yield_screen's header). fill (#DF8A58) is the
+    // dark anchor; the light anchor is price_screen's own private
     // _headerGradientLight — hardcoded here since it isn't exposed, the
     // same way the MEDIUM confidence dot's deepened warning colour is
     // pinned elsewhere in this file.
     //
-    // #BA5C27 is the actual AA ceiling for white text on this hue family —
-    // 4.52:1, chosen deliberately at the edge (by request, for the most
-    // visible gradient the accessibility floor allows) over two rejected,
-    // safer alternatives: #B35926 (4.80:1, more margin) and, before that,
-    // #CC672C (3.79:1, failed outright — passed the TITLE's 3:1 large-text
-    // floor but not the SUBTITLE's 4.5:1 one, with no alpha fix available).
-    const lightStop = Color(0xFFBA5C27);
+    // #EBB798 is +0.15 HLS lightness from the dark anchor, widened from an
+    // earlier +0.035 step (#E29467) that sat close enough to the dark
+    // anchor to read as visually flat rather than a gradient. +0.20 was
+    // also tried and rejected — it starts blending into the page's own
+    // background (#FCFBF6) at the lightest corner. None of these clear AA;
+    // nothing lighter than the (already-failing) dark anchor could. Two
+    // even earlier, AA-passing light stops existed here before fill
+    // reverted to #DF8A58 out from under them: #BA5C27 (4.52:1, the actual
+    // ceiling for the OLD dark anchor) and #B35926 (4.80:1, more margin).
+    const lightStop = Color(0xFFEBB798);
 
-    test('the light stop IS the ceiling — one step lighter fails', () {
-      expect(contrast(Colors.white, lightStop), greaterThanOrEqualTo(kAA));
-      // #BC5D28 is ~0.005 lighter in HLS lightness than the ceiling.
-      const oneStepLighter = Color(0xFFBC5D28);
-      expect(contrast(Colors.white, oneStepLighter), lessThan(kAA));
-    });
-
-    test('both rejected, lighter alternatives are documented', () {
-      const saferAlternative = Color(0xFFB35926); // 4.80:1, more margin
-      const firstRejected = Color(0xFFCC672C); // 3.79:1, failed outright
+    test('both gradient ends fail AA for white text', () {
       expect(
-        contrast(Colors.white, saferAlternative),
-        greaterThan(contrast(Colors.white, lightStop)),
+        contrast(Colors.white, AppTheme.accents.price.fill),
+        lessThan(kAA),
       );
-      expect(contrast(Colors.white, firstRejected), lessThan(kAA));
+      expect(contrast(Colors.white, lightStop), lessThan(kAA));
+      // The light end is worse, not better — lightening a colour that
+      // already fails only ever erodes white contrast further.
+      expect(
+        contrast(Colors.white, lightStop),
+        lessThan(contrast(Colors.white, AppTheme.accents.price.fill)),
+      );
     });
 
-    test(
-      'white text clears AA across the whole gradient, dark end included',
-      () {
-        expect(
-          contrast(Colors.white, AppTheme.accents.price.fill),
-          greaterThanOrEqualTo(kAA),
-        );
-        expect(contrast(Colors.white, lightStop), greaterThanOrEqualTo(kAA));
-      },
-    );
-
-    test('the subtitle has zero alpha headroom at the ceiling', () {
-      // Unlike the earlier, safer light stop (which still had ~5% alpha
-      // headroom), the ceiling itself leaves none: even 99% white drops
-      // under 4.5:1 here.
-      final at99 = Color.alphaBlend(
-        Colors.white.withValues(alpha: 0.99),
-        lightStop,
+    test('the rejected wider step and the two former AA-passing stops', () {
+      // Kept as literals in case this is ever revisited.
+      const rejectedTooLight = Color(0xFFEFC6AE); // +0.20, blends into #FCFBF6
+      const formerNarrowStep = Color(0xFFE29467); // +0.035, read as flat
+      const formerCeiling = Color(0xFFBA5C27); // 4.52:1 against #AB5524
+      const formerSaferChoice = Color(0xFFB35926); // 4.80:1 against #AB5524
+      expect(
+        contrast(rejectedTooLight, AppTheme.login.background),
+        lessThan(3.0),
+        reason: 'Why +0.20 was rejected — barely distinguishable from #FCFBF6.',
       );
-      expect(contrast(at99, lightStop), lessThan(kAA));
-      expect(contrast(Colors.white, lightStop), greaterThanOrEqualTo(kAA));
+      expect(contrast(Colors.white, formerNarrowStep), lessThan(kAA));
+      expect(contrast(Colors.white, formerCeiling), greaterThanOrEqualTo(kAA));
+      expect(
+        contrast(Colors.white, formerSaferChoice),
+        greaterThanOrEqualTo(kAA),
+      );
     });
 
-    group('icon badge / Week pill scrim', () {
-      // First an ink scrim (0.10, then 0.15): barely visible as a distinct
-      // badge, since ink sits close to the fill's own hue/lightness — that
-      // WAS the "can't see the icon" bug. White would fix visibility but
-      // cost contrast severely: even 0.15 white here drops the icon to
-      // 3.92:1, under AA, and it only gets worse from there. Black is the
-      // one direction that's a pure win — darkening only ever IMPROVES
-      // white-on-it contrast — so it is both clearly visible as a distinct
-      // badge and higher-contrast than the flat fill was on its own.
+    group('icon badge / Week pill: glass panel, known failure at 0.20', () {
+      // price_screen's _glassBadge: a translucent black tint + a faint
+      // white edge, NOT a BackdropFilter blur — an earlier version used
+      // one, but blurring a smooth two-colour gradient is imperceptible
+      // (nothing behind this panel has texture for a blur to act on), so
+      // it was removed rather than kept as decoration that did nothing.
+      //
+      // Alpha history: 0.20 (first pass, ink-scrim era) -> 0.30 (fill
+      // reverted #AB5524 -> #DF8A58) -> 0.40 (light stop widened to
+      // #EBB798, the AA-passing value) -> back to 0.20, by explicit
+      // request, for a genuinely see-through panel — the gradient visibly
+      // shows through it, which is the actual "glass" cue, not blur. KNOWN,
+      // ACCEPTED CONTRAST FAILURE: white icon/text on it is 2.79-4.03:1,
+      // under the 4.5:1 text floor.
 
-      test('a white scrim would fail — the reason it was NOT used', () {
-        final whiteScrim = Color.alphaBlend(
-          Colors.white.withValues(alpha: 0.15),
-          lightStop,
-        );
-        expect(contrast(Colors.white, whiteScrim), lessThan(kAA));
-      });
-
-      test('the black@0.20 scrim clears AA across the whole gradient', () {
+      test('black@0.20 is genuinely transparent — and fails AA', () {
         final darkEnd = Color.alphaBlend(
           Colors.black.withValues(alpha: 0.20),
           AppTheme.accents.price.fill,
@@ -195,13 +202,120 @@ void main() {
           Colors.black.withValues(alpha: 0.20),
           lightStop,
         );
+        expect(contrast(Colors.white, darkEnd), lessThan(kAA));
+        expect(contrast(Colors.white, lightEnd), lessThan(kAA));
+      });
+
+      test('the AA-passing alternative (0.40) is preserved here', () {
+        final darkEnd = Color.alphaBlend(
+          Colors.black.withValues(alpha: 0.40),
+          AppTheme.accents.price.fill,
+        );
+        final lightEnd = Color.alphaBlend(
+          Colors.black.withValues(alpha: 0.40),
+          lightStop,
+        );
         expect(contrast(Colors.white, darkEnd), greaterThanOrEqualTo(kAA));
         expect(contrast(Colors.white, lightEnd), greaterThanOrEqualTo(kAA));
-        // Genuinely better than the un-scrimmed flat fill it replaced.
+      });
+
+      test('0.20 is still better than no panel at all', () {
+        // The badge/pill SHAPE stays visible (the white border gives it a
+        // crisp edge regardless), and the tint is still some improvement
+        // over the bare gradient underneath.
+        final lightEnd = Color.alphaBlend(
+          Colors.black.withValues(alpha: 0.20),
+          lightStop,
+        );
         expect(
           contrast(Colors.white, lightEnd),
-          greaterThan(contrast(Colors.white, AppTheme.accents.price.fill)),
+          greaterThan(contrast(Colors.white, lightStop)),
         );
+      });
+    });
+  });
+
+  group(
+    'weather fill: known, accepted contrast failure — read before "fixing"',
+    () {
+      // History: shipped as #2D689B, self-sufficient (5.89:1 white onFill,
+      // fill doubled as its own ink). Muted to #4E7FA3 (2026-08) at the
+      // user's request for a look closer to the rest of the accent palette.
+      // White onFill was kept, shown the resulting failing number (4.30:1)
+      // first — not an oversight. Unlike price's terracotta, this ALSO
+      // clears the 3:1 non-text floor (price's does not).
+
+      test('fill is #4E7FA3, onFill is white', () {
+        expect(AppTheme.accents.weather.fill, const Color(0xFF4E7FA3));
+        expect(AppTheme.accents.weather.onFill, Colors.white);
+      });
+
+      test('white on fill fails the 4.5:1 AA floor, but clears 3:1', () {
+        final c = contrast(Colors.white, AppTheme.accents.weather.fill);
+        expect(c, lessThan(kAA));
+        expect(
+          c,
+          greaterThanOrEqualTo(kAANonText),
+          reason:
+              '4.30:1 — worse than the old self-sufficient value, but still '
+              'above the non-text floor, unlike price\'s 2.65:1.',
+        );
+      });
+
+      test('the minimal-darkening alternative that DID pass is preserved', () {
+        // #4C7B9F is the smallest HLS darkening of #4E7FA3 that gets white
+        // onFill to clear AA (4.52:1) — kept as a literal in case this is
+        // ever revisited.
+        const passingAlternative = Color(0xFF4C7B9F);
+        expect(
+          contrast(Colors.white, passingAlternative),
+          greaterThanOrEqualTo(kAA),
+        );
+      });
+    },
+  );
+
+  group('weather header gradient — known, accepted failure across both ends', () {
+    // Same two-stop structure as price_screen's header (dark top-left ->
+    // light bottom-right): fill (#4E7FA3) is the dark anchor, and the light
+    // anchor is weather_screen's own private _headerGradientLight — same
+    // +0.15 HLS lightness step used for price's light stop, hue/saturation
+    // preserved.
+    const lightStop = Color(0xFF7DA4C1);
+
+    test('the light end fails AA for white text, and worse than the dark end', () {
+      expect(
+        contrast(Colors.white, AppTheme.accents.weather.fill),
+        lessThan(kAA),
+      );
+      expect(contrast(Colors.white, lightStop), lessThan(kAA));
+      // The light end is worse, not better — same pattern as price's
+      // gradient: lightening a colour that already fails only erodes white
+      // contrast further, and here it also drops below the non-text floor.
+      expect(
+        contrast(Colors.white, lightStop),
+        lessThan(contrast(Colors.white, AppTheme.accents.weather.fill)),
+      );
+      expect(contrast(Colors.white, lightStop), lessThan(kAANonText));
+    });
+
+    group('icon badge / Week pill: glass panel, black@0.20', () {
+      // Same _glassBadge treatment as price_screen (black@0.20 tint + a
+      // faint white edge) — but unlike price, the DARK end here clears AA
+      // outright once tinted; only the light corner stays a known failure.
+
+      test('dark end + black@0.20 clears AA; light end does not', () {
+        final darkEnd = Color.alphaBlend(
+          Colors.black.withValues(alpha: 0.20),
+          AppTheme.accents.weather.fill,
+        );
+        final lightEnd = Color.alphaBlend(
+          Colors.black.withValues(alpha: 0.20),
+          lightStop,
+        );
+        expect(contrast(Colors.white, darkEnd), greaterThanOrEqualTo(kAA));
+        expect(contrast(Colors.white, lightEnd), lessThan(kAA));
+        expect(contrast(Colors.white, lightEnd), greaterThanOrEqualTo(kAANonText));
       });
     });
   });
@@ -209,25 +323,44 @@ void main() {
   test('primary actions stay on primaryDark, not on any accent', () {
     // Step 3's rule. primaryDark is the one action colour app-wide, and it
     // clears AA against white comfortably. price_screen's "Predict Price"
-    // button is now ONE explicit, requested exception to this — see the
-    // 'Predict Price button uses the price accent' test below — every
-    // other primary action, including Price's own "Ask AI about this",
-    // still follows this rule.
+    // and weather_screen's "Get Forecast" buttons are now TWO explicit,
+    // requested exceptions to this — see the 'Predict Price button' /
+    // 'Get Forecast button' tests below — every other primary action,
+    // including each screen's own "Ask AI about this", still follows this
+    // rule.
     expect(
       contrast(Colors.white, AppTheme.login.primaryDark),
       greaterThanOrEqualTo(kAA),
     );
   });
 
-  test('Predict Price button uses the price accent, deliberately', () {
-    // The one exception to the rule above. price_screen's button uses
-    // accents.price.fill instead of login.primaryDark, tying it to the
-    // header's dark gradient anchor — same colour, separately verified.
-    expect(
-      contrast(Colors.white, AppTheme.accents.price.fill),
-      greaterThanOrEqualTo(kAA),
-    );
-  });
+  test(
+    'Predict Price button: uses the price accent, KNOWN FAILING contrast',
+    () {
+      // The one exception to the rule above, and it inherits price.fill's
+      // documented failure rather than being separately safe — see the
+      // 'price fill: known, accepted contrast failure' group above.
+      expect(
+        contrast(Colors.white, AppTheme.accents.price.fill),
+        lessThan(kAANonText),
+      );
+    },
+  );
+
+  test(
+    'Get Forecast button: uses the weather accent, KNOWN FAILING contrast',
+    () {
+      // The SECOND explicit, requested exception to the rule above — see
+      // weather_screen's _stickyForecastButton. Inherits weather.fill's
+      // documented failure (4.30:1) rather than being separately safe — see
+      // the 'weather fill: known, accepted contrast failure' group above.
+      // Unlike price's button, this one still clears the 3:1 non-text
+      // floor.
+      final c = contrast(Colors.white, AppTheme.accents.weather.fill);
+      expect(c, lessThan(kAA));
+      expect(c, greaterThanOrEqualTo(kAANonText));
+    },
+  );
 
   group('price result-card legibility fixes', () {
     // Regression coverage for three near-invisible elements found on the
@@ -384,4 +517,69 @@ void main() {
     expect(AppTheme.accents.yield.fill, isNot(seaGreen));
     expect(AppTheme.accents.chat.fill, isNot(seaGreen));
   });
+
+  group(
+    'yield header glass badge — passes AA with real margin, no trade-off',
+    () {
+      // yield_screen's own header, NOT AppTheme.accents.yield (a different,
+      // unrelated token defined for potential future use that page never
+      // adopted) — the header actually renders AppTheme.primaryDark ->
+      // AppTheme.primary. When price_screen's icon badge/Week pill got a
+      // glass treatment (tint + white edge highlight), the same visual
+      // structure was applied here too, at the user's request — but yield's
+      // dark green fill means a WHITE tint (lightening) is what keeps the
+      // icon/text legible, the opposite of price's black tint (darkening).
+      // Unlike every price_screen test in this file, nothing here is a known
+      // failure: both ends clear AA with real margin, so the badge needed no
+      // alpha negotiation at all.
+      const darkAnchor = AppTheme.primaryDark; // #0A3D0A
+      const lightAnchor = AppTheme.primary; // #1B5E20
+
+      test('the gradient itself clears AA with huge margin, both ends', () {
+        expect(contrast(Colors.white, darkAnchor), greaterThanOrEqualTo(kAA));
+        expect(contrast(Colors.white, lightAnchor), greaterThanOrEqualTo(kAA));
+      });
+
+      test('the white@0.15 glass tint clears AA at both gradient ends', () {
+        final darkEnd = Color.alphaBlend(
+          Colors.white.withValues(alpha: 0.15),
+          darkAnchor,
+        );
+        final lightEnd = Color.alphaBlend(
+          Colors.white.withValues(alpha: 0.15),
+          lightAnchor,
+        );
+        expect(contrast(Colors.white, darkEnd), greaterThanOrEqualTo(kAA));
+        expect(contrast(Colors.white, lightEnd), greaterThanOrEqualTo(kAA));
+      });
+
+      test(
+        'a black tint (price_screen\'s choice) would be the wrong direction here',
+        () {
+          // Documents WHY this page uses white, not black: darkening an
+          // already very dark fill doesn't hurt contrast, but it also isn't
+          // what makes the badge visually distinct — lightening is, since the
+          // fill is dark to begin with. This isn't a contrast failure, just
+          // the opposite tool for the opposite starting colour.
+          final blackTinted = Color.alphaBlend(
+            Colors.black.withValues(alpha: 0.15),
+            lightAnchor,
+          );
+          expect(
+            contrast(Colors.white, blackTinted),
+            greaterThanOrEqualTo(kAA),
+          );
+          // Still passes (the margin here is that large) — but reads as barely
+          // different from the fill itself, the exact "can't see the badge"
+          // failure mode price_screen hit with its own ink scrim.
+          expect(
+            contrast(blackTinted, lightAnchor),
+            lessThan(3.0),
+            reason:
+                'A black tint would barely be distinguishable from the fill.',
+          );
+        },
+      );
+    },
+  );
 }

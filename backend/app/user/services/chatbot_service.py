@@ -2870,17 +2870,40 @@ def _format_prediction_context(pc) -> str:
         if bits:
             facts.append(f"- Weather used: {', '.join(bits)}")
 
+    # ── Weather-forecast facts ────────────────────────────────────────────
+    # condition is a bounded Literal (see schemas.PredictionWeatherWeek), not
+    # client-authored prose — mapped to its English phrase HERE, server-side,
+    # same reasoning as average_price_source's real/synthetic mapping above.
+    _CONDITION_TEXT = {
+        "heavy_rain": "heavy rain expected",
+        "dry_hot": "dry and hot",
+        "good": "good growing conditions",
+    }
+    if pc.weeks_ahead is not None:
+        facts.append(f"- Forecast range requested: {pc.weeks_ahead} week(s) ahead")
+    if pc.forecast_weeks:
+        for wk in pc.forecast_weeks:
+            cond = _CONDITION_TEXT.get(wk.condition, wk.condition)
+            facts.append(
+                f"- Week {wk.week_number} ({wk.date}): rainfall {wk.rainfall_mm:.0f} mm, "
+                f"temperature {wk.temp_min_c:.0f}-{wk.temp_max_c:.0f} C, "
+                f"humidity {wk.humidity_pct:.0f}% — {cond}"
+            )
+
     if not facts:
         return ""
 
     # Name the right kind of prediction. The block used to say "yield"
-    # unconditionally; with price contexts sharing this model, telling the
-    # assistant a farmer is asking about a yield prediction while handing it
-    # Rs./kg figures invites it to answer the wrong question.
+    # unconditionally; with price/weather contexts sharing this model,
+    # telling the assistant a farmer is asking about a yield prediction
+    # while handing it a rainfall forecast invites it to answer the wrong
+    # question.
     if pc.predicted_yield_kg_per_ha is not None:
         kind = "yield prediction"
     elif pc.predicted_price_lkr_kg is not None:
         kind = "price prediction"
+    elif pc.forecast_weeks:
+        kind = "weather forecast"
     else:
         kind = "prediction"
 

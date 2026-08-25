@@ -66,3 +66,13 @@ const List<String> kPriceStarters = [
   'How does this compare to other districts?',
   'How can I get a better price?',
 ];
+
+/// The four quick questions offered on a weather forecast result.
+///
+/// English-only for the same reason as [kPredictionStarters].
+const List<String> kWeatherStarters = [
+  'Explain this forecast',
+  'Is it safe to plant this week?',
+  'Should I delay harvesting?',
+  'How does rain affect my crop?',
+];

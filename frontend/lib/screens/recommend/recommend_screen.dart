@@ -658,19 +658,13 @@ class _RecommendScreenState extends State<RecommendScreen> {
       const SizedBox(height: 10),
       _locationCard(),
       const SizedBox(height: 20),
-      _sectionTitle(
-        _t({'en': 'Soil', 'si': 'පස', 'ta': 'மண்'}),
-        Icons.science,
-      ),
+      _sectionTitle(_t({'en': 'Soil', 'si': 'පස', 'ta': 'மண்'}), Icons.science),
       const SizedBox(height: 10),
       _soilCard(),
       // Single column (<1024dp): weather, results and the chat block follow
       // the inputs. The button itself stays pinned in the sticky bar above
       // this scroll view, so it is never scrolled away from.
-      if (!webLeft) ...[
-        const SizedBox(height: 20),
-        _rightPanel(),
-      ],
+      if (!webLeft) ...[const SizedBox(height: 20), _rightPanel()],
     ],
   );
 
@@ -802,7 +796,9 @@ class _RecommendScreenState extends State<RecommendScreen> {
                 // opacity (5.34:1 / 7.53:1) is the fallback if this ever
                 // needs more margin.
                 style: TextStyle(
-                  color: AppTheme.accents.cropRec.onFill.withValues(alpha: 0.90),
+                  color: AppTheme.accents.cropRec.onFill.withValues(
+                    alpha: 0.90,
+                  ),
                   fontSize: 12,
                 ),
               ),
@@ -1717,9 +1713,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
         // instead of looking like the ranking broke partway down.
         ..._result!.recommendations.asMap().entries.expand((e) {
           final rec = e.value;
-          final prev = e.key == 0
-              ? null
-              : _result!.recommendations[e.key - 1];
+          final prev = e.key == 0 ? null : _result!.recommendations[e.key - 1];
           final startsUnsuitable =
               !rec.districtSuitable && (prev?.districtSuitable ?? true);
           return [
@@ -2276,9 +2270,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
             ),
       recommendations: recs.isEmpty
           ? null
-          : recs
-                .map(PredictionCropRecommendation.fromRecommendation)
-                .toList(),
+          : recs.map(PredictionCropRecommendation.fromRecommendation).toList(),
     );
   }
 
@@ -2425,7 +2417,11 @@ class _RecommendScreenState extends State<RecommendScreen> {
         'si': 'උෂ්ණත්වය',
         'ta': 'வெப்பநிலை',
       },
-      'rain_suitable': {'en': 'rainfall', 'si': 'වර්ෂාපතනය', 'ta': 'மழைவீழ்ச்சி'},
+      'rain_suitable': {
+        'en': 'rainfall',
+        'si': 'වර්ෂාපතනය',
+        'ta': 'மழைவீழ்ச்சி',
+      },
       'humidity_suitable': {
         'en': 'humidity',
         'si': 'ආර්ද්‍රතාවය',
@@ -2457,7 +2453,8 @@ class _RecommendScreenState extends State<RecommendScreen> {
       _MatchTier.ideal => _t({
         'en': 'Ideal match — all $total conditions suit this crop.',
         'si': 'කදිම ගැලපීමකි — කොන්දේසි $total ම මෙම භෝගයට ගැලපේ.',
-        'ta': 'சிறந்த பொருத்தம் — $total நிபந்தனைகளும் இந்தப் பயிருக்கு ஏற்றவை.',
+        'ta':
+            'சிறந்த பொருத்தம் — $total நிபந்தனைகளும் இந்தப் பயிருக்கு ஏற்றவை.',
       }),
       _MatchTier.good => _t({
         'en': 'Good match — $met of $total conditions ideal.',

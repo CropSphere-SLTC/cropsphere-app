@@ -76,7 +76,7 @@ def test_soil_inputs_are_rendered(context):
 
 
 def test_failed_condition_is_named(context):
-    """"3 of 4" alone is not actionable; which one failed is."""
+    """ "3 of 4" alone is not actionable; which one failed is."""
     out = _format_prediction_context(context)
     assert "3 of 4 growing conditions suitable (unsuitable: temperature)" in out
     assert "4 of 4 growing conditions suitable" in out
@@ -119,6 +119,4 @@ def test_other_prediction_kinds_are_unaffected():
 def test_recommendations_are_capped_at_six():
     """Six crops exist; a longer list is a malformed client, not a big farm."""
     with pytest.raises(ValueError):
-        PredictionContext(
-            recommendations=[_rec(1, "Maize", 0.5) for _ in range(7)]
-        )
+        PredictionContext(recommendations=[_rec(1, "Maize", 0.5) for _ in range(7)])

@@ -1337,8 +1337,7 @@ def test_no_confirm_when_prediction_context_present(message):
         message=message, prediction_context=_PC_PRICE, conversation_history=[]
     )
     assert (
-        cs._should_confirm_saved_context(req, message, "Maize", "Batticaloa")
-        is False
+        cs._should_confirm_saved_context(req, message, "Maize", "Batticaloa") is False
     )
 
 
@@ -1374,7 +1373,9 @@ def test_dropdown_still_wins_over_prediction_context():
         conversation_history=[],
     )
     assert (
-        cs._should_confirm_saved_context(req, "Explain this price", "Maize", "Batticaloa")
+        cs._should_confirm_saved_context(
+            req, "Explain this price", "Maize", "Batticaloa"
+        )
         is False
     )
 

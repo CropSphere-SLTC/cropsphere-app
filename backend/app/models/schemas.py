@@ -145,7 +145,6 @@ class WeatherForecastResponse(BaseModel):
     forecast_source: Literal["model", "model_low_confidence", "climatology"] = "model"
 
 
-
 # ── Price ──────────────────────────────────────────────────────────────────────
 
 

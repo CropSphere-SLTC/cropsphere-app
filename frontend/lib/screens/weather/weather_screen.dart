@@ -1268,7 +1268,11 @@ class _WeatherScreenState extends State<WeatherScreen> {
 
   // ── Result — "Forecast for X" heading, the stacked weekly cards (all
   //    weeks expanded, unchanged), then "Ask AI about this". ────────────────
-  List<Widget> _resultBody() => [_resultSection(), const SizedBox(height: 16), _askAiBlock()];
+  List<Widget> _resultBody() => [
+    _resultSection(),
+    const SizedBox(height: 16),
+    _askAiBlock(),
+  ];
 
   Widget _resultSection() {
     final result = _result!;

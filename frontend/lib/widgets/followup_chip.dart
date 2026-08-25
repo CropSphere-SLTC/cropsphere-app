@@ -84,8 +84,7 @@ const List<String> kRecommendStarters = [
 
 /// The dynamic top-crop question, inserted second so it sits right after
 /// "Explain these recommendations".
-String recommendStarterForTopCrop(String crop) =>
-    'Why is $crop ranked first?';
+String recommendStarterForTopCrop(String crop) => 'Why is $crop ranked first?';
 
 /// The five recommendation chips in display order, for [topCrop].
 List<String> recommendStarters(String? topCrop) => [

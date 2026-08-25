@@ -275,50 +275,59 @@ void main() {
     },
   );
 
-  group('weather header gradient — known, accepted failure across both ends', () {
-    // Same two-stop structure as price_screen's header (dark top-left ->
-    // light bottom-right): fill (#4E7FA3) is the dark anchor, and the light
-    // anchor is weather_screen's own private _headerGradientLight — same
-    // +0.15 HLS lightness step used for price's light stop, hue/saturation
-    // preserved.
-    const lightStop = Color(0xFF7DA4C1);
+  group(
+    'weather header gradient — known, accepted failure across both ends',
+    () {
+      // Same two-stop structure as price_screen's header (dark top-left ->
+      // light bottom-right): fill (#4E7FA3) is the dark anchor, and the light
+      // anchor is weather_screen's own private _headerGradientLight — same
+      // +0.15 HLS lightness step used for price's light stop, hue/saturation
+      // preserved.
+      const lightStop = Color(0xFF7DA4C1);
 
-    test('the light end fails AA for white text, and worse than the dark end', () {
-      expect(
-        contrast(Colors.white, AppTheme.accents.weather.fill),
-        lessThan(kAA),
+      test(
+        'the light end fails AA for white text, and worse than the dark end',
+        () {
+          expect(
+            contrast(Colors.white, AppTheme.accents.weather.fill),
+            lessThan(kAA),
+          );
+          expect(contrast(Colors.white, lightStop), lessThan(kAA));
+          // The light end is worse, not better — same pattern as price's
+          // gradient: lightening a colour that already fails only erodes white
+          // contrast further, and here it also drops below the non-text floor.
+          expect(
+            contrast(Colors.white, lightStop),
+            lessThan(contrast(Colors.white, AppTheme.accents.weather.fill)),
+          );
+          expect(contrast(Colors.white, lightStop), lessThan(kAANonText));
+        },
       );
-      expect(contrast(Colors.white, lightStop), lessThan(kAA));
-      // The light end is worse, not better — same pattern as price's
-      // gradient: lightening a colour that already fails only erodes white
-      // contrast further, and here it also drops below the non-text floor.
-      expect(
-        contrast(Colors.white, lightStop),
-        lessThan(contrast(Colors.white, AppTheme.accents.weather.fill)),
-      );
-      expect(contrast(Colors.white, lightStop), lessThan(kAANonText));
-    });
 
-    group('icon badge / Week pill: glass panel, black@0.20', () {
-      // Same _glassBadge treatment as price_screen (black@0.20 tint + a
-      // faint white edge) — but unlike price, the DARK end here clears AA
-      // outright once tinted; only the light corner stays a known failure.
+      group('icon badge / Week pill: glass panel, black@0.20', () {
+        // Same _glassBadge treatment as price_screen (black@0.20 tint + a
+        // faint white edge) — but unlike price, the DARK end here clears AA
+        // outright once tinted; only the light corner stays a known failure.
 
-      test('dark end + black@0.20 clears AA; light end does not', () {
-        final darkEnd = Color.alphaBlend(
-          Colors.black.withValues(alpha: 0.20),
-          AppTheme.accents.weather.fill,
-        );
-        final lightEnd = Color.alphaBlend(
-          Colors.black.withValues(alpha: 0.20),
-          lightStop,
-        );
-        expect(contrast(Colors.white, darkEnd), greaterThanOrEqualTo(kAA));
-        expect(contrast(Colors.white, lightEnd), lessThan(kAA));
-        expect(contrast(Colors.white, lightEnd), greaterThanOrEqualTo(kAANonText));
+        test('dark end + black@0.20 clears AA; light end does not', () {
+          final darkEnd = Color.alphaBlend(
+            Colors.black.withValues(alpha: 0.20),
+            AppTheme.accents.weather.fill,
+          );
+          final lightEnd = Color.alphaBlend(
+            Colors.black.withValues(alpha: 0.20),
+            lightStop,
+          );
+          expect(contrast(Colors.white, darkEnd), greaterThanOrEqualTo(kAA));
+          expect(contrast(Colors.white, lightEnd), lessThan(kAA));
+          expect(
+            contrast(Colors.white, lightEnd),
+            greaterThanOrEqualTo(kAANonText),
+          );
+        });
       });
-    });
-  });
+    },
+  );
 
   test('primary actions stay on primaryDark, not on any accent', () {
     // Step 3's rule. primaryDark is the one action colour app-wide, and it

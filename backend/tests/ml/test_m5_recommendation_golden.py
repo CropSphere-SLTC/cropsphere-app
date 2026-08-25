@@ -230,9 +230,9 @@ def test_service_feature_values_are_stable(loaded_models, probe_request):
     }
 
     for name, want in expected.items():
-        assert math.isclose(built[name], want, rel_tol=RTOL, abs_tol=ATOL), (
-            f"feature {name!r}: got {built[name]!r}, expected {want!r}"
-        )
+        assert math.isclose(
+            built[name], want, rel_tol=RTOL, abs_tol=ATOL
+        ), f"feature {name!r}: got {built[name]!r}, expected {want!r}"
 
 
 # One predict_proba call on the probe row, keyed by crop name.
@@ -261,9 +261,9 @@ def test_m5_probabilities_are_stable(loaded_models, probe_request):
         "_m5_probabilities returned None — the model failed to load or the "
         "feature contract broke. Check the logs for the CONTRACT BREAK message."
     )
-    assert set(probabilities) == set(GOLDEN_PROBABILITIES), (
-        f"crop labels changed: got {sorted(probabilities)}"
-    )
+    assert set(probabilities) == set(
+        GOLDEN_PROBABILITIES
+    ), f"crop labels changed: got {sorted(probabilities)}"
     assert math.isclose(sum(probabilities.values()), 1.0, rel_tol=1e-9), (
         "probabilities no longer sum to 1 — predict_proba is not being read as "
         "a distribution over crops"

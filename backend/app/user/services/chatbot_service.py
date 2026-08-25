@@ -741,7 +741,9 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
         pc_crop, pc_district = _prediction_context_terms(req)
         context = _rag_context(
             retrieval_query,
-            district=(req.district.value if req.district else None) or pc_district or "",
+            district=(req.district.value if req.district else None)
+            or pc_district
+            or "",
             crop=(req.crop.value if req.crop else None) or pc_crop or "",
             history=req.conversation_history,
         )
@@ -2463,10 +2465,7 @@ def _should_confirm_saved_context(req, message, saved_crop, saved_district) -> b
         return False
     msg_crop, msg_district = _extract_context_terms(message)
     crop = (
-        (req.crop.value if req.crop else None)
-        or msg_crop
-        or pc_crop
-        or eff_saved_crop
+        (req.crop.value if req.crop else None) or msg_crop or pc_crop or eff_saved_crop
     )
     district = (
         (req.district.value if req.district else None)
@@ -2474,9 +2473,9 @@ def _should_confirm_saved_context(req, message, saved_crop, saved_district) -> b
         or pc_district
         or eff_saved_district
     )
-    filled = (
-        not (req.crop or msg_crop or pc_crop) and eff_saved_crop
-    ) or (not (req.district or msg_district or pc_district) and eff_saved_district)
+    filled = (not (req.crop or msg_crop or pc_crop) and eff_saved_crop) or (
+        not (req.district or msg_district or pc_district) and eff_saved_district
+    )
     return bool(crop and district and filled and _has_agricultural_intent(message))
 
 

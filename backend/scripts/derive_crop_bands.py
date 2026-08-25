@@ -87,7 +87,8 @@ THRESHOLD_COLUMNS = [
 def _rules(d):
     """Re-derive the four boolean columns from the threshold columns."""
     return {
-        "temp": (d.temp_min_c >= d.crop_min_temp_c) & (d.temp_max_c <= d.crop_max_temp_c),
+        "temp": (d.temp_min_c >= d.crop_min_temp_c)
+        & (d.temp_max_c <= d.crop_max_temp_c),
         "rain": (d.rainfall_mm >= d.crop_min_weekly_rain_mm)
         & (d.rainfall_mm <= d.crop_max_weekly_rain_mm),
         "humidity": (d.humidity_pct >= d.crop_min_humidity_pct)

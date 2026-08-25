@@ -88,7 +88,9 @@ def derive() -> dict:
 
 def main(list_only: bool) -> int:
     deltas = derive()
-    untrusted = {d for d, (_, _, delta) in deltas.items() if delta > DISAGREEMENT_THRESHOLD_C}
+    untrusted = {
+        d for d, (_, _, delta) in deltas.items() if delta > DISAGREEMENT_THRESHOLD_C
+    }
 
     if list_only:
         print("\n".join(sorted(untrusted)))

@@ -196,7 +196,8 @@ def forecast_weather(req: WeatherForecastRequest) -> WeatherForecastResponse:
                 "(%s) — forecast magnitude is unreliable for this district",
                 req.district.value,
                 ", ".join(
-                    f"{f}={raw:.1f}->{norm:.3f}" for f, (raw, norm) in excursions.items()
+                    f"{f}={raw:.1f}->{norm:.3f}"
+                    for f, (raw, norm) in excursions.items()
                 ),
             )
 

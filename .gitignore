@@ -104,3 +104,15 @@ description.md
 # Docs
 docs/
 docs/database_design.md
+# Tracked on purpose: the standing list of known defects in the weather /
+# crop-suitability path. It has to be readable by the team and by anyone
+# picking this up later, so it cannot live in an ignored tree — the detailed
+# writeup previously sat in backend/data/description.md, which is ignored.
+#
+# Three lines, not one: `docs/` above excludes the DIRECTORY, and git never
+# descends into an excluded directory, so a lone negation for a file inside it
+# does nothing. Re-include the directory, re-exclude its contents, then
+# negate the one file.
+!backend/docs/
+backend/docs/*
+!backend/docs/known_issues.md

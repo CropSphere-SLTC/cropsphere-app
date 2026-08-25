@@ -155,6 +155,56 @@ _FORMATTING_RULES = (
 # (after _FORMATTING_RULES, so it overrides conflicting style rules) and logged
 # to analytics.
 
+
+# Extra answering rules injected ONLY when prediction_context carries a ranked
+# crop recommendation. A separate, conditional system message rather than a new
+# numbered rule in _system_prompt(): every other conversation — yield, price,
+# weather, ordinary chat — must never see it.
+#
+# WHY IT EXISTS. "Explain these recommendations" produced an explanation of the
+# top crop alone. The payload was never the problem: all six crops, their
+# figures, their failing conditions and the district gate are all rendered by
+# _format_prediction_context. Nothing told the model to cover them. Rule 1
+# permits a one-crop answer, and Rule 5 ("Show ONLY the final result... never
+# show intermediate steps, conversion math, per-hectare breakdowns") reads as a
+# general prohibition on breakdowns even though it was written about earnings
+# arithmetic — so between them the model had every reason to be brief and none
+# to enumerate.
+#
+# SCOPING AGAINST RULE 5. Rule 5 is left untouched: narrowing it would change
+# how yield, price and weather answers are written, which is a much wider blast
+# radius than this bug. Instead this block states the override explicitly and
+# says what Rule 5 is actually for, so the model resolves the conflict the
+# intended way rather than by guessing which instruction wins.
+#
+# NOT A BLANKET "ALWAYS LIST SIX". These rules are attached whenever a
+# recommendation context is present, which is all five starter chips. "Why is
+# Groundnut ranked first?" must stay a one-crop answer, so breadth is tied to
+# the QUESTION, not to the presence of the list.
+_RECOMMENDATION_ANSWER_RULES = (
+    "ANSWERING ABOUT A CROP RECOMMENDATION:\n"
+    "- The farmer is looking at a ranked list of crops on their screen.\n"
+    "- If they ask about the recommendations AS A SET ('explain these "
+    "recommendations', 'what if I want to grow something else', 'what "
+    "should I plant'), cover EVERY crop in the list, in rank order — not "
+    "only the top one. Use one short point per crop.\n"
+    "- This overrides Rule 5 for this case. Rule 5 is about hiding "
+    "calculation steps and arithmetic, not about how many crops you may "
+    "mention. Listing the crops the farmer is looking at is the answer, "
+    "not a breakdown.\n"
+    "- If they ask about ONE crop ('why is Groundnut ranked first?'), "
+    "answer about THAT crop. Do not walk through the whole list unless "
+    "comparing is the point of their question.\n"
+    "- Say in plain words how well each crop fits their land and why. "
+    "Prefer 'the weather and soil here suit it well' over bare counts. If "
+    "you give a confidence figure, say what it means — 'a much stronger "
+    "match than the others' — never a bare number on its own.\n"
+    "- When a crop is marked as NOT normally grown in this district, SAY "
+    "SO, and say that is why it sits low even when its yield or price "
+    "look good. That is the least obvious part of the ranking and the "
+    "farmer cannot work it out from the figures.\n"
+)
+
 # Per-message signals (Step 2). 2+ on a side wins that side; advanced breaks
 # ties (advanced phrasing is far more diagnostic of expertise, and we avoid
 # over-detecting "beginner").
@@ -2917,15 +2967,25 @@ def _format_prediction_context(pc) -> str:
             ("ph_suitable", "soil pH"),
         )
         for r in pc.recommendations:
+            passed = [name for attr, name in _CONDITIONS if getattr(r, attr)]
             failed = [name for attr, name in _CONDITIONS if not getattr(r, attr)]
-            met = 4 - len(failed)
             line = (
                 f"  {r.rank}. {r.crop.value}: {r.confidence * 100:.0f}% model "
                 f"confidence, expected yield {r.expected_yield_kg_per_ha:,.0f} kg/ha, "
                 f"expected farmgate price Rs. {r.expected_price_lkr_kg:,.0f}/kg; "
-                f"{met} of 4 growing conditions suitable"
+                f"{len(passed)} of 4 growing conditions suitable"
             )
-            if failed:
+            # BOTH sides are named, not just the failures. Naming only the
+            # failures left the model to infer which conditions passed, and it
+            # inferred wrongly — asked why Carrot ranked first it answered
+            # "irrigation and soil moisture", two unrelated inputs that happen
+            # to appear elsewhere in this same block, when the real answer was
+            # temperature and rainfall. The four conditions are a closed set,
+            # so spelling out both halves removes the inference entirely.
+            if passed:
+                line += f" (suitable: {', '.join(passed)}"
+                line += f"; unsuitable: {', '.join(failed)})" if failed else ")"
+            elif failed:
                 line += f" (unsuitable: {', '.join(failed)})"
             if not r.district_suitable:
                 line += (
@@ -3027,9 +3087,18 @@ def _build_messages(system: str, context: dict, req: ChatRequest, message: str) 
     # That is what keeps analytics clean: _run_analytics logs `message[:200]`
     # as chat_analytics.question, and `message` is the caller's sanitised
     # user text, which this function does not touch.
-    _prediction = _format_prediction_context(getattr(req, "prediction_context", None))
+    _pc = getattr(req, "prediction_context", None)
+    _prediction = _format_prediction_context(_pc)
     if _prediction:
         msgs.append({"role": "system", "content": _prediction})
+    # Answering rules for a ranked crop recommendation — conditional, and
+    # placed immediately after the facts they govern so the model reads the
+    # list and the instruction to cover it together. Absent for every other
+    # kind of context. See _RECOMMENDATION_ANSWER_RULES.
+    if _pc is not None and getattr(_pc, "recommendations", None):
+        msgs.append(
+            {"role": "system", "content": _RECOMMENDATION_ANSWER_RULES}
+        )
     # Style/formatting rules — separate system message so they stay close to
     # the conversation and don't compete with the safety-critical rules in
     # the core prompt (see _FORMATTING_RULES).

@@ -75,11 +75,30 @@ def test_soil_inputs_are_rendered(context):
     assert "Soil moisture: 40%" in out
 
 
-def test_failed_condition_is_named(context):
-    """ "3 of 4" alone is not actionable; which one failed is."""
+def test_both_passing_and_failing_conditions_are_named(context):
+    """ "3 of 4" alone is not actionable, and naming only the failures is not
+    enough either.
+
+    Naming failures only left the model to infer which conditions PASSED, and
+    it inferred wrongly: asked why Carrot ranked first it answered "irrigation
+    and soil moisture" — two unrelated inputs that appear elsewhere in the same
+    context block — when the real answer was temperature and rainfall. The four
+    conditions are a closed set, so both halves are spelled out.
+    """
     out = _format_prediction_context(context)
-    assert "3 of 4 growing conditions suitable (unsuitable: temperature)" in out
-    assert "4 of 4 growing conditions suitable" in out
+    assert (
+        "3 of 4 growing conditions suitable "
+        "(suitable: rainfall, humidity, soil pH; unsuitable: temperature)"
+    ) in out
+
+
+def test_an_all_passing_crop_names_no_failures(context):
+    """No empty "unsuitable: " tail when every condition is met."""
+    out = _format_prediction_context(context)
+    line = next(ln for ln in out.splitlines() if "Cowpea" in ln)
+    assert "4 of 4 growing conditions suitable" in line
+    assert "suitable: temperature, rainfall, humidity, soil pH)" in line
+    assert "unsuitable" not in line
 
 
 def test_district_gate_is_explained_where_it_applies(context):

@@ -19,17 +19,36 @@ logger = logging.getLogger(__name__)
 # Climatological averages per district:
 # (rainfall_mm, temp_min_c, temp_max_c, humidity_pct,
 #  wind_speed_kmh, solar_radiation_mj)
+#
+# RAINFALL is each district's mean WEEKLY total from M2's own training set
+# (Cropsphere_Real_Test_Dataset.csv). It previously held hand-entered values
+# 2.6-3.7x higher (Nuwara Eliya 120.0, Monaragala 80.0, ...) with no stated
+# source — high enough that the ratio could not be any single unit conversion,
+# and inconsistent enough to rule out a monthly/weekly slip. Correcting them
+# cut mean absolute forecast error across the six trusted districts from
+# 8.32mm to 5.77mm and improved 4 of 6.
+#
+# It made TWO worse, recorded here rather than buried: Hambantota (1.6 -> 7.3mm
+# error) and Jaffna (0.5 -> 8.1mm). Those are also the two districts whose
+# HUMIDITY seed sits just below the scaler's floor, so their previous accuracy
+# was partly an inflated rain seed cancelling an out-of-range humidity one.
+# Correcting one half of a compensating pair exposes the other. The remaining
+# humidity excursion is reported by assert_weather_seeds_in_range.
+#
+# TEMPERATURE and HUMIDITY seeds are deliberately UNCHANGED: they already match
+# the agronomic reference closely (Nuwara Eliya 10.0/22.0/80.0 against 10.9/
+# 18.9/81.6). Nuwara Eliya's 22 C maximum is CORRECT — it is M2's training data
+# that wrongly records the district as lowland-hot. See data/description.md.
 _DISTRICT_CLIMATE: Dict[str, Tuple[float, float, float, float, float, float]] = {
-    "Nuwara Eliya": (120.0, 10.0, 22.0, 80.0, 8.0, 14.0),
-    "Badulla": (100.0, 12.0, 25.0, 75.0, 9.0, 16.0),
-    "Anuradhapura": (60.0, 22.0, 33.0, 65.0, 12.0, 20.0),
-    "Monaragala": (80.0, 18.0, 30.0, 70.0, 11.0, 18.0),
-    "Ampara": (90.0, 20.0, 31.0, 68.0, 12.0, 19.0),
-    "Hambantota": (50.0, 21.0, 32.0, 60.0, 14.0, 21.0),
-    "Batticaloa": (95.0, 21.0, 30.0, 72.0, 11.0, 19.0),
-    "Jaffna": (55.0, 23.0, 34.0, 58.0, 13.0, 22.0),
+    "Nuwara Eliya": (41.8, 10.0, 22.0, 80.0, 8.0, 14.0),
+    "Badulla": (32.6, 12.0, 25.0, 75.0, 9.0, 16.0),
+    "Anuradhapura": (18.5, 22.0, 33.0, 65.0, 12.0, 20.0),
+    "Monaragala": (17.9, 18.0, 30.0, 70.0, 11.0, 18.0),
+    "Ampara": (25.2, 20.0, 31.0, 68.0, 12.0, 19.0),
+    "Hambantota": (14.2, 21.0, 32.0, 60.0, 14.0, 21.0),
+    "Batticaloa": (25.3, 21.0, 30.0, 72.0, 11.0, 19.0),
+    "Jaffna": (17.4, 23.0, 34.0, 58.0, 13.0, 22.0),
 }
-
 _LSTM_TIMESTEPS = 12  # number of historical timesteps the model expects
 
 # Districts where M2's TRAINING DATA is wrong, so its forecast cannot be

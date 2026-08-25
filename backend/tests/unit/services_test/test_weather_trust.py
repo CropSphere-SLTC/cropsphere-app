@@ -168,6 +168,34 @@ def test_missing_scaler_is_handled(caplog):
         model_loader.get_model = real
 
 
+def test_rainfall_seeds_match_the_training_data():
+    """Seeds must stay tied to their source, not drift back to hand-entry.
+
+    They previously held values 2.6-3.7x the per-district weekly means with no
+    stated provenance, which is how the inflation went unnoticed.
+    """
+    import pandas as pd
+    from pathlib import Path
+
+    files = Path(__file__).resolve().parents[3] / "models" / "files"
+    m2 = pd.read_csv(files / "Cropsphere_Real_Test_Dataset.csv", encoding="latin-1")
+    for district, climate in _DISTRICT_CLIMATE.items():
+        expected = m2[m2.district == district].rainfall_mm.mean()
+        assert climate[0] == pytest.approx(expected, abs=0.05), (
+            f"{district} rainfall seed {climate[0]} != training mean "
+            f"{expected:.1f} — reseed from the data, do not hand-edit"
+        )
+
+
+def test_temperature_and_humidity_seeds_were_left_alone():
+    """Nuwara Eliya's 22 C is correct; it is M2's training data that is wrong.
+
+    Raising it into the scaler's range would assert the hill country is hot.
+    """
+    assert _DISTRICT_CLIMATE["Nuwara Eliya"][2] == 22.0
+    assert _DISTRICT_CLIMATE["Nuwara Eliya"][3] == 80.0
+
+
 def test_seed_features_match_the_scaler_width(scaler):
     assert len(_SEED_FEATURES) == scaler.n_features_in_ == 6
     for climate in _DISTRICT_CLIMATE.values():

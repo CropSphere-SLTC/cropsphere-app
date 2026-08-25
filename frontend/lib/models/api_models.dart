@@ -430,6 +430,17 @@ class CropRecommendation {
   final double confidenceScore;
   final double expectedYieldKgPerHa;
   final double expectedPriceLkrKg;
+
+  /// Whether M5_valid_pairs records this crop as grown in this district.
+  /// Advisory — the backend still returns all six crops, but sorts
+  /// district-unsuitable ones below every suitable one regardless of their
+  /// probability. Defaults to true so an older backend that omits the field
+  /// degrades to "no district objection" rather than flagging everything.
+  final bool districtSuitable;
+
+  /// The four agronomic conditions: temp_suitable, rain_suitable,
+  /// humidity_suitable, ph_suitable. Read generically so a backend that adds
+  /// a fifth condition needs no client change.
   final Map<String, bool> suitabilityFlags;
 
   CropRecommendation({
@@ -438,6 +449,7 @@ class CropRecommendation {
     required this.confidenceScore,
     required this.expectedYieldKgPerHa,
     required this.expectedPriceLkrKg,
+    this.districtSuitable = true,
     required this.suitabilityFlags,
   });
 
@@ -449,6 +461,7 @@ class CropRecommendation {
     confidenceScore: (json['confidence_score'] as num).toDouble(),
     expectedYieldKgPerHa: (json['expected_yield_kg_per_ha'] as num).toDouble(),
     expectedPriceLkrKg: (json['expected_price_lkr_kg'] as num).toDouble(),
+    districtSuitable: json['district_suitable'] as bool? ?? true,
     suitabilityFlags: Map<String, bool>.from(json['suitability_flags'] ?? {}),
   );
 }
@@ -560,6 +573,70 @@ class PredictionWeatherWeek {
 /// crop/district/season/irrigation/confidence must match the backend enums —
 /// they come straight from the yield screen's own constant lists, which are
 /// the same values.
+/// One row of a crop-recommendation result, sent to chat as context.
+///
+/// Mirrors [CropRecommendation] minus the display-only parts. The four
+/// agronomic conditions are flattened into named booleans rather than sent as
+/// the response's `suitability_flags` map: the backend renders these straight
+/// into the prompt, and flat typed fields mean a client cannot invent key
+/// names that reach it.
+class PredictionCropRecommendation {
+  final int rank;
+  final String crop;
+  final double confidence;
+  final double expectedYieldKgPerHa;
+  final double expectedPriceLkrKg;
+  final bool districtSuitable;
+  final bool tempSuitable;
+  final bool rainSuitable;
+  final bool humiditySuitable;
+  final bool phSuitable;
+
+  const PredictionCropRecommendation({
+    required this.rank,
+    required this.crop,
+    required this.confidence,
+    required this.expectedYieldKgPerHa,
+    required this.expectedPriceLkrKg,
+    required this.districtSuitable,
+    required this.tempSuitable,
+    required this.rainSuitable,
+    required this.humiditySuitable,
+    required this.phSuitable,
+  });
+
+  /// Built straight from an API [CropRecommendation]. Missing flags read as
+  /// false rather than throwing — a backend that renames one degrades to
+  /// "condition not met" instead of breaking the whole handoff.
+  factory PredictionCropRecommendation.fromRecommendation(
+    CropRecommendation r,
+  ) => PredictionCropRecommendation(
+    rank: r.rank,
+    crop: r.crop,
+    confidence: r.confidenceScore.clamp(0.0, 1.0),
+    expectedYieldKgPerHa: r.expectedYieldKgPerHa,
+    expectedPriceLkrKg: r.expectedPriceLkrKg,
+    districtSuitable: r.districtSuitable,
+    tempSuitable: r.suitabilityFlags['temp_suitable'] ?? false,
+    rainSuitable: r.suitabilityFlags['rain_suitable'] ?? false,
+    humiditySuitable: r.suitabilityFlags['humidity_suitable'] ?? false,
+    phSuitable: r.suitabilityFlags['ph_suitable'] ?? false,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'rank': rank,
+    'crop': crop,
+    'confidence': confidence,
+    'expected_yield_kg_per_ha': expectedYieldKgPerHa,
+    'expected_price_lkr_kg': expectedPriceLkrKg,
+    'district_suitable': districtSuitable,
+    'temp_suitable': tempSuitable,
+    'rain_suitable': rainSuitable,
+    'humidity_suitable': humiditySuitable,
+    'ph_suitable': phSuitable,
+  };
+}
+
 class PredictionContext {
   final String? crop;
   final String? district;
@@ -595,6 +672,15 @@ class PredictionContext {
   final int? weeksAhead;
   final List<PredictionWeatherWeek>? forecastWeeks;
 
+  // ── Crop-recommendation-side fields ───────────────────────────────────────
+  // Set by the recommend screen. `crop` above carries the TOP-ranked crop, so
+  // the backend's saved-context confirmation gate and RAG metadata boost
+  // resolve a crop exactly as they do for a yield or price handoff; the full
+  // ranking rides in [recommendations].
+  final double? soilPh;
+  final double? soilMoisturePct;
+  final List<PredictionCropRecommendation>? recommendations;
+
   const PredictionContext({
     this.crop,
     this.district,
@@ -617,6 +703,9 @@ class PredictionContext {
     this.weather,
     this.weeksAhead,
     this.forecastWeeks,
+    this.soilPh,
+    this.soilMoisturePct,
+    this.recommendations,
   });
 
   /// One-line "Carrot · Badulla · 19612 kg/ha" summary for the chat screen's
@@ -659,6 +748,10 @@ class PredictionContext {
     if (weeksAhead != null) 'weeks_ahead': weeksAhead,
     if (forecastWeeks != null)
       'forecast_weeks': forecastWeeks!.map((w) => w.toJson()).toList(),
+    if (soilPh != null) 'soil_ph': soilPh,
+    if (soilMoisturePct != null) 'soil_moisture_pct': soilMoisturePct,
+    if (recommendations != null)
+      'recommendations': recommendations!.map((r) => r.toJson()).toList(),
   };
 }
 

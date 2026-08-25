@@ -2851,6 +2851,11 @@ def _format_prediction_context(pc) -> str:
     if pc.festival_week:
         facts.append("- This is a festival week")
 
+    if pc.soil_ph is not None:
+        facts.append(f"- Soil pH: {pc.soil_ph:.1f}")
+    if pc.soil_moisture_pct is not None:
+        facts.append(f"- Soil moisture: {pc.soil_moisture_pct:.0f}%")
+
     if pc.confidence:
         facts.append(f"- Model confidence: {pc.confidence.value}")
 
@@ -2890,6 +2895,46 @@ def _format_prediction_context(pc) -> str:
                 f"humidity {wk.humidity_pct:.0f}% — {cond}"
             )
 
+    # ── Crop-recommendation facts ─────────────────────────────────────────
+    # The whole ranking is rendered, not just the winner: the questions this
+    # screen offers ("why is X first?", "what if I want to grow something
+    # else?") are comparative, and a model given only the top crop would have
+    # to invent the alternatives it is being asked about.
+    #
+    # Both gates are stated per crop because they are different objections and
+    # a farmer can act on one of them. A failed agronomic condition is about
+    # this week's weather and this field's soil; district_suitable is about
+    # whether the crop is grown in the district at all, which is why a crop
+    # can rank last on a probability that would otherwise have placed it high.
+    if pc.recommendations:
+        facts.append(
+            f"- Ranked crop recommendations ({len(pc.recommendations)} crops, "
+            "best first):"
+        )
+        _CONDITIONS = (
+            ("temp_suitable", "temperature"),
+            ("rain_suitable", "rainfall"),
+            ("humidity_suitable", "humidity"),
+            ("ph_suitable", "soil pH"),
+        )
+        for r in pc.recommendations:
+            failed = [name for attr, name in _CONDITIONS if not getattr(r, attr)]
+            met = 4 - len(failed)
+            line = (
+                f"  {r.rank}. {r.crop.value}: {r.confidence * 100:.0f}% model "
+                f"confidence, expected yield {r.expected_yield_kg_per_ha:,.0f} kg/ha, "
+                f"expected farmgate price Rs. {r.expected_price_lkr_kg:,.0f}/kg; "
+                f"{met} of 4 growing conditions suitable"
+            )
+            if failed:
+                line += f" (unsuitable: {', '.join(failed)})"
+            if not r.district_suitable:
+                line += (
+                    "; NOT normally grown in this district, which is why it is "
+                    "ranked below crops that are"
+                )
+            facts.append(line)
+
     if not facts:
         return ""
 
@@ -2904,6 +2949,8 @@ def _format_prediction_context(pc) -> str:
         kind = "price prediction"
     elif pc.forecast_weeks:
         kind = "weather forecast"
+    elif pc.recommendations:
+        kind = "crop recommendation"
     else:
         kind = "prediction"
 

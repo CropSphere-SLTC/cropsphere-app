@@ -26,14 +26,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../../app_lang.dart';
 import '../../models/api_models.dart';
+import '../../services/prediction_handoff.dart';
 import '../../services/service_factory.dart';
 import '../../utils/farm_context.dart';
 import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
 import '../../widgets/app_top_bar.dart';
+import '../../widgets/followup_chip.dart';
 import '../../widgets/skeleton_loading.dart';
 
 typedef _L = Map<String, String>;
+
+/// How well a crop's four agronomic conditions are met. Four tiers rather
+/// than one ratio — see _tierFor for why the old >= 0.7 could not
+/// distinguish 3 of 4 from 4 of 4.
+enum _MatchTier { ideal, good, workable, poor }
 
 // District display names — official Sinhala/Tamil district names, not a
 // literal word-for-word translation. The English key is kept as the value
@@ -261,9 +268,6 @@ class _RecommendScreenState extends State<RecommendScreen> {
   String? _selectedSeason;
   String? _selectedIrrigation;
 
-  // 0 = Enter Details tab, 1 = Soil Guide tab
-  int _activeTab = 0;
-
   // ── Weather (auto-fetched) ───────────────────────────────────────────────
   FarmWeather? _weather;
   bool _weatherLoading = false;
@@ -286,6 +290,12 @@ class _RecommendScreenState extends State<RecommendScreen> {
   // Once the farmer manually drags the pH/Moisture sliders themselves, we
   // stop auto-overwriting their input when they switch districts.
   bool _soilManuallyEdited = false;
+
+  // ── Searchable district field ────────────────────────────────────────────
+  // RawAutocomplete owns neither of these, so they live here and are disposed
+  // with the state — same ownership as price/yield.
+  final TextEditingController _districtCtrl = TextEditingController();
+  final FocusNode _districtFocus = FocusNode();
 
   // ── Result state ─────────────────────────────────────────────────────────
   bool _isLoading = false;
@@ -327,28 +337,6 @@ class _RecommendScreenState extends State<RecommendScreen> {
   /// ever silently disappears from the UI.
   String _districtLabel(String englishKey) =>
       _t(_districtNames[englishKey] ?? {'en': englishKey});
-
-  /// Translated season name (Maha/Yala/Inter → මහ/යල/අන්තර් etc.)
-  String _seasonLabel(String englishKey) {
-    final s = _seasons.firstWhere(
-      (s) => s['name']!['en'] == englishKey,
-      orElse: () => {
-        'name': {'en': englishKey},
-      },
-    );
-    return _t(s['name']!);
-  }
-
-  /// Translated irrigation type name (drip/sprinkler/rainfed → localized)
-  String _irrigationLabel(String englishKey) {
-    final t = _irrigationTypes.firstWhere(
-      (t) => t['value']!['en'] == englishKey,
-      orElse: () => {
-        'label': {'en': englishKey},
-      },
-    );
-    return _t(t['label']!);
-  }
 
   // ── Soil-nutrient labels ─────────────────────────────────────────────────
   // The N/P/K sliders store a plain 0–1 index for the prediction API (this
@@ -420,6 +408,13 @@ class _RecommendScreenState extends State<RecommendScreen> {
   }
 
   // ── Weather fetch ─────────────────────────────────────────────────────────
+  @override
+  void dispose() {
+    _districtCtrl.dispose();
+    _districtFocus.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadWeather(String district) async {
     setState(() {
       _weatherLoading = true;
@@ -526,20 +521,9 @@ class _RecommendScreenState extends State<RecommendScreen> {
       child: Column(
         children: [
           _buildTopBar(context),
-          _buildSectionTabs(),
           Expanded(
             child: LayoutBuilder(
-              builder: (ctx, bc) {
-                final w = bc.maxWidth;
-                final isWeb = w >= 960;
-                // Same single-column layout on mobile/tablet as before.
-                // Web gets its own compact arrangement (see _formColumn)
-                // so every input fits without scrolling.
-                final maxW = isWeb ? 1000.0 : (w >= 600 ? 700.0 : null);
-                return _activeTab == 0
-                    ? _buildEnterDetailsTab(maxW, isWeb)
-                    : _buildSoilGuideTab(maxW);
-              },
+              builder: (ctx, bc) => _buildDetailsTab(bc.maxWidth),
             ),
           ),
         ],
@@ -547,120 +531,90 @@ class _RecommendScreenState extends State<RecommendScreen> {
     );
   }
 
-  // ── Section tabs (Enter Details / Soil Guide) ──────────────────────────────
-  // Matches the "Enter Details" + guide-tab pattern already used on the
-  // Yield/Price screens — replaces the old side-by-side split-screen web
-  // layout so nothing is ever squeezed into two half-width panels.
-  Widget _buildSectionTabs() {
-    final tabs = [
-      _t({
-        'en': 'Enter Details',
-        'si': 'විස්තර ඇතුළත් කරන්න',
-        'ta': 'விவரங்களை உள்ளிடவும்',
-      }),
-      _t({'en': 'Soil Guide', 'si': 'පස් මාර්ගෝපදේශය', 'ta': 'மண் வழிகாட்டி'}),
-    ];
-    return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
-      child: Row(
-        children: List.generate(tabs.length, (i) {
-          final active = _activeTab == i;
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: GestureDetector(
-              onTap: () => setState(() => _activeTab = i),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 9,
-                ),
-                decoration: BoxDecoration(
-                  color: active
-                      ? const Color(0xFF00695C)
-                      : const Color(0xFFF1F7F1),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: active
-                        ? const Color(0xFF00695C)
-                        : const Color(0xFFD0E8C8),
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      i == 0 ? Icons.edit_note : Icons.eco_outlined,
-                      size: 15,
-                      color: active ? Colors.white : AppTheme.textSecondary,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      tabs[i],
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w700,
-                        color: active ? Colors.white : AppTheme.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        }),
-      ),
-    );
+  // ── Details layout — resizes for mobile / tablet / web ────────────────────
+  // Thresholds and column formula copied from price_screen/yield_screen
+  // verbatim rather than re-derived: this page used its own >= 960 break and
+  // its own 5:4 grid, so at the same viewport its columns sat at visibly
+  // different widths from every other feature page.
+  Widget _buildDetailsTab(double width) {
+    if (width >= 1024) return _buildWebDetails(width);
+    if (width >= 600) return _buildTabletDetails(width);
+    return _buildMobileDetails(width);
   }
 
-  // ── "Enter Details" tab ─────────────────────────────────────────────────
-  // Mobile/tablet: single stacked column with a sticky bottom button.
-  // Web: a compact 2-column grid (see _formColumn) so every input is
-  // visible without scrolling — the button sits inline instead of sticky.
-  Widget _buildEnterDetailsTab(double? maxW, bool isWeb) {
-    if (isWeb) {
-      return LayoutBuilder(
-        builder: (ctx, bc) {
-          final hPad = maxW == null
-              ? 14.0
-              : ((bc.maxWidth - maxW) / 2).clamp(14.0, 120.0);
-          return SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(hPad, 14, hPad, 24),
-            child: _formColumn(isWeb: true),
-          );
-        },
-      );
-    }
+  // Bottom padding 180 for the same reason as price_screen's: below 1024px
+  // MainShell overlays FloatingBottomNav AND this Stack pins its own sticky
+  // button to the same bottom:0, so the clearance has to cover both bars.
+  Widget _buildMobileDetails(double width) {
+    final hPad = width < 340 ? 12.0 : 14.0;
     return Stack(
       children: [
-        LayoutBuilder(
-          builder: (ctx, bc) {
-            final hPad = maxW == null
-                ? 14.0
-                : ((bc.maxWidth - maxW) / 2).clamp(14.0, 200.0);
-            return SingleChildScrollView(
-              // extra bottom padding so content never hides behind the
-              // sticky button — same trick used in YieldScreen
-              padding: EdgeInsets.fromLTRB(hPad, 14, hPad, 100),
-              child: _formColumn(isWeb: false),
-            );
-          },
+        SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(hPad, 14, hPad, 180),
+          child: _formColumn(),
         ),
-        _stickyRecommendButton(),
+        _stickyRecommend(),
       ],
     );
   }
 
-  // ── Sticky bottom action button ─────────────────────────────────────────
-  Widget _stickyRecommendButton() => Positioned(
+  Widget _buildTabletDetails(double width) {
+    final targetContentW = width < 760 ? width - 32 : 680.0;
+    final hPad = ((width - targetContentW) / 2).clamp(16.0, 220.0);
+    return Stack(
+      children: [
+        SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(hPad, 14, hPad, 180),
+          child: _formColumn(),
+        ),
+        _stickyRecommend(),
+      ],
+    );
+  }
+
+  // Web (>= 1024dp): inputs left, weather + results + chat right.
+  //
+  // The button moves INTO the left column here and is pinned to its bottom,
+  // exactly as price/yield pin theirs. It used to sit at the top of the right
+  // column, above the results it produces — so the farmer filled in the left
+  // column and then had to cross the page to submit it.
+  Widget _buildWebDetails(double width) {
+    final leftW = (width * 0.44).clamp(360.0, 560.0);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          width: leftW,
+          child: Stack(
+            children: [
+              SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 16, 12, 100),
+                child: _formColumn(webLeft: true),
+              ),
+              _stickyRecommend(),
+            ],
+          ),
+        ),
+        Container(width: 1, color: AppTheme.login.borderSubtle),
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 20, 28),
+            child: _rightPanel(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Sticky bottom action button ───────────────────────────────────────────
+  Widget _stickyRecommend() => Positioned(
     bottom: 0,
     left: 0,
     right: 0,
     child: Container(
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.login.background,
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.08),
@@ -673,365 +627,132 @@ class _RecommendScreenState extends State<RecommendScreen> {
     ),
   );
 
-  Widget _formColumn({required bool isWeb}) {
-    final seasonBlock = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionTitle(
-          _t({'en': 'Season', 'si': 'කන්නය', 'ta': 'பருவம்'}),
-          Icons.calendar_month,
-        ),
-        const SizedBox(height: 10),
-        _seasonChips(),
-      ],
-    );
-
-    final locationBlock = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionTitle(
-          _t({
-            'en': 'Location & Irrigation',
-            'si': 'ස්ථානය හා ජලනය',
-            'ta': 'இடம் மற்றும் நீர்ப்பாசனம்',
-          }),
-          Icons.location_on,
-        ),
-        const SizedBox(height: 10),
-        _locationCard(),
-      ],
-    );
-
-    final weatherBlock = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionTitle(
-          _t({'en': 'Weather', 'si': 'කාලගුණය', 'ta': 'வானிலை'}),
-          Icons.cloud,
-        ),
-        const SizedBox(height: 10),
-        _weatherCard(),
-      ],
-    );
-
-    final soilBlock = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionTitle(
-          _t({'en': 'Soil', 'si': 'පස', 'ta': 'மண்'}),
-          Icons.science,
-        ),
-        const SizedBox(height: 10),
-        _soilCard(),
-      ],
-    );
-
-    // ── Mobile / tablet: unchanged single-column stack ─────────────────────
-    if (!isWeb) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _pageHeader(),
-          const SizedBox(height: 16),
-          seasonBlock,
-          const SizedBox(height: 20),
-          locationBlock,
-          const SizedBox(height: 20),
-          weatherBlock,
-          const SizedBox(height: 20),
-          soilBlock,
-          const SizedBox(height: 20),
-          if (_isLoading) _resultSkeleton(),
-          if (_errorMessage != null) _errorCard(),
-          if (_result != null) _resultSection(),
-          if (_result == null && _errorMessage == null && !_isLoading)
-            _emptyPlaceholder(),
-        ],
-      );
-    }
-
-    // ── Web: compact 2-column grid so every input is visible without
-    //    scrolling — Season+Location alongside Weather, then Soil alongside
-    //    the button/result. This mirrors the "Enter Details" form fitting
-    //    the viewport on Yield/Price, just laid out as a proper grid
-    //    instead of one long stack. No IntrinsicHeight is used anywhere
-    //    here, so it stays compatible with the Weather grid/GridView. ──────
-    final resultBlock = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _recommendButton(),
-        const SizedBox(height: 14),
-        if (_isLoading) _resultSkeleton(),
-        if (_errorMessage != null) _errorCard(),
-        if (_result != null) _resultSection(),
-        if (_result == null && _errorMessage == null && !_isLoading)
-          _emptyPlaceholder(),
-      ],
-    );
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _pageHeader(),
-        const SizedBox(height: 14),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              flex: 5,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  seasonBlock,
-                  const SizedBox(height: 14),
-                  locationBlock,
-                ],
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(flex: 4, child: weatherBlock),
-          ],
-        ),
-        const SizedBox(height: 14),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(flex: 5, child: soilBlock),
-            const SizedBox(width: 16),
-            Expanded(flex: 4, child: resultBlock),
-          ],
-        ),
-      ],
-    );
-  }
-
-  // ── "Soil Guide" tab — how to read the fertility ratings, plus a
-  //    per-district reference for typical pH & moisture. Tapping a district
-  //    card selects it and jumps back to Enter Details, tying the two tabs
-  //    together. ───────────────────────────────────────────────────────────
-  Widget _buildSoilGuideTab(double? maxW) => LayoutBuilder(
-    builder: (ctx, bc) {
-      final hPad = maxW == null
-          ? 14.0
-          : ((bc.maxWidth - maxW) / 2).clamp(14.0, 200.0);
-      return SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 28),
-        child: _soilGuideContent(),
-      );
-    },
-  );
-
-  Widget _soilGuideContent() => Column(
+  // ── Form column (LEFT on web, the whole page below 1024dp) ────────────────
+  // Order is fixed: header -> Season -> Location & Irrigation -> Soil, then
+  // the sticky button pinned over the bottom of this same column.
+  //
+  // Weather moved OUT of here to the right panel. It is fetched for the
+  // district rather than typed by the farmer, so it is context for reading
+  // the results, not an input to fill in — keeping it in the input column
+  // was what forced the old 5:4 grid to split Season/Location from Soil.
+  Widget _formColumn({bool webLeft = false}) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Text(
-        _t({
-          'en': 'Understanding Your Soil Results',
-          'si': 'ඔබේ පස් ප්‍රතිඵල තේරුම් ගැනීම',
-          'ta': 'உங்கள் மண் முடிவுகளைப் புரிந்துகொள்ளுதல்',
-        }),
-        style: const TextStyle(
-          fontSize: 17,
-          fontWeight: FontWeight.w800,
-          color: AppTheme.textPrimary,
-        ),
+      _pageHeader(),
+      const SizedBox(height: 16),
+      _sectionTitle(
+        _t({'en': 'Season', 'si': 'කන්නය', 'ta': 'பருவம்'}),
+        Icons.calendar_month,
       ),
       const SizedBox(height: 10),
-      _infoBox(
-        _t({
-          'en':
-              'N (Nitrogen), P (Phosphorus) and K (Potassium) ratings follow the same Low / Medium / High / Very High scale used on Dept. of Agriculture soil-test reports. Most home garden and small-plot soils fall in the Medium range — if you have not tested, leaving these on Medium is a safe starting point.',
-          'si':
-              'N (නයිට්‍රජන්), P (පොස්පරස්) සහ K (පොටෑසියම්) මට්ටම් කෘෂිකර්ම දෙපාර්තමේන්තුවේ පස් පරීක්ෂණ වාර්තාවල භාවිත වන අඩු/මධ්‍යම/ඉහළ/ඉතා ඉහළ පරිමාණයම අනුගමනය කරයි. පරීක්ෂා කර නොමැති නම් මධ්‍යම මට්ටමේ තැබීම ආරක්ෂිතයි.',
-          'ta':
-              'N (நைட்ரஜன்), P (பாஸ்பரஸ்) மற்றும் K (பொட்டாசியம்) மதிப்பீடுகள் விவசாயத் திணைக்கள மண் பரிசோதனை அறிக்கைகளில் பயன்படுத்தப்படும் குறைவு/நடுத்தரம்/அதிகம்/மிக அதிகம் அளவைப் பின்பற்றுகின்றன. பரிசோதிக்கவில்லை என்றால் நடுத்தரத்தில் விடுவது பாதுகாப்பானது.',
-        }),
-        color: AppTheme.info,
-        icon: Icons.info_outline,
-      ),
-      const SizedBox(height: 10),
-      _infoBox(
-        _t({
-          'en':
-              'Soil pH between 6.0–7.0 (Neutral) suits most Sri Lankan food crops. Soil moisture of 50–65% is generally ideal for upland crops — drier for rainfed dry-zone crops, wetter for paddy.',
-          'si':
-              'pH 6.0–7.0 (මධ්‍යස්ථ) බොහෝ ශ්‍රී ලංකා ආහාර බෝගවලට සුදුසුයි. උස්බිම් බෝග සඳහා පස ආර්ද්‍රතාව 50–65% පොදුවේ සුදුසුයි — වියළි කලාපයේ වර්ෂාපෝෂිත බෝග සඳහා තරමක් වියළි, වී සඳහා තෙත් අවශ්‍යයි.',
-          'ta':
-              'pH 6.0–7.0 (நடுநிலை) பெரும்பாலான இலங்கை உணவுப் பயிர்களுக்கு ஏற்றது. மேட்டு பயிர்களுக்கு 50–65% மண் ஈரப்பதம் பொதுவாக சிறந்தது — வறண்ட வலய மழையை நம்பிய பயிர்களுக்கு உலர்வாகவும், நெல்லுக்கு ஈரமாகவும் இருக்கும்.',
-        }),
-        color: AppTheme.success,
-        icon: Icons.water_drop_outlined,
-      ),
+      _seasonChips(),
       const SizedBox(height: 20),
       _sectionTitle(
         _t({
-          'en': 'Typical Soil by District',
-          'si': 'දිස්ත්‍රික්කය අනුව සාමාන්‍ය පස',
-          'ta': 'மாவட்டம் வாரியாக வழக்கமான மண்',
+          'en': 'Location & Irrigation',
+          'si': 'ස්ථානය හා ජලනය',
+          'ta': 'இடம் மற்றும் நீர்ப்பாசனம்',
         }),
-        Icons.map_outlined,
+        Icons.location_on,
       ),
-      const SizedBox(height: 4),
-      Text(
-        _t({
-          'en':
-              'Tap a district to use it — its typical pH & moisture will fill in automatically on the Enter Details tab.',
-          'si':
-              'භාවිතා කිරීමට දිස්ත්‍රික්කයක් ඔබන්න — එහි සාමාන්‍ය pH සහ ආර්ද්‍රතාව විස්තර ඇතුළත් කිරීමේ පටිත්තෙහි ස්වයංක්‍රීයව පිරෙනු ඇත.',
-          'ta':
-              'பயன்படுத்த ஒரு மாவட்டத்தைத் தட்டவும் — அதன் வழக்கமான pH மற்றும் ஈரப்பதம் விவரங்களை உள்ளிடும் தாவலில் தானாக நிரம்பும்.',
-        }),
-        style: const TextStyle(
-          fontSize: 11.5,
-          color: AppTheme.textMuted,
-          height: 1.4,
-        ),
+      const SizedBox(height: 10),
+      _locationCard(),
+      const SizedBox(height: 20),
+      _sectionTitle(
+        _t({'en': 'Soil', 'si': 'පස', 'ta': 'மண்'}),
+        Icons.science,
       ),
-      const SizedBox(height: 12),
-      ..._districts.map((d) => _districtSoilGuideCard(d)),
+      const SizedBox(height: 10),
+      _soilCard(),
+      // Single column (<1024dp): weather, results and the chat block follow
+      // the inputs. The button itself stays pinned in the sticky bar above
+      // this scroll view, so it is never scrolled away from.
+      if (!webLeft) ...[
+        const SizedBox(height: 20),
+        _rightPanel(),
+      ],
     ],
   );
 
-  Widget _districtSoilGuideCard(String district) {
-    final d = _soilDefaultsFor(district);
-    final selected = district == _selectedDistrict;
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _selectedDistrict = district;
-          _result = null;
-          _applyDistrictSoilDefaults(district);
-          _activeTab = 0;
-        });
-        _loadWeather(district);
-      },
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: selected
-              ? AppTheme.primary.withValues(alpha: 0.06)
-              : AppTheme.surfaceCard,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: selected ? AppTheme.primary : const Color(0xFFE0EBE0),
-            width: selected ? 1.6 : 1,
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Text(
-                  _districtLabel(district),
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: selected
-                        ? AppTheme.primaryDark
-                        : AppTheme.textPrimary,
-                  ),
-                ),
-                if (selected) ...[
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppTheme.primary,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      _t({
-                        'en': 'Selected',
-                        'si': 'තෝරා ඇත',
-                        'ta': 'தேர்ந்தெடுக்கப்பட்டது',
-                      }),
-                      style: const TextStyle(
-                        fontSize: 9.5,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ],
-                const Spacer(),
-                Icon(
-                  Icons.chevron_right,
-                  size: 18,
-                  color: AppTheme.textMuted.withValues(alpha: 0.6),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              children: [
-                _guideStatChip(
-                  'pH ${d.ph.toStringAsFixed(1)}',
-                  _phLevelLabel(d.ph),
-                  Colors.purple,
-                ),
-                _guideStatChip(
-                  '${_t({'en': 'Moisture', 'si': 'ආර්ද්‍රතාව', 'ta': 'ஈரம்'})} ${d.moisturePct.toStringAsFixed(0)}%',
-                  _moistureLevelLabel(d.moisturePct),
-                  Colors.cyan,
-                ),
-              ],
-            ),
-          ],
-        ),
+  // ── Right panel (RIGHT on web, appended below the inputs on mobile) ───────
+  Widget _rightPanel() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _sectionTitle(
+        _t({'en': 'Weather', 'si': 'කාලගුණය', 'ta': 'வானிலை'}),
+        Icons.cloud,
       ),
-    );
-  }
+      const SizedBox(height: 10),
+      _weatherCard(),
+      const SizedBox(height: 20),
+      if (_isLoading) _resultSkeleton(),
+      if (_errorMessage != null) _errorCard(),
+      if (_result != null) ...[
+        _resultSection(),
+        const SizedBox(height: 16),
+        _askAiBlock(),
+      ],
+      if (_result == null && _errorMessage == null && !_isLoading)
+        _emptyPlaceholder(),
+    ],
+  );
 
-  /// Small content-sized stat pill (e.g. "pH 6.8 · Neutral (Ideal)") used
-  /// on the district reference cards — unlike _readonlyChip, this doesn't
-  /// need an Expanded parent to size correctly.
-  Widget _guideStatChip(String primary, String levelText, Color color) =>
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: color.withValues(alpha: 0.22)),
-        ),
-        child: Text(
-          '$primary · $levelText',
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            color: color,
-          ),
-        ),
-      );
-
+  // ── Top bar ───────────────────────────────────────────────────────────────
   // Crop Recommend is nav index 4. See app_top_bar.dart for why this is one
   // shared widget now instead of six independent copies of this same bar.
+  //
+  // Active colours come from the cropRec accent rather than the hardcoded
+  // #E8F5E9/#2E7D32 pair this screen used to carry — same change price and
+  // yield already made, so the six bars stay in step when an accent moves.
   Widget _buildTopBar(BuildContext context) => AppTopBar(
     activeIndex: 4,
-    activeBg: const Color(0xFFE8F5E9),
-    activeColor: const Color(0xFF2E7D32),
+    activeBg: AppTheme.accents.cropRec.fill.withValues(alpha: 0.16),
+    activeColor: AppTheme.accents.cropRec.ink,
     onNavigate: widget.onNavigate,
   );
 
   // ── Page header ────────────────────────────────────────────────────────────
+  // Structurally identical to price_screen's header — same gradient direction
+  // (dark top-left -> light bottom-right), same +0.15 HLS light stop, same
+  // icon container, glass badge and title/subtitle sizing.
+  //
+  // It does NOT copy price's colour treatment, deliberately. That header puts
+  // WHITE on a terracotta fill and misses AA (2.65:1) as a known, accepted
+  // trade-off; white on this olive would be 2.79:1 at the dark anchor and
+  // 1.98:1 at the light stop — the same failure, only worse. cropRec's own
+  // onFill token is DARK (#1F2A1F) and clears AA at both ends, so the shape
+  // is price's and the contrast is this accent's:
+  //
+  //   #7CA759 (dark anchor, == accents.cropRec.fill)  onFill 5.34:1
+  //   #A3C28B (light stop, +0.15 HLS)                 onFill 7.53:1
+  //
+  // Nothing here is a known-accepted failure; if this is ever re-themed to
+  // white text, both numbers above are what it costs.
+  static final Color _headerGradientLight = _lighten(
+    AppTheme.accents.cropRec.fill,
+    0.15,
+  );
+
+  /// +delta lightness in HLS, hue and saturation preserved — the same widening
+  /// price_screen's light stop uses, kept as code so the relationship to fill
+  /// survives a re-theme instead of being a second hardcoded hex.
+  static Color _lighten(Color c, double delta) {
+    final hsl = HSLColor.fromColor(c);
+    return hsl.withLightness((hsl.lightness + delta).clamp(0.0, 1.0)).toColor();
+  }
+
   Widget _pageHeader() => Container(
     padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(
-      gradient: const LinearGradient(
-        colors: [Color(0xFF00695C), Color(0xFF00897B)],
+      gradient: LinearGradient(
+        colors: [AppTheme.accents.cropRec.fill, _headerGradientLight],
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
       ),
       borderRadius: BorderRadius.circular(14),
       boxShadow: [
         BoxShadow(
-          color: const Color(0xFF00695C).withValues(alpha: 0.3),
+          color: AppTheme.accents.cropRec.fill.withValues(alpha: 0.3),
           blurRadius: 10,
           offset: const Offset(0, 4),
         ),
@@ -1039,14 +760,11 @@ class _RecommendScreenState extends State<RecommendScreen> {
     ),
     child: Row(
       children: [
-        Container(
+        _glassBadge(
+          borderRadius: 10,
           padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(10),
-          ),
           child: SvgPicture.string(
-            _navSvg(4, Colors.white),
+            _navSvg(4, AppTheme.accents.cropRec.onFill),
             width: 26,
             height: 26,
           ),
@@ -1062,8 +780,8 @@ class _RecommendScreenState extends State<RecommendScreen> {
                   'si': 'භෝග නිර්දේශකය',
                   'ta': 'பயிர் பரிந்துரையாளர்',
                 }),
-                style: const TextStyle(
-                  color: Colors.white,
+                style: TextStyle(
+                  color: AppTheme.accents.cropRec.onFill, // 5.34-7.53:1
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
                 ),
@@ -1074,28 +792,34 @@ class _RecommendScreenState extends State<RecommendScreen> {
                   'si': 'ඔබේ ඉඩමට වඩාත් සුදුසු භෝගය දැන් සොයන්න',
                   'ta': 'உங்கள் நிலத்திற்கு சிறந்த பயிரை இப்போது கண்டறியுங்கள்',
                 }),
+                // 0.90, not the 0.8 the other headers use — that is the
+                // measured ceiling here, not a style choice. Dark ink on this
+                // gradient does have alpha headroom (price's light stop had
+                // none at all), but less than it looks: 0.90 holds 4.55:1 at
+                // the dark anchor and 6.14:1 at the light stop, while 0.88
+                // already drops the dark end to 4.40:1 and price's own 0.8
+                // to 3.82:1 — both under the 4.5:1 normal-text floor. Full
+                // opacity (5.34:1 / 7.53:1) is the fallback if this ever
+                // needs more margin.
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.8),
+                  color: AppTheme.accents.cropRec.onFill.withValues(alpha: 0.90),
                   fontSize: 12,
                 ),
               ),
             ],
           ),
         ),
-        Container(
+        _glassBadge(
+          borderRadius: 20,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(20),
-          ),
           child: Text(
             _t({
               'en': 'Week ${farmWeekOfYear()}',
               'si': 'සති ${farmWeekOfYear()}',
               'ta': 'வாரம் ${farmWeekOfYear()}',
             }),
-            style: const TextStyle(
-              color: Colors.white,
+            style: TextStyle(
+              color: AppTheme.accents.cropRec.onFill, // 6.36-8.43:1
               fontSize: 12,
               fontWeight: FontWeight.w600,
             ),
@@ -1103,6 +827,31 @@ class _RecommendScreenState extends State<RecommendScreen> {
         ),
       ],
     ),
+  );
+
+  /// Glass panel — the icon badge and "Week N" pill. Same treatment as
+  /// price_screen's and yield_screen's (translucent tint + a faint white edge
+  /// highlight), tinted WHITE rather than price's black.
+  ///
+  /// Direction follows the fill, as it does on the other two pages: price's
+  /// fill is a light terracotta where darkening is what preserves contrast for
+  /// its white content; this page carries DARK content, so lightening is what
+  /// preserves it. White@0.15 puts the icon and Week pill at 6.36:1 (dark end)
+  /// to 8.43:1 (light end) — comfortably AA, with no trade-off to accept.
+  /// Black@0.20 (price's exact value) would drop the same dark content to
+  /// 3.56-4.87:1, i.e. failing at the end where this gradient is darkest.
+  Widget _glassBadge({
+    required double borderRadius,
+    required EdgeInsets padding,
+    required Widget child,
+  }) => Container(
+    padding: padding,
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: 0.15),
+      borderRadius: BorderRadius.circular(borderRadius),
+      border: Border.all(color: Colors.white.withValues(alpha: 0.25), width: 1),
+    ),
+    child: child,
   );
 
   // ── Season quick chips ────────────────────────────────────────────────────
@@ -1176,42 +925,18 @@ class _RecommendScreenState extends State<RecommendScreen> {
     return _card(
       child: Column(
         children: [
-          DropdownButtonFormField<String>(
-            initialValue: _selectedDistrict,
-            hint: Text(
-              _t({
-                'en': 'Select District',
-                'si': 'දිස්ත්‍රික්කය තෝරන්න',
-                'ta': 'மாவட்டத்தைத் தேர்ந்தெடுக்கவும்',
-              }),
-            ),
-            decoration: InputDecoration(
-              labelText: _t({
-                'en': 'District',
-                'si': 'දිස්ත්‍රික්කය',
-                'ta': 'மாவட்டம்',
-              }),
-              prefixIcon: const Icon(
-                Icons.location_on,
-                color: AppTheme.primary,
-                size: 20,
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 10,
-              ),
-            ),
-            items: _districts
-                .map(
-                  (e) => DropdownMenuItem(
-                    value: e,
-                    child: Text(_districtLabel(e)),
-                  ),
-                )
-                .toList(),
+          _searchableDropdown(
+            label: _t({
+              'en': 'District',
+              'si': 'දිස්ත්‍රික්කය',
+              'ta': 'மாவட்டம்',
+            }),
+            value: _selectedDistrict,
+            items: _districts,
+            icon: Icons.location_on,
+            controller: _districtCtrl,
+            focusNode: _districtFocus,
+            itemLabel: _districtLabel,
             onChanged: (v) {
               if (v == null) return;
               setState(() {
@@ -1238,10 +963,26 @@ class _RecommendScreenState extends State<RecommendScreen> {
                 'si': 'ජලනය වර්ගය',
                 'ta': 'நீர்ப்பாசன வகை',
               }),
-              prefixIcon: const Icon(
+              prefixIcon: Icon(
                 Icons.water_drop,
-                color: AppTheme.primary,
+                color: AppTheme.accents.cropRec.ink,
                 size: 20,
+              ),
+              // Same inline tick as the district field above, so both
+              // required inputs signal "done" the same way.
+              suffixIconConstraints: const BoxConstraints(
+                minWidth: 0,
+                minHeight: 0,
+              ),
+              suffixIcon: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _fieldCheck(_selectedIrrigation != null),
+                  const Padding(
+                    padding: EdgeInsets.only(right: 8),
+                    child: Icon(Icons.arrow_drop_down),
+                  ),
+                ],
               ),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
@@ -1966,10 +1707,51 @@ class _RecommendScreenState extends State<RecommendScreen> {
           ],
         ),
         const SizedBox(height: 12),
-        ..._result!.recommendations.map((r) => _recommendationCard(r)),
+        // The backend already sorts district-unsuitable crops last, so this
+        // divider only ever appears once — it is what makes the sort legible
+        // instead of looking like the ranking broke partway down.
+        ..._result!.recommendations.asMap().entries.expand((e) {
+          final rec = e.value;
+          final prev = e.key == 0
+              ? null
+              : _result!.recommendations[e.key - 1];
+          final startsUnsuitable =
+              !rec.districtSuitable && (prev?.districtSuitable ?? true);
+          return [
+            if (startsUnsuitable) _districtDivider(),
+            _recommendationCard(rec),
+          ];
+        }),
       ],
     );
   }
+
+  /// Section rule introducing the crops the district does not normally grow.
+  Widget _districtDivider() => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: Row(
+      children: [
+        const Expanded(child: Divider(color: AppTheme.border)),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: Text(
+            _t({
+              'en': 'Not typically grown in this district',
+              'si': 'මෙම දිස්ත්‍රික්කයේ සාමාන්‍යයෙන් වගා නොකෙරේ',
+              'ta': 'இந்த மாவட்டத்தில் பொதுவாகப் பயிரிடப்படுவதில்லை',
+            }),
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.textMuted,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ),
+        const Expanded(child: Divider(color: AppTheme.border)),
+      ],
+    ),
+  );
 
   Widget _recommendationCard(CropRecommendation rec) {
     final rankColors = [
@@ -1977,10 +1759,14 @@ class _RecommendScreenState extends State<RecommendScreen> {
       const Color(0xFFC0C0C0),
       const Color(0xFFCD7F32),
     ];
-    final rankColor = rec.rank <= 3 ? rankColors[rec.rank - 1] : Colors.grey;
+    // A crop the district cannot support never gets a medal colour, however
+    // high its probability: the metallic border is the page's "this is a top
+    // pick" signal, and Carrot at 15% in Monaragala is not one.
+    final rankColor = !rec.districtSuitable
+        ? AppTheme.textMuted
+        : (rec.rank <= 3 ? rankColors[rec.rank - 1] : Colors.grey);
     final suitCount = rec.suitabilityFlags.values.where((v) => v).length;
     final totalFlags = rec.suitabilityFlags.length;
-    final isGoodMatch = totalFlags == 0 || suitCount / totalFlags >= 0.7;
     final emoji = _cropEmoji[rec.crop] ?? '🌿';
 
     return Container(
@@ -2085,162 +1871,550 @@ class _RecommendScreenState extends State<RecommendScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            // ── Plain-language verdict banner instead of bare icons ──────────
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: (isGoodMatch ? AppTheme.success : AppTheme.warning)
-                    .withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: (isGoodMatch ? AppTheme.success : AppTheme.warning)
-                      .withValues(alpha: 0.3),
-                ),
-              ),
-              child: Row(
+            _suitabilityBanner(rec, suitCount, totalFlags),
+            // ── Why this crop sorted where it did ──────────────────────────
+            // Without this the ordering looks arbitrary: the backend sorts
+            // district-unsuitable crops below every suitable one regardless
+            // of probability, so Carrot can show 15% and still sit under
+            // Finger millet's 1%. Stated plainly rather than hidden — a
+            // farmer who expected Carrot should see it was considered, and
+            // why it lost, instead of finding it silently missing.
+            if (!rec.districtSuitable) ...[
+              const SizedBox(height: 8),
+              Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
-                    isGoodMatch
-                        ? Icons.check_circle_rounded
-                        : Icons.info_rounded,
-                    size: 17,
-                    color: isGoodMatch ? AppTheme.success : AppTheme.warning,
+                  const Icon(
+                    Icons.location_off_outlined,
+                    size: 15,
+                    color: AppTheme.textMuted,
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      isGoodMatch
-                          ? _t({
-                              'en':
-                                  'Good match — $suitCount of $totalFlags conditions suit this crop well.',
-                              'si':
-                                  'හොඳ ගැලපීමකි — කොන්දේසි $totalFlags න් $suitCount ක් මෙම භෝගයට හොඳින් ගැලපේ.',
-                              'ta':
-                                  'நல்ல பொருத்தம் — $totalFlags நிபந்தனைகளில் $suitCount இந்த பயிருக்கு நன்றாக பொருந்துகிறது.',
-                            })
-                          : _t({
-                              'en':
-                                  'Fair match — only $suitCount of $totalFlags conditions are ideal. Consider extra care.',
-                              'si':
-                                  'මධ්‍යස්ථ ගැලපීමකි — කොන්දේසි $totalFlags න් $suitCount ක් පමණි සුදුසුයි. අමතර සැලකිල්ල අවශ්‍යයි.',
-                              'ta':
-                                  'மிதமான பொருத்தம் — $totalFlags நிபந்தனைகளில் $suitCount மட்டுமே ஏற்றது. கூடுதல் கவனம் தேவை.',
-                            }),
-                      style: TextStyle(
-                        fontSize: 12,
-                        height: 1.4,
-                        fontWeight: FontWeight.w600,
-                        color: isGoodMatch
-                            ? AppTheme.success
-                            : AppTheme.warning,
+                      _t({
+                        'en':
+                            'Not usually grown in ${_districtLabel(_selectedDistrict ?? '')} — ranked below crops that are.',
+                        'si':
+                            '${_districtLabel(_selectedDistrict ?? '')} හි සාමාන්‍යයෙන් වගා නොකෙරේ — එහි වගා කරන භෝගවලට පහළින් ශ්‍රේණිගත කර ඇත.',
+                        'ta':
+                            '${_districtLabel(_selectedDistrict ?? '')}-இல் பொதுவாகப் பயிரிடப்படுவதில்லை — அங்கு பயிரிடப்படும் பயிர்களுக்குக் கீழே தரவரிசைப்படுத்தப்பட்டுள்ளது.',
+                      }),
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        height: 1.35,
+                        color: AppTheme.textMuted,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ),
                 ],
               ),
-            ),
-            const SizedBox(height: 12),
-            // ── Action buttons — side-by-side on wide cards, stacked on
-            //    narrow phones so longer si/ta labels never get clipped ──────
-            LayoutBuilder(
-              builder: (ctx, bc) {
-                final narrow = bc.maxWidth < 300;
-                final yieldBtn = OutlinedButton.icon(
-                  onPressed: () {
-                    widget.onCropSelectedForYield?.call(rec.crop);
-                    widget.onNavigate?.call(1); // Yield tab
-                  },
-                  icon: const Icon(Icons.bar_chart, size: 16),
-                  label: Text(
-                    _t({
-                      'en': 'Predict Yield',
-                      'si': 'අස්වැන්න පුරෝකථනය',
-                      'ta': 'விளைச்சல் கணிக்கவும்',
-                    }),
-                    style: const TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w700,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppTheme.primaryDark,
-                    side: const BorderSide(color: AppTheme.primary),
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                );
-                final askBtn = ElevatedButton.icon(
-                  onPressed: () {
-                    final dLabel = _districtLabel(_selectedDistrict!);
-                    final sLabel = _seasonLabel(_selectedSeason!);
-                    final iLabel = _irrigationLabel(_selectedIrrigation!);
-                    final ctx = _t({
-                      'en':
-                          'You recommended ${rec.crop} for my land in $_selectedDistrict '
-                          '($_selectedSeason season, $_selectedIrrigation irrigation). '
-                          'Please give me detailed advice on how to grow it successfully.',
-                      'si':
-                          'ඔබ $dLabel හි මගේ ඉඩම සඳහා ${rec.crop} නිර්දේශ කළා '
-                          '($sLabel කන්නය, $iLabel ජලනය සමඟ). '
-                          'මෙය සාර්ථකව වගා කරන ආකාරය ගැන මට විස්තරාත්මක උපදෙස් දෙන්න.',
-                      'ta':
-                          '$dLabel-இல் உள்ள என் நிலத்திற்கு நீங்கள் ${rec.crop} பரிந்துரைத்தீர்கள் '
-                          '($sLabel பருவம், $iLabel முறை). '
-                          'இதை வெற்றிகரமாக பயிரிடுவது எப்படி என்று எனக்கு விரிவாக விளக்குங்கள்.',
-                    });
-                    widget.onAiChatContext?.call(ctx);
-                    widget.onNavigate?.call(6); // AI Chat tab
-                  },
-                  icon: SvgPicture.string(
-                    _navSvg(6, Colors.white),
-                    width: 15,
-                    height: 15,
-                  ),
-                  label: Text(
-                    _t({
-                      'en': 'Ask AI',
-                      'si': 'AI අසන්න',
-                      'ta': 'AI கேளுங்கள்',
-                    }),
-                    style: const TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w700,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF00695C),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                );
-                if (narrow) {
-                  return Column(
-                    children: [
-                      SizedBox(width: double.infinity, child: yieldBtn),
-                      const SizedBox(height: 8),
-                      SizedBox(width: double.infinity, child: askBtn),
-                    ],
-                  );
-                }
-                return Row(
-                  children: [
-                    Expanded(child: yieldBtn),
-                    const SizedBox(width: 8),
-                    Expanded(child: askBtn),
-                  ],
-                );
-              },
-            ),
+            ],
           ],
         ),
+      ),
+    );
+  }
+
+  /// Inline validation tick for a required field, shown as its `suffixIcon`.
+  ///
+  /// The filled state is the yield page's `_fieldCheck` verbatim —
+  /// Icons.check_circle at 19px in AppTheme.success — so a farmer moving
+  /// between the two forms sees one signal, not two dialects of one.
+  ///
+  /// Unlike yield's, this returns a widget in BOTH states: an unfilled
+  /// outline stands in for the tick when the field is empty. The removed
+  /// checklist card used to carry that "still to do" signal; with it gone,
+  /// a field that renders nothing until it is satisfied leaves nowhere for
+  /// the eye to learn that the tick is the thing to collect.
+  ///
+  /// Status is never colour-alone here: the two states differ in glyph
+  /// (filled disc vs open ring) as well as in tone.
+  Widget _fieldCheck(bool done) => Padding(
+    padding: const EdgeInsets.only(right: 2),
+    child: Icon(
+      done ? Icons.check_circle : Icons.radio_button_unchecked,
+      size: 19,
+      color: done ? AppTheme.success : AppTheme.login.borderSubtle,
+    ),
+  );
+
+  /// Type-to-filter dropdown — price_screen's `_searchableDropdown`, ported
+  /// verbatim with only the accent tokens swapped (price.ink -> cropRec.ink).
+  ///
+  /// NOTE: this is now the FOURTH copy of this widget (yield, price, weather,
+  /// here). Ported rather than extracted because this pass is scoped to one
+  /// screen, but it is the same drift app_top_bar.dart was created to end —
+  /// worth hoisting into lib/widgets/ next time one of the four is touched.
+  ///
+  /// Price's own notes, which still apply:
+  ///
+  /// 1. [itemLabel]. Yield's version shows raw English values; this screen is
+  ///    trilingual, so options render through the same label functions the old
+  ///    `_nullDropdown` used, and the FILTER matches either the English key or
+  ///    the translated label. A Sinhala user can type "කැ" or "car" and reach
+  ///    Carrot either way — matching only the display label would strand
+  ///    farmers whose keyboard is in the other script.
+  /// 2. The accent palette. Structure and behaviour are yield's; only the
+  ///    colour tokens differ.
+  Widget _searchableDropdown({
+    required String label,
+    required String? value,
+    required List<String> items,
+    required IconData icon,
+    required ValueChanged<String?> onChanged,
+    required TextEditingController controller,
+    required FocusNode focusNode,
+    required String Function(String) itemLabel,
+    String? hint,
+    bool enabled = true,
+  }) => LayoutBuilder(
+    // Captures the field's own width so the options overlay lines up
+    // edge-to-edge below it instead of sizing itself to its content.
+    builder: (ctx, bc) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        RawAutocomplete<String>(
+          textEditingController: controller,
+          focusNode: focusNode,
+          displayStringForOption: itemLabel,
+          optionsBuilder: (TextEditingValue v) {
+            if (!enabled) return const Iterable<String>.empty();
+            final q = v.text.trim().toLowerCase();
+            // Empty, or still showing the committed selection (the farmer
+            // reopened the field to change their mind) -> offer everything.
+            if (q.isEmpty ||
+                q == itemLabel(value ?? '').toLowerCase() ||
+                q == (value ?? '').toLowerCase()) {
+              return items;
+            }
+            return items.where(
+              (e) =>
+                  e.toLowerCase().contains(q) ||
+                  itemLabel(e).toLowerCase().contains(q),
+            );
+          },
+          onSelected: (sel) {
+            onChanged(sel);
+            focusNode.unfocus();
+          },
+          fieldViewBuilder: (ctx, ctrl, fn, onFieldSubmitted) => TextFormField(
+            controller: ctrl,
+            focusNode: fn,
+            enabled: enabled,
+            onFieldSubmitted: (_) => onFieldSubmitted(),
+            style: TextStyle(fontSize: 14, color: AppTheme.login.textPrimary),
+            decoration: InputDecoration(
+              labelText: label,
+              hintText: enabled
+                  ? _t({
+                      'en': 'Type to search',
+                      'si': 'සෙවීමට ටයිප් කරන්න',
+                      'ta': 'தேட தட்டச்சு செய்க',
+                    })
+                  : null,
+              hintStyle: TextStyle(
+                color: AppTheme.login.textSecondary,
+                fontSize: 13,
+              ),
+              labelStyle: TextStyle(color: AppTheme.login.textSecondary),
+              prefixIcon: Icon(
+                icon,
+                color: enabled
+                    ? AppTheme.accents.cropRec.ink
+                    : AppTheme.login.textSecondary,
+                size: 20,
+              ),
+              // Tick + caret together. mainAxisSize.min keeps the Row from
+              // trying to fill the field, and the loosened constraints stop
+              // InputDecoration squeezing two icons into one icon's width.
+              suffixIconConstraints: const BoxConstraints(
+                minWidth: 0,
+                minHeight: 0,
+              ),
+              suffixIcon: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _fieldCheck(value != null),
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Icon(
+                      Icons.arrow_drop_down,
+                      color: enabled
+                          ? AppTheme.accents.cropRec.ink
+                          : AppTheme.login.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: AppTheme.login.borderSubtle),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: AppTheme.login.borderSubtle),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(
+                  color: AppTheme.login.focusRing,
+                  width: 2,
+                ),
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 10,
+              ),
+              filled: !enabled,
+              fillColor: enabled ? null : AppTheme.disabledSurface,
+            ),
+          ),
+          optionsViewBuilder: (ctx, onSelected, options) => Align(
+            alignment: Alignment.topLeft,
+            child: Material(
+              elevation: 4,
+              borderRadius: BorderRadius.circular(8),
+              color: AppTheme.login.background,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: 240,
+                  maxWidth: bc.maxWidth,
+                ),
+                child: SizedBox(
+                  width: bc.maxWidth,
+                  child: ListView.builder(
+                    padding: EdgeInsets.zero,
+                    shrinkWrap: true,
+                    itemCount: options.length,
+                    itemBuilder: (c, i) {
+                      final opt = options.elementAt(i);
+                      final isSelected = opt == value;
+                      return InkWell(
+                        onTap: () => onSelected(opt),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 11,
+                          ),
+                          color: isSelected
+                              ? AppTheme.accents.cropRec.fill.withValues(
+                                  alpha: 0.14,
+                                )
+                              : null,
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  itemLabel(opt),
+                                  style: TextStyle(
+                                    fontSize: 13.5,
+                                    fontWeight: isSelected
+                                        ? FontWeight.w700
+                                        : FontWeight.w500,
+                                    color: isSelected
+                                        ? AppTheme.accents.cropRec.ink
+                                        : AppTheme.login.textPrimary,
+                                  ),
+                                ),
+                              ),
+                              if (isSelected)
+                                Icon(
+                                  Icons.check,
+                                  size: 16,
+                                  color: AppTheme.accents.cropRec.ink,
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        if (hint != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 4, left: 4),
+            child: Text(
+              hint,
+              style: TextStyle(
+                fontSize: 11,
+                color: AppTheme.login.textSecondary,
+              ),
+            ),
+          ),
+      ],
+    ),
+  );
+
+  // ── Chat handoff ──────────────────────────────────────────────────────────
+  /// The whole recommendation, structured, for the chat screen to reason over.
+  ///
+  /// `crop` is the TOP-ranked crop, not a farmer selection: the backend's
+  /// saved-context confirmation gate and its RAG metadata boost both read
+  /// crop/district off prediction_context, and leaving crop null would let a
+  /// stale saved profile answer "which crop?" for a page that just ranked six.
+  ///
+  /// Every crop is sent, not just the winner — the questions offered here are
+  /// comparative ("what if I want to grow something else?"), and a model given
+  /// only the top crop would have to invent the alternatives.
+  PredictionContext _predictionContext() {
+    final recs = _result?.recommendations ?? const <CropRecommendation>[];
+    return PredictionContext(
+      crop: recs.isNotEmpty ? recs.first.crop : null,
+      district: _selectedDistrict,
+      season: _selectedSeason,
+      irrigation: _selectedIrrigation,
+      soilPh: _soilPh,
+      soilMoisturePct: _soilMoisture,
+      weather: _weather == null
+          ? null
+          : PredictionWeather(
+              rainfallMm: _weather!.rainfallMm,
+              tempMinC: _weather!.tempMinC,
+              tempMaxC: _weather!.tempMaxC,
+              humidityPct: _weather!.humidityPct,
+            ),
+      recommendations: recs.isEmpty
+          ? null
+          : recs
+                .map(PredictionCropRecommendation.fromRecommendation)
+                .toList(),
+    );
+  }
+
+  /// Publish to the chat screen and switch to the AI Chat tab — the same
+  /// single-slot, consume-once ValueNotifier price and yield use, so the
+  /// context persists for follow-up questions in that conversation.
+  void _askAi({String? question}) {
+    if (_result == null) return;
+    predictionHandoff.value = PredictionHandoff(
+      _predictionContext(),
+      question: question,
+    );
+    widget.onNavigate?.call(6); // AI Chat tab
+  }
+
+  /// Shared styling for every action in the "Ask AI about this" block.
+  ///
+  /// primaryDark, not the cropRec accent: these are primary actions, and the
+  /// accent rules keep those consistent app-wide.
+  ButtonStyle get _askAiButtonStyle => ElevatedButton.styleFrom(
+    backgroundColor: AppTheme.login.primaryDark,
+    foregroundColor: Colors.white,
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    elevation: 2,
+  );
+
+  /// The recommendation questions live HERE, on the result, not on an
+  /// otherwise blank chat screen — the farmer picks what they want to know
+  /// while still looking at the ranking.
+  ///
+  /// This replaces the per-crop "Ask AI" button that used to sit on all six
+  /// cards. Those sent a hand-built English sentence naming one crop; these
+  /// send the short visible text and carry the full ranking in
+  /// prediction_context, so chat analytics keeps logging the farmer's own
+  /// question and the assistant can still compare across crops.
+  Widget _askAiBlock() {
+    final top = _result?.recommendations.isNotEmpty == true
+        ? _result!.recommendations.first.crop
+        : null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(
+          _t({
+            'en': 'Ask AI about this',
+            'si': 'මේ ගැන AI වෙතින් අසන්න',
+            'ta': 'இதைப் பற்றி AI-இடம் கேளுங்கள்',
+          }),
+          Icons.auto_awesome,
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final q in recommendStarters(top))
+              ElevatedButton(
+                onPressed: () => _askAi(question: q),
+                style: _askAiButtonStyle,
+                child: Text(
+                  q,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        ElevatedButton.icon(
+          onPressed: _askAi,
+          icon: SvgPicture.string(
+            _navSvg(6, Colors.white),
+            width: 18,
+            height: 18,
+          ),
+          label: Text(
+            _t({
+              'en': 'Ask something else about this',
+              'si': 'මේ ගැන වෙනත් දෙයක් අසන්න',
+              'ta': 'இதைப் பற்றி வேறு ஏதாவது கேளுங்கள்',
+            }),
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+          ),
+          style: _askAiButtonStyle,
+        ),
+      ],
+    );
+  }
+
+  // ── Suitability verdict ───────────────────────────────────────────────────
+  // The four agronomic conditions (temperature, rainfall, humidity, soil pH)
+  // are checked per crop against that crop's own tolerance bands, so they
+  // genuinely differentiate: for Monaragala/Yala, Cowpea/Maize/Finger millet
+  // score 4/4 while Carrot/Green gram/Groundnut score 3/4 on temperature.
+  //
+  // The old banner could not show that. It ran a single >= 0.7 ratio against
+  // flags that used to be model telemetry rather than agronomy, and 3/4
+  // (0.75) and 4/4 both clear 0.7 — so every crop rendered the same verdict,
+  // as every crop had before for a different reason. Four explicit tiers
+  // instead of one ratio, and the count is always spelled out.
+  //
+  // 3 of 4 is deliberately NOT amber. It is a good result — the previous
+  // wording ("Fair match ... consider extra care", in warning colour) read
+  // as a caution the farmer had no reason to feel. Amber starts at 2 of 4.
+  _MatchTier _tierFor(int met, int total) {
+    if (total == 0) return _MatchTier.good; // no flags to judge on
+    if (met == total) return _MatchTier.ideal;
+    if (met == total - 1) return _MatchTier.good;
+    if (met >= total - 2) return _MatchTier.workable;
+    return _MatchTier.poor;
+  }
+
+  Color _tierColor(_MatchTier t) => switch (t) {
+    _MatchTier.ideal => AppTheme.success,
+    // cropRec's ink, not amber: a calm, on-brand tone for a good result.
+    _MatchTier.good => AppTheme.accents.cropRec.ink,
+    _MatchTier.workable => AppTheme.warning,
+    _MatchTier.poor => AppTheme.error,
+  };
+
+  IconData _tierIcon(_MatchTier t) => switch (t) {
+    _MatchTier.ideal => Icons.verified_rounded,
+    _MatchTier.good => Icons.check_circle_rounded,
+    _MatchTier.workable => Icons.info_rounded,
+    _MatchTier.poor => Icons.warning_amber_rounded,
+  };
+
+  /// Localised names of the conditions this crop FAILED, in display order.
+  /// Naming them is the actionable half: "Watch temperature" tells the farmer
+  /// it is the heat, not a vague objection they cannot act on.
+  List<String> _failedConditions(CropRecommendation rec) {
+    const order = [
+      'temp_suitable',
+      'rain_suitable',
+      'humidity_suitable',
+      'ph_suitable',
+    ];
+    const labels = <String, _L>{
+      'temp_suitable': {
+        'en': 'temperature',
+        'si': 'උෂ්ණත්වය',
+        'ta': 'வெப்பநிலை',
+      },
+      'rain_suitable': {'en': 'rainfall', 'si': 'වර්ෂාපතනය', 'ta': 'மழைவீழ்ச்சி'},
+      'humidity_suitable': {
+        'en': 'humidity',
+        'si': 'ආර්ද්‍රතාවය',
+        'ta': 'ஈரப்பதம்',
+      },
+      'ph_suitable': {'en': 'soil pH', 'si': 'පසේ pH', 'ta': 'மண் pH'},
+    };
+    return [
+      for (final k in order)
+        if (rec.suitabilityFlags[k] == false) _t(labels[k]!),
+    ];
+  }
+
+  /// "temperature" / "temperature and rainfall" / "temperature, rainfall and
+  /// humidity" — joined in the active language.
+  String _joinConditions(List<String> parts) {
+    if (parts.isEmpty) return '';
+    if (parts.length == 1) return parts.first;
+    final and = _t({'en': 'and', 'si': 'සහ', 'ta': 'மற்றும்'});
+    return '${parts.sublist(0, parts.length - 1).join(', ')} $and ${parts.last}';
+  }
+
+  Widget _suitabilityBanner(CropRecommendation rec, int met, int total) {
+    final tier = _tierFor(met, total);
+    final color = _tierColor(tier);
+    final failed = _joinConditions(_failedConditions(rec));
+
+    final headline = switch (tier) {
+      _MatchTier.ideal => _t({
+        'en': 'Ideal match — all $total conditions suit this crop.',
+        'si': 'කදිම ගැලපීමකි — කොන්දේසි $total ම මෙම භෝගයට ගැලපේ.',
+        'ta': 'சிறந்த பொருத்தம் — $total நிபந்தனைகளும் இந்தப் பயிருக்கு ஏற்றவை.',
+      }),
+      _MatchTier.good => _t({
+        'en': 'Good match — $met of $total conditions ideal.',
+        'si': 'හොඳ ගැලපීමකි — කොන්දේසි $total න් $met ක් සුදුසුයි.',
+        'ta': 'நல்ல பொருத்தம் — $total நிபந்தனைகளில் $met ஏற்றவை.',
+      }),
+      _MatchTier.workable => _t({
+        'en': 'Workable — $met of $total conditions ideal. Needs extra care.',
+        'si':
+            'වගා කළ හැකියි — කොන්දේසි $total න් $met ක් සුදුසුයි. අමතර සැලකිල්ල අවශ්‍යයි.',
+        'ta':
+            'பயிரிட முடியும் — $total நிபந்தனைகளில் $met ஏற்றவை. கூடுதல் கவனம் தேவை.',
+      }),
+      _MatchTier.poor => _t({
+        'en': 'Poor match — only $met of $total conditions ideal.',
+        'si': 'දුර්වල ගැලපීමකි — කොන්දේසි $total න් $met ක් පමණි සුදුසු.',
+        'ta': 'மோசமான பொருத்தம் — $total நிபந்தனைகளில் $met மட்டுமே ஏற்றவை.',
+      }),
+    };
+
+    // Only worth saying when SOME conditions passed — on a poor match the
+    // headline already carries it, and listing three failures reads as piling
+    // on rather than as advice.
+    final watch = (failed.isNotEmpty && tier != _MatchTier.poor)
+        ? ' ${_t({'en': 'Watch $failed.', 'si': '$failed නිරීක්ෂණය කරන්න.', 'ta': '$failed கவனிக்கவும்.'})}'
+        : '';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(_tierIcon(tier), size: 17, color: color),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '$headline$watch',
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.4,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

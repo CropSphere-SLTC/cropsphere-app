@@ -131,6 +131,7 @@ class WeatherForecastResponse(BaseModel):
     is_mock: bool = False
 
 
+
 # ── Price ──────────────────────────────────────────────────────────────────────
 
 
@@ -277,6 +278,32 @@ class PredictionWeatherWeek(BaseModel):
     condition: Literal["heavy_rain", "dry_hot", "good"]
 
 
+class PredictionCropRecommendation(BaseModel):
+    """One row of a crop-recommendation result the farmer is asking about.
+
+    Mirrors CropRecommendation on the response side, minus the display-only
+    bits. Every field is an enum or a bounded scalar for the same reason as
+    [PredictionWeatherWeek]: _format_prediction_context renders these into the
+    prompt, so nothing here may be client-authored free text.
+
+    The four agronomic booleans are spelled out rather than sent as the
+    response's `suitability_flags` dict — a dict would let a client invent
+    key names that reach the prompt, which is exactly what the flat, typed
+    fields prevent.
+    """
+
+    rank: int = Field(..., ge=1, le=6)
+    crop: CropEnum
+    confidence: float = Field(..., ge=0, le=1)
+    expected_yield_kg_per_ha: float = Field(..., ge=0, le=1000000)
+    expected_price_lkr_kg: float = Field(..., ge=0, le=100000)
+    district_suitable: bool
+    temp_suitable: bool
+    rain_suitable: bool
+    humidity_suitable: bool
+    ph_suitable: bool
+
+
 class PredictionContext(BaseModel):
     """A prediction the farmer is asking about, attached to a chat message so
     the LLM can ground its answer in these specific numbers instead of generic
@@ -327,6 +354,18 @@ class PredictionContext(BaseModel):
     weeks_ahead: Optional[int] = Field(default=None, ge=1, le=4)
     forecast_weeks: Optional[List[PredictionWeatherWeek]] = Field(
         default=None, max_length=4
+    )
+
+    # ── Crop-recommendation-side fields ──────────────────────────────────────
+    # Set by the recommend screen. `crop` above carries the TOP-ranked crop so
+    # _prediction_context_terms and the RAG metadata boost resolve a crop the
+    # same way they do for a yield or price handoff; the full ranking lives
+    # here. soil_ph/soil_moisture_pct are recommendation inputs the other two
+    # screens never collect.
+    soil_ph: Optional[float] = Field(default=None, ge=3.5, le=9.0)
+    soil_moisture_pct: Optional[float] = Field(default=None, ge=0, le=100)
+    recommendations: Optional[List[PredictionCropRecommendation]] = Field(
+        default=None, max_length=6
     )
 
 

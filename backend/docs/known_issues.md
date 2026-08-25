@@ -159,45 +159,111 @@ Gate derived by `python -m scripts.check_weather_trust`, which fails if
 
 ---
 
-## 5. Band dataset understates real hill-country humidity
+## 5. The humidity condition is miscalibrated against real weather
 
-**Where:** `models/files/CropSphere_SL_Synthetic_Weekly.csv`, humidity_pct for
-Nuwara Eliya
+**Where:** `models/files/CropSphere_SL_Synthetic_Weekly.csv`, `humidity_pct`,
+and the humidity ceilings derived from it
 
-Surfaced by fixing item 2. With the correct aggregation in place, observed
-humidity still fails every crop band at Nuwara Eliya:
+Surfaced by fixing item 2. With the correct aggregation in place, the humidity
+condition still fails far more often than the bands imply — and the cause is
+**not** what it first looked like.
 
-| Source | Nuwara Eliya humidity |
-|---|---|
-| Band dataset (bands derived from this) | 73.6–89.1, mean **81.6** |
-| M2 dataset | 78.9–94.9, mean 89.2 |
-| **Observed (Open-Meteo, past 7 days)** | **93.0** |
+### It is not an upcountry problem
 
-Band ceilings are 82% for four crops, 85% for Cowpea, 88% for Carrot. An
-observed 93.0% clears none of them, so `humidity_suitable` fails for all six
-crops at Nuwara Eliya regardless of conditions.
+An earlier version of this item said the band dataset understated hill-country
+humidity. That was wrong. Comparing the dataset's per-district means against
+two years of observed weekly climatology, aggregated exactly as the dataset
+defines each column:
 
-Nuwara Eliya sits at ~1,910 m in a cloud-forest zone; ~93% mean relative
-humidity is normal there, and carrots are grown in it commercially. The band
-dataset's 81.6 mean does not describe that district. Note the M2 dataset is
-much CLOSER to reality on humidity (89.2) even though it is the one that is
-wrong on temperature (item 4) — the two synthetic sets are each wrong about
-different variables.
+| Column | Nuwara Eliya | Badulla | Largest error | Smallest error |
+|---|---|---|---|---|
+| rainfall_mm | **+1.2** | +9.5 | Ampara +16.4 | **Nuwara Eliya** |
+| humidity_pct | +6.7 | **+3.7** | Hambantota +16.4 | **Badulla** |
+| temp_max_c | **+0.9** | +2.3 | Jaffna −4.4 | **Nuwara Eliya** |
+| temp_min_c | +1.6 | +3.7 | Badulla +3.7 | Hambantota +1.0 |
 
-Lowland districts are unaffected: Anuradhapura's observed 66.1 sits mid-band.
+(positive = dataset is BELOW observed)
 
-**Impact:** one of four conditions is permanently unavailable at Nuwara Eliya
-and probably Badulla. Carrot there reads "Workable — 2 of 4" (temperature and
-rainfall pass, humidity and soil pH fail) where it should plausibly read
-higher.
+**Nuwara Eliya is among the best-matched districts in the whole dataset** —
+best on rainfall, best on temp_max, mid-table on humidity. Badulla is the best
+match on humidity. The largest errors are all **lowland**: Hambantota and
+Anuradhapura understate humidity by 15–16 points, Ampara and Batticaloa
+understate rainfall by ~16mm, Jaffna overstates temp_max by 4.4 C.
 
-**Fix direction:** NOT by changing the aggregation. Choosing
-`relative_humidity_2m_min` would put Nuwara Eliya at 77.2% and make the flag
-pass, but that is reverse-engineering the input to reach a desired answer, and
-it would corrupt every other district. The honest options are to widen the
-humidity band for high-elevation districts using real observations, or to
-regenerate the synthetic dataset with correct hill-country humidity. Both are
-band/data work, out of scope for a client-side aggregation fix.
+The dataset understates humidity for **all eight** districts, by +3.7 to
++16.4. It is one consistent bias, not a hill-country hole.
+
+### What actually fails, and why
+
+Humidity has almost no margin anywhere. The visible upcountry failure is
+absolute humidity crossing a tight ceiling first — not a bad row.
+
+| District | Observed mean | Headroom to the 82% ceiling | Weeks over 82% |
+|---|---|---|---|
+| Jaffna | 78.8% | +3.2 | 21% |
+| Hambantota | 78.2% | +3.8 | 24% |
+| Monaragala | 78.5% | +3.5 | 40% |
+| Anuradhapura | 80.3% | +1.7 | 42% |
+| Ampara | 79.3% | +2.7 | 43% |
+| Badulla | 79.7% | +2.3 | 46% |
+| Batticaloa | 80.5% | +1.5 | **48%** |
+| **Nuwara Eliya** | **88.3%** | **−6.3** | **80%** |
+
+Four of the six crops use an 82% ceiling; Cowpea 85%, Carrot 88%.
+
+Lowland districts sit 1.5–4 points below the ceiling and already breach it in
+21–48% of real weeks. Nuwara Eliya is simply the district that crosses first
+and stays across. The bands were calibrated against data where
+`humidity_suitable` passes **99.6%** of the time; against observed weather it
+passes 70% in the lowlands and 39% upcountry.
+
+**This is a system-wide calibration problem.** Treating it as an upcountry
+issue would patch two districts and leave Batticaloa failing the same check in
+half of all real weeks.
+
+### What is working
+
+The temperature condition at Nuwara Eliya is correct, not broken. Per-crop
+pass rate across observed weeks:
+
+```
+Carrot          99%
+Cowpea           0%
+Finger millet    0%
+Green gram       0%
+Groundnut        0%
+Maize            0%
+```
+
+Carrot and only Carrot, in essentially every week. That is the system
+identifying prime carrot country.
+
+### Impact
+
+The humidity flag is unreliable everywhere, most visibly upcountry. At Nuwara
+Eliya it fails for all six crops in most weeks, so Carrot reads "Workable —
+2 of 4" (temperature and rainfall pass, humidity and soil pH fail) where it
+should plausibly read higher.
+
+### CAVEAT ON THIS EVIDENCE
+
+All observed figures above are **two years (2023–24) of Open-Meteo reanalysis
+sampled at a single point per district**, compared against a synthetic
+dataset. The offsets are large and consistent enough that point-sampling is
+unlikely to explain them, but this has **not** been validated against Sri
+Lanka Department of Meteorology station data. That is the authoritative check,
+and it should happen before anyone rebuilds band values from these numbers.
+A single grid point is not a district, and reanalysis is not a gauge.
+
+### Fix direction
+
+Not by changing the aggregation. `relative_humidity_2m_min` would put Nuwara
+Eliya at 77.2% and make the flag pass, but that is reverse-engineering the
+input to reach a desired answer and would corrupt every other district.
+
+Options are sketched but not chosen — any change here affects all eight
+districts and all six crops. See the discussion attached to this item;
+decision pending, and it needs the DoM validation above first.
 
 ---
 
@@ -210,15 +276,23 @@ band/data work, out of scope for a client-side aggregation fix.
   eaab9fa's `_observed_conditions` change something visible to do.
 - **5 was surfaced by fixing 2**, the same way 3 was surfaced by the rainfall
   reseed. Correcting an input reveals whether the reference data it is
-  compared against was ever right.
+  compared against was ever right. In both cases the newly-visible defect was
+  larger in scope than the one that exposed it.
+- **4 and 5 do NOT share a root cause**, despite both showing up upcountry.
+  4 is a localised error in one dataset (one district, one column, 14 C wrong,
+  unambiguous). 5 is a consistent bias across every district in a DIFFERENT
+  dataset. They look related only because Nuwara Eliya is where both become
+  visible first — 4 because its temperature is genuinely wrong there, 5
+  because its humidity is genuinely highest there.
 - **3 was created by fixing rainfall, not by the reseed being wrong.** It is
   the second half of a compensating pair.
 - **4 is upstream of everything** and is the only one that cannot be fixed in
   this codebase.
 
-Suggested order: ~~1 and 2~~ (done), then 5 (it is the only remaining defect
-that changes what a farmer sees, and it affects one district), then 3, then 4
-when retraining is possible.
+Suggested order: ~~1 and 2~~ (done), then 5 — but note it is no longer a
+one-district fix: it changes the humidity flag for all eight districts and all
+six crops, and it needs Department of Meteorology validation before any band
+value moves. Then 3, then 4 when retraining is possible.
 
 ## Reproducing
 

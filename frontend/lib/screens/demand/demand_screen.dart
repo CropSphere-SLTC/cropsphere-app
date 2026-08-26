@@ -26,10 +26,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../../app_lang.dart';
 import '../../models/api_models.dart';
+import '../../services/prediction_handoff.dart';
+import '../../services/price_prefill.dart';
 import '../../services/service_factory.dart';
 import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
 import '../../widgets/app_top_bar.dart';
+import '../../widgets/followup_chip.dart';
 import '../../widgets/skeleton_loading.dart';
 
 typedef _L = Map<String, String>;
@@ -103,18 +106,37 @@ const Map<String, _CropInfo> _crops = {
 // ─────────────────────────────────────────────────────────────────────────────
 //  Season data — trilingual (kept consistent with Recommend screen)
 // ─────────────────────────────────────────────────────────────────────────────
+// `months` is new here: the season cards (see _seasonCards) show the date
+// range under the name, so a farmer picking a season is not relying on
+// remembering which months Maha covers. Values are recommend_screen's
+// verbatim, so the same season reads identically on both pages.
 final List<Map<String, _L>> _seasons = [
   {
     'name': {'en': 'Maha', 'si': 'මහ', 'ta': 'மகா'},
     'emoji': {'en': '🌧️', 'si': '🌧️', 'ta': '🌧️'},
+    'months': {
+      'en': 'October – March',
+      'si': 'ඔක්තෝබර් – මාර්තු',
+      'ta': 'அக்டோபர் – மார்ச்',
+    },
   },
   {
     'name': {'en': 'Yala', 'si': 'යල', 'ta': 'யாலா'},
     'emoji': {'en': '☀️', 'si': '☀️', 'ta': '☀️'},
+    'months': {
+      'en': 'April – September',
+      'si': 'අප්‍රේල් – සැප්තැම්බර්',
+      'ta': 'ஏப்ரல் – செப்டம்பர்',
+    },
   },
   {
     'name': {'en': 'Inter', 'si': 'අන්තර්', 'ta': 'இடை'},
     'emoji': {'en': '🌤️', 'si': '🌤️', 'ta': '🌤️'},
+    'months': {
+      'en': 'Mar–Apr & Sep–Oct',
+      'si': 'මාර්-අප්‍රේල් & සැප්-ඔක්',
+      'ta': 'மார்-ஏப் & செப்-அக்',
+    },
   },
 ];
 
@@ -159,6 +181,11 @@ String _navSvg(int i, Color color) {
           '<circle cx="18" cy="5" r="4.5" fill="$c"/>'
           '<path d="M16 5L17.5 7L20 3.5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'
           '</svg>',
+    // Demand — market basket + arrow. The two stroke paths at the end are the
+    // ARROW, and this local copy was missing them: it drew the basket alone,
+    // so the header icon and the empty-state icon did not match the glyph the
+    // bottom nav shows for this same tab. Kept byte-identical to
+    // floating_bottom_nav's case 5 — that one is the canonical version.
     5 =>
       '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
           '<rect x="2" y="13" width="20" height="9" rx="2" fill="$c" opacity="0.35"/>'
@@ -166,6 +193,8 @@ String _navSvg(int i, Color color) {
           '<circle cx="7.5" cy="17" r="2" fill="$c" opacity="0.7"/>'
           '<circle cx="12" cy="16.5" r="2.3" fill="$c" opacity="0.55"/>'
           '<circle cx="16.5" cy="17.5" r="1.8" fill="$c" opacity="0.7"/>'
+          '<path d="M10 7L12 3L14 7" stroke="$c" stroke-width="1.6" stroke-linecap="round" fill="none"/>'
+          '<line x1="12" y1="3" x2="12" y2="9" stroke="$c" stroke-width="1.6" stroke-linecap="round"/>'
           '</svg>',
     _ =>
       '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
@@ -226,9 +255,19 @@ class _DemandScreenState extends State<DemandScreen> {
     text: '150',
   );
 
+  // ── Searchable dropdown text state ────────────────────────────────────────
+  // Crop is type-to-filter (RawAutocomplete), same as recommend_screen's
+  // District field. The controller holds what the farmer has TYPED, which is
+  // not the same thing as what they have COMMITTED — _selectedCrop is the
+  // selection, this is just the text in the box.
+  final TextEditingController _cropCtrl = TextEditingController();
+  final FocusNode _cropFocus = FocusNode();
+
   @override
   void dispose() {
     _priceController.dispose();
+    _cropCtrl.dispose();
+    _cropFocus.dispose();
     super.dispose();
   }
 
@@ -250,16 +289,11 @@ class _DemandScreenState extends State<DemandScreen> {
   String _cropLabel(String? key) =>
       key == null ? _notSelectedLabel : _t(_crops[key]?.name ?? {'en': key});
 
-  String _seasonLabel(String? key) {
-    if (key == null) return _notSelectedLabel;
-    final s = _seasons.firstWhere(
-      (s) => s['name']!['en'] == key,
-      orElse: () => {
-        'name': {'en': key},
-      },
-    );
-    return _t(s['name']!);
-  }
+  /// The same translated name, but for a key that is always present — what
+  /// the searchable dropdown renders and filters its options on. Separate
+  /// from [_cropLabel] because that one substitutes "not selected yet" for
+  /// null, which is a prose stand-in, not an option label.
+  String _cropName(String key) => _t(_crops[key]?.name ?? {'en': key});
 
   // ── Meaningful labels for the "I have real market data" sliders ─────────
   // These replace raw, meaningless numbers (e.g. "87", "1.15") with bands a
@@ -379,10 +413,28 @@ class _DemandScreenState extends State<DemandScreen> {
     }
   }
 
+  /// STEADY's badge colour, deepened from the shared AppTheme.warning.
+  ///
+  /// #F57F17 carries white at 2.65:1 — under even the 3:1 non-text floor. On
+  /// the OLD result card that was not a badge-sized problem, it was the whole
+  /// card: the card's gradient was this colour and the 46px index, its label,
+  /// the crop name and the trend pill were all white on it, so every steady
+  /// forecast — the most common outcome — rendered its entire result under
+  /// the floor. #BA5B08 is the minimal HLS darkening that gets white to
+  /// 4.58:1.
+  ///
+  /// Deepened LOCALLY, not in the shared token, so screens using
+  /// AppTheme.warning elsewhere are unaffected — the same thing price_screen
+  /// does with its own _confWarningDeep (#E6710A, which is a 3:1 dot value
+  /// and would not clear the text floor a badge needs).
+  static const Color _trendSteadyDeep = Color(0xFFBA5B08);
+
+  /// rising/falling keep the shared tokens: white measures 5.13:1 on
+  /// AppTheme.success and 5.62:1 on AppTheme.error, so neither needs help.
   Color _trendColor(String trend) => switch (trend) {
     'rising' => AppTheme.success,
     'falling' => AppTheme.error,
-    _ => AppTheme.warning,
+    _ => _trendSteadyDeep,
   };
 
   IconData _trendIcon(String trend) => switch (trend) {
@@ -437,15 +489,7 @@ class _DemandScreenState extends State<DemandScreen> {
           _buildTopBar(context),
           Expanded(
             child: LayoutBuilder(
-              builder: (ctx, bc) {
-                final w = bc.maxWidth;
-                final isWeb = w >= 960;
-                // Mobile/tablet: single stacked column (unchanged).
-                // Web: compact 2-column grid so every input fits without
-                // scrolling — see _formColumn.
-                final maxW = isWeb ? 1000.0 : (w >= 600 ? 700.0 : null);
-                return _buildBody(maxW, isWeb);
-              },
+              builder: (ctx, bc) => _buildDetailsTab(bc.maxWidth),
             ),
           ),
         ],
@@ -453,40 +497,88 @@ class _DemandScreenState extends State<DemandScreen> {
     );
   }
 
-  // ── Mobile/tablet: single stacked column with a sticky bottom button.
-  //    Web: compact 2-column grid (see _formColumn), button sits inline. ────
-  Widget _buildBody(double? maxW, bool isWeb) {
-    if (isWeb) {
-      return LayoutBuilder(
-        builder: (ctx, bc) {
-          final hPad = maxW == null
-              ? 14.0
-              : ((bc.maxWidth - maxW) / 2).clamp(14.0, 120.0);
-          return SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(hPad, 14, hPad, 24),
-            child: _formColumn(isWeb: true),
-          );
-        },
-      );
-    }
+  // ── Layout — resizes for mobile / tablet / web ────────────────────────────
+  // Thresholds and column formula are recommend_screen's verbatim rather than
+  // re-derived. This page used its own single >= 960 break and a 5:4 grid of
+  // INPUTS ONLY (Crop+Season+Price left, Holidays+MarketData right) with the
+  // button and result spanning full width underneath — so at the same
+  // viewport its columns sat at visibly different widths from every other
+  // feature page, and the farmer submitted the form from below both columns.
+  Widget _buildDetailsTab(double width) {
+    if (width >= 1024) return _buildWebDetails(width);
+    if (width >= 600) return _buildTabletDetails(width);
+    return _buildMobileDetails(width);
+  }
+
+  // Bottom padding 180 for the same reason as recommend_screen's and
+  // price_screen's: below 1024px MainShell overlays FloatingBottomNav AND
+  // this Stack pins its own sticky button to the same bottom:0, so the
+  // clearance has to cover both bars. The old value here was 100, which only
+  // ever accounted for this screen's own bar.
+  Widget _buildMobileDetails(double width) {
+    final hPad = width < 340 ? 12.0 : 14.0;
     return Stack(
       children: [
-        LayoutBuilder(
-          builder: (ctx, bc) {
-            final hPad = maxW == null
-                ? 14.0
-                : ((bc.maxWidth - maxW) / 2).clamp(14.0, 200.0);
-            return SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(hPad, 14, hPad, 100),
-              child: _formColumn(isWeb: false),
-            );
-          },
+        SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(hPad, 14, hPad, 180),
+          child: _formColumn(),
         ),
         _stickyPredictButton(),
       ],
     );
   }
 
+  Widget _buildTabletDetails(double width) {
+    final targetContentW = width < 760 ? width - 32 : 680.0;
+    final hPad = ((width - targetContentW) / 2).clamp(16.0, 220.0);
+    return Stack(
+      children: [
+        SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(hPad, 14, hPad, 180),
+          child: _formColumn(),
+        ),
+        _stickyPredictButton(),
+      ],
+    );
+  }
+
+  // Web (>= 1024dp): ALL inputs left, result + chat right.
+  //
+  // Holidays/Festivals and Market Data move INTO the left column here — they
+  // are inputs, and the old split put two of them beside the other three for
+  // no reason other than filling the right half. The button is pinned to the
+  // bottom of the left column, exactly as recommend/price/yield pin theirs,
+  // so the farmer fills the column in and submits it without crossing the
+  // page.
+  Widget _buildWebDetails(double width) {
+    final leftW = (width * 0.44).clamp(360.0, 560.0);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          width: leftW,
+          child: Stack(
+            children: [
+              SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 16, 12, 100),
+                child: _formColumn(webLeft: true),
+              ),
+              _stickyPredictButton(),
+            ],
+          ),
+        ),
+        Container(width: 1, color: AppTheme.login.borderSubtle),
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 20, 28),
+            child: _rightPanel(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Sticky bottom action button ──────────────────────────────────────────
   Widget _stickyPredictButton() => Positioned(
     bottom: 0,
     left: 0,
@@ -494,7 +586,9 @@ class _DemandScreenState extends State<DemandScreen> {
     child: Container(
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        // login.background, not Colors.white — the bar sits over the page
+        // ground and a pure-white slab under a #FCFBF6 page reads as a seam.
+        color: AppTheme.login.background,
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.08),
@@ -507,181 +601,141 @@ class _DemandScreenState extends State<DemandScreen> {
     ),
   );
 
-  Widget _formColumn({required bool isWeb}) {
-    final cropBlock = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionTitle(
-          _t({'en': 'Crop', 'si': 'භෝගය', 'ta': 'பயிர்'}),
-          Icons.eco,
-        ),
-        const SizedBox(height: 10),
-        _cropChips(),
-      ],
-    );
+  // ── Form column (LEFT on web, the whole page below 1024dp) ───────────────
+  // Order is fixed: header -> Crop -> Season -> Today's Market Price ->
+  // Holidays & Festivals -> Market Data, then the sticky button pinned over
+  // the bottom of this same column.
+  //
+  // Every one of these blocks keeps its existing content and behaviour. Only
+  // the crop selector (chips -> searchable dropdown) and the season selector
+  // (chips -> cards) changed shape; Price, Holidays and Market Data are the
+  // same widgets, relocated.
+  Widget _formColumn({bool webLeft = false}) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _pageHeader(),
+      const SizedBox(height: 16),
+      _sectionTitle(_t({'en': 'Crop', 'si': 'භෝගය', 'ta': 'பயிர்'}), Icons.eco),
+      const SizedBox(height: 10),
+      _cropCard(),
+      const SizedBox(height: 20),
+      _sectionTitle(
+        _t({'en': 'Season', 'si': 'කන්නය', 'ta': 'பருவம்'}),
+        Icons.calendar_month,
+      ),
+      const SizedBox(height: 10),
+      _seasonCards(),
+      const SizedBox(height: 20),
+      _sectionTitle(
+        _t({
+          'en': 'Today\'s Market Price',
+          'si': 'අද වෙළඳපොළ මිල',
+          'ta': 'இன்றைய சந்தை விலை',
+        }),
+        Icons.payments,
+      ),
+      const SizedBox(height: 10),
+      _priceCard(),
+      const SizedBox(height: 20),
+      _sectionTitle(
+        _t({
+          'en': 'Holidays & Festivals',
+          'si': 'නිවාඩු හා උත්සව',
+          'ta': 'விடுமுறைகள் & திருவிழாக்கள்',
+        }),
+        Icons.celebration,
+      ),
+      const SizedBox(height: 10),
+      _flagsCard(),
+      const SizedBox(height: 20),
+      _sectionTitle(
+        _t({'en': 'Market Data', 'si': 'වෙළඳපොළ දත්ත', 'ta': 'சந்தைத் தரவு'}),
+        Icons.insights,
+      ),
+      const SizedBox(height: 10),
+      _marketDataCard(),
+      // Single column (<1024dp): the result and the chat block follow the
+      // inputs. The button itself stays pinned in the sticky bar above this
+      // scroll view, so it is never scrolled away from.
+      if (!webLeft) ...[const SizedBox(height: 20), _rightPanel()],
+    ],
+  );
 
-    final seasonBlock = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionTitle(
-          _t({'en': 'Season', 'si': 'කන්නය', 'ta': 'பருவம்'}),
-          Icons.calendar_month,
-        ),
-        const SizedBox(height: 10),
-        _seasonChips(),
+  // ── Right panel (RIGHT on web, appended below the inputs on mobile) ───────
+  Widget _rightPanel() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      if (_isLoading) _resultSkeleton(),
+      if (_errorMessage != null) _errorCard(),
+      if (_result != null) ...[
+        _resultCard(),
+        const SizedBox(height: 16),
+        _askAiBlock(),
       ],
-    );
-
-    final priceBlock = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionTitle(
-          _t({
-            'en': 'Today\'s Market Price',
-            'si': 'අද වෙළඳපොළ මිල',
-            'ta': 'இன்றைய சந்தை விலை',
-          }),
-          Icons.payments,
-        ),
-        const SizedBox(height: 10),
-        _priceCard(),
-      ],
-    );
-
-    final flagsBlock = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionTitle(
-          _t({
-            'en': 'Holidays & Festivals',
-            'si': 'නිවාඩු හා උත්සව',
-            'ta': 'விடுமுறைகள் & திருவிழாக்கள்',
-          }),
-          Icons.celebration,
-        ),
-        const SizedBox(height: 10),
-        _flagsCard(),
-      ],
-    );
-
-    final marketDataBlock = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionTitle(
-          _t({'en': 'Market Data', 'si': 'වෙළඳපොළ දත්ත', 'ta': 'சந்தைத் தரவு'}),
-          Icons.insights,
-        ),
-        const SizedBox(height: 10),
-        _marketDataCard(),
-      ],
-    );
-
-    // ── Mobile / tablet: unchanged single-column stack ─────────────────────
-    if (!isWeb) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _pageHeader(),
-          const SizedBox(height: 16),
-          cropBlock,
-          const SizedBox(height: 20),
-          seasonBlock,
-          const SizedBox(height: 20),
-          priceBlock,
-          const SizedBox(height: 20),
-          flagsBlock,
-          const SizedBox(height: 20),
-          marketDataBlock,
-          const SizedBox(height: 20),
-          if (_isLoading) _resultSkeleton(),
-          if (_errorMessage != null) _errorCard(),
-          if (_result != null) _resultCard(),
-          if (_result == null && _errorMessage == null && !_isLoading)
-            _emptyPlaceholder(),
-        ],
-      );
-    }
-
-    // ── Web: compact 2-column grid so every input is visible without
-    //    scrolling — Crop+Season+Price on the left, Holidays/Festivals +
-    //    Market Data + the button/result on the right. No IntrinsicHeight
-    //    is used anywhere here. ─────────────────────────────────────────────
-    final resultBlock = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _predictButton(),
-        const SizedBox(height: 14),
-        if (_isLoading) _resultSkeleton(),
-        if (_errorMessage != null) _errorCard(),
-        if (_result != null) _resultCard(),
-        if (_result == null && _errorMessage == null && !_isLoading)
-          _emptyPlaceholder(),
-      ],
-    );
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _pageHeader(),
-        const SizedBox(height: 14),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              flex: 5,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  cropBlock,
-                  const SizedBox(height: 14),
-                  seasonBlock,
-                  const SizedBox(height: 14),
-                  priceBlock,
-                ],
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              flex: 4,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  flagsBlock,
-                  const SizedBox(height: 14),
-                  marketDataBlock,
-                ],
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        resultBlock,
-      ],
-    );
-  }
+      if (_result == null && _errorMessage == null && !_isLoading)
+        _emptyPlaceholder(),
+    ],
+  );
 
   // Demand is nav index 5. See app_top_bar.dart for why this is one shared
   // widget now instead of six independent copies of this same bar.
   Widget _buildTopBar(BuildContext context) => AppTopBar(
     activeIndex: 5,
-    activeBg: const Color(0xFFE8EAF6),
-    activeColor: const Color(0xFF283593),
+    activeBg: AppTheme.accents.demand.fill.withValues(alpha: 0.16),
+    activeColor: AppTheme.accents.demand.ink,
     onNavigate: widget.onNavigate,
   );
 
   // ── Page header ────────────────────────────────────────────────────────────
+  // Structurally identical to recommend_screen's header — same gradient
+  // direction (dark top-left -> light bottom-right), same computed light
+  // stop, same icon container, glass badge and title/subtitle sizing.
+  //
+  // What it REPLACES is not a themed header at all: this page predated the
+  // accent system and hardcoded #283593 -> #3F51B5 indigo, which is why it
+  // rendered blue while accents.demand held an ochre nothing referenced.
+  //
+  //   #613298 (dark anchor, == accents.demand.fill)  onFill 8.38:1
+  //   #8751C6 (light stop, +0.15 HLS lightness)      onFill 5.04:1
+  //
+  // Both clear AA for normal-size text with real margin. Unlike price and
+  // weather, nothing here is a known-accepted failure.
+
+  /// #8751C6 — the header's light gradient stop.
+  ///
+  /// Computed rather than hardcoded so the relationship to fill survives a
+  /// re-theme. This is price/weather's PLAIN +0.15 lightness widening, not
+  /// recommend_screen's +0.102/-0.039: that page's saturation term exists to
+  /// stop a mid-green going minty at the light end, and purple has no such
+  /// failure mode. Draining saturation here only narrows the step (#7A44BA),
+  /// which reads closer to flat.
+  static final Color _headerGradientLight = _lighten(
+    AppTheme.accents.demand.fill,
+    0.15,
+  );
+
+  /// Shift a colour's lightness in HLS, hue and saturation preserved. Kept as
+  /// code, not a second hardcoded hex, so re-theming fill moves the gradient
+  /// with it.
+  static Color _lighten(Color c, double lightness) {
+    final hsl = HSLColor.fromColor(c);
+    return hsl
+        .withLightness((hsl.lightness + lightness).clamp(0.0, 1.0))
+        .toColor();
+  }
+
   Widget _pageHeader() => Container(
     padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(
-      gradient: const LinearGradient(
-        colors: [Color(0xFF283593), Color(0xFF3F51B5)],
+      gradient: LinearGradient(
+        colors: [AppTheme.accents.demand.fill, _headerGradientLight],
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
       ),
       borderRadius: BorderRadius.circular(14),
       boxShadow: [
         BoxShadow(
-          color: const Color(0xFF283593).withValues(alpha: 0.3),
+          color: AppTheme.accents.demand.fill.withValues(alpha: 0.3),
           blurRadius: 10,
           offset: const Offset(0, 4),
         ),
@@ -689,14 +743,11 @@ class _DemandScreenState extends State<DemandScreen> {
     ),
     child: Row(
       children: [
-        Container(
+        _glassBadge(
+          borderRadius: 10,
           padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(10),
-          ),
           child: SvgPicture.string(
-            _navSvg(5, Colors.white),
+            _navSvg(5, AppTheme.accents.demand.onFill),
             width: 26,
             height: 26,
           ),
@@ -712,8 +763,8 @@ class _DemandScreenState extends State<DemandScreen> {
                   'si': 'ඉල්ලුම් පුරෝකථනය',
                   'ta': 'தேவை முன்னறிவிப்பு',
                 }),
-                style: const TextStyle(
-                  color: Colors.white,
+                style: TextStyle(
+                  color: AppTheme.accents.demand.onFill, // 8.38:1 / 5.04:1
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
                 ),
@@ -724,28 +775,31 @@ class _DemandScreenState extends State<DemandScreen> {
                   'si': 'විකිණීමට පෙර ඉල්ලුම ඉහළ යනවාදැයි දැනගන්න',
                   'ta': 'விற்பதற்கு முன் தேவை அதிகரிக்கிறதா என்று அறியுங்கள்',
                 }),
+                // FULL OPACITY, no alpha. The old header ran this subtitle at
+                // 0.8 on its indigo; carried onto the purple light stop that
+                // measures 3.85:1, under the 4.5:1 normal-text floor. 0.90 is
+                // 4.41 (still under), 0.95 is 4.70 with almost no headroom,
+                // full opacity is 5.04. Same conclusion recommend_screen and
+                // price_screen each reached on their own headers.
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.8),
+                  color: AppTheme.accents.demand.onFill,
                   fontSize: 12,
                 ),
               ),
             ],
           ),
         ),
-        Container(
+        _glassBadge(
+          borderRadius: 20,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(20),
-          ),
           child: Text(
             _t({
               'en': 'Week ${_weekOfYear()}',
               'si': 'සති ${_weekOfYear()}',
               'ta': 'வாரம் ${_weekOfYear()}',
             }),
-            style: const TextStyle(
-              color: Colors.white,
+            style: TextStyle(
+              color: AppTheme.accents.demand.onFill, // 11.96:1 / 8.33:1
               fontSize: 12,
               fontWeight: FontWeight.w600,
             ),
@@ -755,59 +809,106 @@ class _DemandScreenState extends State<DemandScreen> {
     ),
   );
 
-  // ── Crop quick chips ───────────────────────────────────────────────────────
-  Widget _cropChips() => Wrap(
-    spacing: 8,
-    runSpacing: 8,
-    children: _crops.keys.map((key) {
-      final info = _crops[key]!;
-      final active = _selectedCrop == key;
-      return GestureDetector(
-        onTap: () => setState(() {
-          _selectedCrop = key;
-          _applyCropDefaults(key);
-          _result = null;
-        }),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
-          decoration: BoxDecoration(
-            color: active ? AppTheme.primary : Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: active ? AppTheme.primary : const Color(0xFFD0E8C8),
-              width: active ? 2 : 1.5,
-            ),
-            boxShadow: active
-                ? [
-                    BoxShadow(
-                      color: AppTheme.primary.withValues(alpha: 0.2),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
-                    ),
-                  ]
-                : [],
-          ),
-          child: Text(
-            '${info.emoji}  ${_t(info.name)}',
-            style: TextStyle(
-              fontSize: 12.5,
-              fontWeight: FontWeight.w700,
-              color: active ? Colors.white : AppTheme.textPrimary,
-            ),
-          ),
-        ),
-      );
-    }).toList(),
+  /// Glass panel — the icon container and the "Week N" pill.
+  ///
+  /// The tint direction and BOTH alphas were re-measured against this purple
+  /// rather than inherited from recommend_screen, because a more saturated
+  /// anchor does not behave like that page's olive.
+  ///
+  /// DIRECTION — black, and the current white is the bug being fixed. On this
+  /// fill the content is off-white, so a lightening scrim erodes exactly the
+  /// contrast it needs to protect. At the light stop:
+  ///
+  ///   white@0.15  3.78:1   <- what this header ships today, under the floor
+  ///   white@0.20  3.44:1
+  ///   white@0.25  3.15:1
+  ///
+  /// All three fail, which is why the icon container currently disappears
+  /// into the fill. Black holds text easily at every alpha (black@0.30 is
+  /// 11.96:1 at the anchor, 8.33:1 at the light stop).
+  ///
+  /// ALPHA — 0.30, not recommend_screen's 0.20. Since black clears the text
+  /// floor everywhere, the alpha was chosen on SEPARATION instead — how far
+  /// the tinted panel sits from the fill behind it:
+  ///
+  ///   black@0.20  1.27 (anchor) / 1.39 (light stop)
+  ///   black@0.30  1.43        / 1.65                 <- chosen
+  ///   black@0.50  1.77        / 2.33
+  ///
+  /// NOTE what those numbers mean: no scrim of any alpha reaches the 3:1
+  /// non-text floor, because a translucent tint of the colour underneath it
+  /// cannot diverge far from that colour. recommend_screen has the identical
+  /// property — its black@0.20 measures 1.30 against its own fill. So the
+  /// scrim is not what makes these panels visible, and 0.30 is simply the
+  /// most separation available before the panel stops reading as glass.
+  ///
+  /// EDGE — white@0.45, not recommend_screen's 0.25. Since the scrim cannot
+  /// delineate the panel, the border is what actually does, and 0.25 measures
+  /// 1.61:1 (anchor) / 1.29:1 (light) against this fill — no edge at all.
+  /// 0.45 clears the 3:1 non-text floor against the panel it encloses at the
+  /// anchor (3.51:1) while still reading as a highlight. 0.70 clears 3:1
+  /// against the fill at both ends but stops looking translucent and starts
+  /// looking like a hard white outline.
+  Widget _glassBadge({
+    required double borderRadius,
+    required EdgeInsets padding,
+    required Widget child,
+  }) => Container(
+    padding: padding,
+    decoration: BoxDecoration(
+      color: Colors.black.withValues(alpha: 0.30),
+      borderRadius: BorderRadius.circular(borderRadius),
+      border: Border.all(color: Colors.white.withValues(alpha: 0.45), width: 1),
+    ),
+    child: child,
   );
 
-  // ── Season quick chips ─────────────────────────────────────────────────────
-  Widget _seasonChips() => Wrap(
+  // ── Crop ──────────────────────────────────────────────────────────────────
+  // Was a Wrap of six emoji quick-select chips. Replaced with the same
+  // type-to-filter dropdown recommend_screen uses for District, plus the
+  // inline green tick, so both pages signal "this required field is done"
+  // with one shared vocabulary instead of two.
+  //
+  // Selection behaviour is UNCHANGED from the chips: picking a crop still
+  // applies that crop's typical-price/demand-baseline defaults and clears any
+  // stale result.
+  Widget _cropCard() => _card(
+    child: _searchableDropdown(
+      label: _t({'en': 'Crop', 'si': 'භෝගය', 'ta': 'பயிர்'}),
+      value: _selectedCrop,
+      items: _crops.keys.toList(),
+      icon: Icons.eco,
+      controller: _cropCtrl,
+      focusNode: _cropFocus,
+      itemLabel: _cropName,
+      onChanged: (v) {
+        if (v == null) return;
+        setState(() {
+          _selectedCrop = v;
+          _applyCropDefaults(v);
+          _result = null;
+        });
+      },
+    ),
+  );
+
+  // ── Season cards ──────────────────────────────────────────────────────────
+  // Was a Wrap of three single-line emoji chips. Now recommend_screen's card
+  // treatment verbatim: the season name over its date range, so the farmer
+  // does not have to remember that Maha means October–March.
+  //
+  // SELECTED state uses the demand accent, not AppTheme.primary. The chips
+  // this replaced went green on selection, which read as a different feature's
+  // colour on a purple page — the header, the Forecast button and this card
+  // are now one accent. White on #613298 is 8.69:1 for the name and 6.75:1 for
+  // the months line at 0.85.
+  Widget _seasonCards() => Wrap(
     spacing: 8,
     runSpacing: 8,
     children: _seasons.map((s) {
       final key = s['name']!['en']!;
       final active = _selectedSeason == key;
+      final accent = AppTheme.accents.demand.fill;
       return GestureDetector(
         onTap: () => setState(() {
           _selectedSeason = key;
@@ -815,31 +916,46 @@ class _DemandScreenState extends State<DemandScreen> {
         }),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
-            color: active ? AppTheme.primary : Colors.white,
-            borderRadius: BorderRadius.circular(20),
+            color: active ? accent : Colors.white,
+            borderRadius: BorderRadius.circular(14),
             border: Border.all(
-              color: active ? AppTheme.primary : const Color(0xFFD0E8C8),
+              color: active ? accent : const Color(0xFFD0E8C8),
               width: active ? 2 : 1.5,
             ),
             boxShadow: active
                 ? [
                     BoxShadow(
-                      color: AppTheme.primary.withValues(alpha: 0.2),
+                      color: accent.withValues(alpha: 0.2),
                       blurRadius: 6,
                       offset: const Offset(0, 2),
                     ),
                   ]
                 : [],
           ),
-          child: Text(
-            '${_t(s['emoji']!)}  ${_t(s['name']!)}',
-            style: TextStyle(
-              fontSize: 12.5,
-              fontWeight: FontWeight.w700,
-              color: active ? Colors.white : AppTheme.textPrimary,
-            ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${_t(s['emoji']!)}  ${_t(s['name']!)}',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: active ? Colors.white : AppTheme.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                _t(s['months']!),
+                style: TextStyle(
+                  fontSize: 10.5,
+                  color: active
+                      ? Colors.white.withValues(alpha: 0.85)
+                      : AppTheme.textMuted,
+                ),
+              ),
+            ],
           ),
         ),
       );
@@ -1077,6 +1193,7 @@ class _DemandScreenState extends State<DemandScreen> {
             '',
             Colors.purple,
             (v) => setState(() => _demandLag1 = v),
+            showRawValue: true,
             levelLabel: _demandLevelLabel,
             divisions: 4,
           ),
@@ -1092,6 +1209,7 @@ class _DemandScreenState extends State<DemandScreen> {
             '',
             Colors.deepPurple,
             (v) => setState(() => _demandLag2 = v),
+            showRawValue: true,
             levelLabel: _demandLevelLabel,
             divisions: 4,
           ),
@@ -1107,10 +1225,91 @@ class _DemandScreenState extends State<DemandScreen> {
             '',
             Colors.indigo,
             (v) => setState(() => _demandLag4 = v),
+            showRawValue: true,
             levelLabel: _demandLevelLabel,
             divisions: 4,
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 10),
+          // ── What the number beside each band actually means ──────────────
+          // Added because the bands alone ("Moderate") gave a farmer nothing
+          // to reason about: they hid the index the model is given, and the
+          // page never said how the RISING/STEADY/FALLING verdict follows
+          // from it.
+          //
+          // Deliberately RELATIVE ("higher means stronger"), not absolute.
+          // The model's own scale runs 0-200 centred on 100 = normal
+          // (schemas.demand_lag1 is ge=0 le=200; recommend_service pins
+          // _BASELINE_DEMAND_INDEX = 100.0; demand_service defaults
+          // supply_index to "100.0 (neutral)"), but these sliders are
+          // calibrated 0-150 with bands centred nearer 75 — so 100 renders
+          // here as "High". Stating "100 is a normal week" would contradict
+          // the label directly above it. Until the bands are re-centred, the
+          // only honest framing is a relative one.
+          //
+          // The trend rule IS exact and is stated as such: demand_service
+          // ._infer_trend classifies on predicted - demand_lag1, rising above
+          // +5 and falling below -5.
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+            decoration: BoxDecoration(
+              color: AppTheme.accents.demand.fill.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: AppTheme.accents.demand.fill.withValues(alpha: 0.18),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _t({
+                    'en': 'How to read this scale',
+                    'si': 'මෙම පරිමාණය කියවන්නේ කෙසේද',
+                    'ta': 'இந்த அளவை எப்படி படிப்பது',
+                  }),
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.accents.demand.ink,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  _t({
+                    'en':
+                        'The number beside each band is the demand index the forecast is given. '
+                        'It is a comparison scale, not a quantity — a higher number means stronger '
+                        'demand for this crop than a lower one, and only the gap between your weeks '
+                        'matters.\n\n'
+                        'Your result is shown as RISING when the forecast lands more than 5 points '
+                        'above your "Last week" figure, FALLING when it lands more than 5 points '
+                        'below it, and STEADY anywhere in between.',
+                    'si':
+                        'සෑම කාණ්ඩයක් අසල ඇති අංකය පුරෝකථනයට ලබා දෙන ඉල්ලුම් දර්ශකයයි. '
+                        'එය ප්‍රමාණයක් නොව සංසන්දන පරිමාණයකි — වැඩි අංකයක් යනු අඩු අංකයකට වඩා '
+                        'මෙම භෝගයට ශක්තිමත් ඉල්ලුමක් ඇති බවයි. වැදගත් වන්නේ ඔබේ සති අතර වෙනස පමණි.\n\n'
+                        'පුරෝකථනය ඔබේ "පසුගිය සතිය" අගයට වඩා ලකුණු 5කට වැඩියෙන් ඉහළ නම් ප්‍රතිඵලය '
+                        'ඉහළ යමින් ලෙසත්, ලකුණු 5කට වැඩියෙන් පහළ නම් පහළ යමින් ලෙසත්, '
+                        'ඒ අතර නම් ස්ථාවර ලෙසත් පෙන්වයි.',
+                    'ta':
+                        'ஒவ்வொரு நிலைக்கும் அருகில் உள்ள எண் முன்னறிவிப்புக்கு வழங்கப்படும் தேவை '
+                        'குறியீடு ஆகும். இது ஒரு அளவு அல்ல, ஒப்பீட்டு அளவுகோல் — அதிக எண் என்றால் '
+                        'குறைந்த எண்ணை விட இந்த பயிருக்கு அதிக தேவை. உங்கள் வாரங்களுக்கு இடையிலான '
+                        'வித்தியாசம் மட்டுமே முக்கியம்.\n\n'
+                        'முன்னறிவிப்பு உங்கள் "கடந்த வாரம்" மதிப்பை விட 5 புள்ளிகளுக்கு மேல் இருந்தால் '
+                        'உயர்கிறது எனவும், 5 புள்ளிகளுக்கு மேல் குறைவாக இருந்தால் குறைகிறது எனவும், '
+                        'இடையில் இருந்தால் நிலையானது எனவும் காட்டப்படும்.',
+                  }),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: AppTheme.login.dividerText, // 8.25:1 on the card
+                    height: 1.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
           _slider(
             _t({
               'en': 'Price Trend (Inflation)',
@@ -1145,6 +1344,7 @@ class _DemandScreenState extends State<DemandScreen> {
             '',
             Colors.teal,
             (v) => setState(() => _consumerPrefIndex = v),
+            showRawValue: true,
             levelLabel: _interestLevelLabel,
             divisions: 3,
             helperText: _t({
@@ -1168,6 +1368,7 @@ class _DemandScreenState extends State<DemandScreen> {
             '',
             Colors.blueGrey,
             (v) => setState(() => _searchTrendIndex = v),
+            showRawValue: true,
             levelLabel: _interestLevelLabel,
             divisions: 3,
             helperText: _t({
@@ -1213,8 +1414,22 @@ class _DemandScreenState extends State<DemandScreen> {
               }),
         style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
       ),
+      // ── One documented exception to the app-wide primary-action rule ─────
+      // Primary actions stay on AppTheme.login.primaryDark everywhere else,
+      // including this page's own "Ask AI about this" block. This button uses
+      // the demand accent instead, tying it to the header's dark anchor — the
+      // same exception price_screen's Predict button and weather_screen's Get
+      // Forecast button carry, granted the same way: by explicit request.
+      //
+      // Note what it REPLACES: a hardcoded #283593 indigo that predated the
+      // accent system and matched no token at all. So this is an untracked
+      // deviation becoming a tracked one, not a fresh one.
+      //
+      // White on #613298 measures 8.69:1 — the most margin of the three
+      // accent-coloured action buttons in the app, and unlike price's (2.65:1)
+      // and weather's (4.30:1) nothing is being accepted here.
       style: ElevatedButton.styleFrom(
-        backgroundColor: const Color(0xFF283593),
+        backgroundColor: AppTheme.accents.demand.fill,
         foregroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         elevation: 2,
@@ -1256,80 +1471,95 @@ class _DemandScreenState extends State<DemandScreen> {
   );
 
   // ── Result card ────────────────────────────────────────────────────────
+  // Was three stacked containers running roughly a third of the page height
+  // to show three values: a padding-20 gradient block with the index and
+  // trend stacked vertically, a separate padding-14 verdict card, and a
+  // separate button row below both.
+  //
+  // Now ONE card. The height came out of the container, not the type — the
+  // 46px index, the 13px verdict and every label are the sizes they were.
+  // What changed:
+  //   • three containers -> one (two 14px gaps and two sets of padding gone)
+  //   • index and trend badge sit SIDE BY SIDE instead of stacked
+  //   • padding 20 -> 14, internal gaps 14/12 -> 10/6
+  //
+  // It also stops being a saturated gradient card. The page's other result
+  // surfaces moved to a light card with dark text for exactly this reason
+  // (see price_screen's own pass), and here it additionally fixes the
+  // white-on-#F57F17 failure documented on _trendSteadyDeep — the trend
+  // colour now appears only on the badge, which is the one place it carries
+  // meaning.
   Widget _resultCard() {
     final trend = _result!.trend;
     final color = _trendColor(trend);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [color.withValues(alpha: 0.85), color],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: [
-              BoxShadow(
-                color: color.withValues(alpha: 0.35),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${_crops[_selectedCrop]?.emoji ?? ''}  ${_cropLabel(_selectedCrop)}',
+                  style: const TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
               ),
+              if (_result!.isMock) const CsMockBadge(),
             ],
           ),
-          padding: const EdgeInsets.all(20),
-          child: Column(
+          const SizedBox(height: 10),
+          // Index and trend on one line — this is where most of the removed
+          // height came from.
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    '${_crops[_selectedCrop]?.emoji ?? ''}  ${_cropLabel(_selectedCrop)}',
+                    _result!.predictedDemandIndex.toStringAsFixed(0),
                     style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
+                      color: AppTheme.textPrimary,
+                      fontSize: 46,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: -0.5,
+                      height: 1.05,
                     ),
                   ),
-                  if (_result!.isMock) const CsMockBadge(),
+                  Text(
+                    _t({
+                      'en': 'Demand Index',
+                      'si': 'ඉල්ලුම් දර්ශකය',
+                      'ta': 'தேவை குறியீடு',
+                    }),
+                    style: TextStyle(
+                      color: AppTheme.login.dividerText,
+                      fontSize: 12.5,
+                    ),
+                  ),
                 ],
               ),
-              const SizedBox(height: 14),
-              Text(
-                _result!.predictedDemandIndex.toStringAsFixed(0),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 46,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: -0.5,
-                ),
-              ),
-              Text(
-                _t({
-                  'en': 'Demand Index',
-                  'si': 'ඉල්ලුම් දර්ශකය',
-                  'ta': 'தேவை குறியீடு',
-                }),
-                style: const TextStyle(color: Colors.white70, fontSize: 12.5),
-              ),
-              const SizedBox(height: 12),
+              const Spacer(),
+              // White on the badge fill: 5.13:1 rising, 5.62:1 falling,
+              // 4.58:1 steady (see _trendSteadyDeep).
               Container(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
+                  horizontal: 12,
+                  vertical: 7,
                 ),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.18),
+                  color: color,
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.4),
-                  ),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(_trendIcon(trend), color: Colors.white, size: 17),
+                    Icon(_trendIcon(trend), color: Colors.white, size: 16),
                     const SizedBox(width: 6),
                     Text(
                       _trendLabel(trend),
@@ -1344,56 +1574,44 @@ class _DemandScreenState extends State<DemandScreen> {
               ),
             ],
           ),
-        ),
-        const SizedBox(height: 12),
-        // ── Plain-language verdict ─────────────────────────────────────────
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: AppTheme.surfaceCard,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: const Color(0xFFE0EBE0)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          const SizedBox(height: 12),
+          Divider(height: 1, color: AppTheme.login.borderSubtle),
+          const SizedBox(height: 10),
+          Row(
             children: [
-              Row(
-                children: [
-                  Icon(Icons.lightbulb_outline, size: 15, color: color),
-                  const SizedBox(width: 6),
-                  Text(
-                    _t({
-                      'en': 'What this means',
-                      'si': 'මෙයින් කියැවෙන්නේ',
-                      'ta': 'இதன் அர்த்தம்',
-                    }),
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.textPrimary,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
+              Icon(Icons.lightbulb_outline, size: 15, color: color),
+              const SizedBox(width: 6),
               Text(
-                _verdict(trend),
+                _t({
+                  'en': 'What this means',
+                  'si': 'මෙයින් කියැවෙන්නේ',
+                  'ta': 'இதன் அர்த்தம்',
+                }),
                 style: const TextStyle(
                   fontSize: 13,
+                  fontWeight: FontWeight.w700,
                   color: AppTheme.textPrimary,
-                  height: 1.5,
                 ),
               ),
             ],
           ),
-        ),
-        const SizedBox(height: 14),
-        // ── Cross-navigation buttons ───────────────────────────────────────
-        LayoutBuilder(
-          builder: (ctx, bc) {
-            final narrow = bc.maxWidth < 300;
-            final priceBtn = OutlinedButton.icon(
-              onPressed: () => widget.onNavigate?.call(2), // Price tab
+          const SizedBox(height: 6),
+          Text(
+            _verdict(trend),
+            style: const TextStyle(
+              fontSize: 13,
+              color: AppTheme.textPrimary,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 12),
+          // The "Ask AI" half of the old button row is gone from here — the
+          // five-chip _askAiBlock below the card replaces it, so this card
+          // carries only the cross-navigation action.
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _openPriceForecast,
               icon: const Icon(Icons.payments, size: 16),
               label: Text(
                 _t({
@@ -1402,84 +1620,164 @@ class _DemandScreenState extends State<DemandScreen> {
                   'ta': 'விலை முன்னறிவிப்பைப் பார்க்கவும்',
                 }),
                 style: const TextStyle(
-                  fontSize: 11.5,
+                  fontSize: 12.5,
                   fontWeight: FontWeight.w700,
                 ),
                 overflow: TextOverflow.ellipsis,
               ),
               style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFF283593),
-                side: const BorderSide(color: Color(0xFF3F51B5)),
+                foregroundColor: AppTheme.accents.demand.ink,
+                side: BorderSide(color: AppTheme.accents.demand.fill),
                 padding: const EdgeInsets.symmetric(vertical: 10),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
               ),
-            );
-            final askBtn = ElevatedButton.icon(
-              onPressed: () {
-                final trendWord = _trendLabel(trend).toLowerCase();
-                final sLabel = _seasonLabel(_selectedSeason);
-                final ctx = _t({
-                  'en':
-                      'You forecast $trendWord demand for ${_cropLabel(_selectedCrop)} '
-                      '(index: ${_result!.predictedDemandIndex.toStringAsFixed(0)}) in $_selectedSeason season. '
-                      'What should I do to get the best price for my harvest?',
-                  'si':
-                      '$sLabel කන්නයේ ${_cropLabel(_selectedCrop)} සඳහා ඉල්ලුම $trendWord බව ඔබ පුරෝකථනය කළා '
-                      '(දර්ශකය: ${_result!.predictedDemandIndex.toStringAsFixed(0)}). '
-                      'මගේ අස්වැන්නට හොඳම මිල ලබාගැනීමට මා කුමක් කළ යුතුද?',
-                  'ta':
-                      '$sLabel பருவத்தில் ${_cropLabel(_selectedCrop)}-க்கான தேவை $trendWord என நீங்கள் கணித்தீர்கள் '
-                      '(குறியீடு: ${_result!.predictedDemandIndex.toStringAsFixed(0)}). '
-                      'எனது அறுவடைக்கு சிறந்த விலை பெற நான் என்ன செய்ய வேண்டும்?',
-                });
-                widget.onAiChatContext?.call(ctx);
-                widget.onNavigate?.call(6); // AI Chat tab
-              },
-              icon: SvgPicture.string(
-                _navSvg(6, Colors.white),
-                width: 15,
-                height: 15,
-              ),
-              label: Text(
-                _t({'en': 'Ask AI', 'si': 'AI අසන්න', 'ta': 'AI கேளுங்கள்'}),
-                style: const TextStyle(
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w700,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF283593),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            );
-            if (narrow) {
-              return Column(
-                children: [
-                  SizedBox(width: double.infinity, child: priceBtn),
-                  const SizedBox(height: 8),
-                  SizedBox(width: double.infinity, child: askBtn),
-                ],
-              );
-            }
-            return Row(
-              children: [
-                Expanded(child: priceBtn),
-                const SizedBox(width: 8),
-                Expanded(child: askBtn),
-              ],
-            );
-          },
-        ),
-      ],
+            ),
+          ),
+        ],
+      ),
     );
   }
+
+  // ── Price-forecast handoff ───────────────────────────────────────────────
+  /// Carry this forecast's crop and season over to the Price screen, so the
+  /// farmer only has to tap Predict rather than re-entering both.
+  ///
+  /// Published through [pricePrefill], the twin of the [predictionHandoff]
+  /// channel this screen's "Ask AI about this" block uses — same single-slot,
+  /// consume-once ValueNotifier shape, for the same reason (main.dart builds
+  /// the seven screens once and crossfades, so constructor arguments are not
+  /// available and a rebuild would discard live state).
+  ///
+  /// Was a bare `onNavigate(2)`: it switched tabs and carried nothing, so the
+  /// farmer arrived at an empty Price form having just told this page the two
+  /// values it needs.
+  void _openPriceForecast() {
+    pricePrefill.value = PricePrefill(
+      crop: _selectedCrop,
+      season: _selectedSeason,
+    );
+    widget.onNavigate?.call(2); // Price tab
+  }
+
+  // ── Chat handoff ─────────────────────────────────────────────────────────
+  /// The whole forecast, structured, for the chat screen to reason over.
+  ///
+  /// Note what is NOT here: a district. This screen never collects one, so
+  /// the handoff sets crop and leaves district null — the reverse of a
+  /// weather handoff. The backend's confirmation gate reads crop off
+  /// prediction_context ahead of any saved profile, so the forecast's crop
+  /// always wins and only the district is ever confirmed back to the farmer.
+  ///
+  /// [realMarketData] is sent in both states on purpose. A demand index built
+  /// from the per-crop typical defaults is a much weaker claim than one built
+  /// from the farmer's own figures, and an assistant told nothing would
+  /// present them identically.
+  PredictionContext _predictionContext() => PredictionContext(
+    crop: _selectedCrop,
+    season: _selectedSeason,
+    retailPriceLkrKg: _retailPrice,
+    holidayWeek: _holidayFlag == 1,
+    festivalWeek: _festivalFlag == 1,
+    realMarketData: _marketDataOpen,
+    predictedDemandIndex: _result?.predictedDemandIndex,
+    demandTrend: _result?.trend,
+    confidence: _result?.confidence,
+  );
+
+  /// Publish to the chat screen and switch to the AI Chat tab — the same
+  /// single-slot, consume-once ValueNotifier every other feature page uses,
+  /// so the context persists for follow-up questions in that conversation
+  /// rather than only decorating the first message.
+  ///
+  /// This REPLACES the screen's old `onAiChatContext` handoff, which built a
+  /// hand-written trilingual sentence naming the crop, index and season and
+  /// pushed it in as the farmer's visible message. That is the pattern every
+  /// other page has already migrated off: chat analytics logged the generated
+  /// paragraph instead of the farmer's own question, and nothing structured
+  /// reached the model.
+  void _askAi({String? question}) {
+    if (_result == null) return;
+    predictionHandoff.value = PredictionHandoff(
+      _predictionContext(),
+      question: question,
+    );
+    widget.onNavigate?.call(6); // AI Chat tab
+  }
+
+  /// Shared styling for every action in the "Ask AI about this" block.
+  ///
+  /// primaryDark, not the demand accent: these are primary actions, and the
+  /// accent rules keep those consistent app-wide.
+  ButtonStyle get _askAiButtonStyle => ElevatedButton.styleFrom(
+    backgroundColor: AppTheme.login.primaryDark,
+    foregroundColor: Colors.white,
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    elevation: 2,
+  );
+
+  /// The demand questions live HERE, on the result, not on an otherwise blank
+  /// chat screen — the farmer picks what they want to know while still
+  /// looking at the index, and the answer is already being written by the
+  /// time the chat tab finishes opening.
+  ///
+  /// Four starter chips plus the free-form button, the same five-action shape
+  /// recommend_screen uses. Only the short visible text is sent as the
+  /// message; the crop, season, price entered, holiday/festival flags,
+  /// whether real market data was supplied, the index and the trend all ride
+  /// invisibly in prediction_context.
+  Widget _askAiBlock() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _sectionTitle(
+        _t({
+          'en': 'Ask AI about this',
+          'si': 'මේ ගැන AI වෙතින් අසන්න',
+          'ta': 'இதைப் பற்றி AI-இடம் கேளுங்கள்',
+        }),
+        Icons.auto_awesome,
+      ),
+      const SizedBox(height: 10),
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final q in kDemandStarters)
+            ElevatedButton(
+              onPressed: () => _askAi(question: q),
+              style: _askAiButtonStyle,
+              child: Text(
+                q,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+        ],
+      ),
+      const SizedBox(height: 12),
+      ElevatedButton.icon(
+        onPressed: _askAi,
+        icon: SvgPicture.string(
+          _navSvg(6, Colors.white),
+          width: 18,
+          height: 18,
+        ),
+        label: Text(
+          _t({
+            'en': 'Ask something else about this',
+            'si': 'මේ ගැන වෙනත් දෙයක් අසන්න',
+            'ta': 'இதைப் பற்றி வேறு ஏதாவது கேளுங்கள்',
+          }),
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+        ),
+        style: _askAiButtonStyle,
+      ),
+    ],
+  );
 
   // ── Error card ─────────────────────────────────────────────────────────
   Widget _errorCard() => Container(
@@ -1541,6 +1839,231 @@ class _DemandScreenState extends State<DemandScreen> {
     ],
   );
 
+  /// Inline validation tick for a required field, shown as its `suffixIcon`.
+  ///
+  /// recommend_screen's `_fieldCheck` verbatim — Icons.check_circle at 19px in
+  /// AppTheme.success, with an open ring standing in for the unfilled state so
+  /// there is somewhere for the eye to learn that the tick is the thing to
+  /// collect. Status is never colour-alone: the two states differ in glyph as
+  /// well as in tone.
+  Widget _fieldCheck(bool done) => Padding(
+    padding: const EdgeInsets.only(right: 2),
+    child: Icon(
+      done ? Icons.check_circle : Icons.radio_button_unchecked,
+      size: 19,
+      color: done ? AppTheme.success : AppTheme.login.borderSubtle,
+    ),
+  );
+
+  /// Type-to-filter dropdown — recommend_screen's `_searchableDropdown`,
+  /// ported with only the accent tokens swapped (cropRec.ink -> demand.ink).
+  ///
+  /// NOTE: this is now the FIFTH copy of this widget (yield, price, weather,
+  /// recommend, here). recommend_screen's own comment already flagged the
+  /// fourth as the drift app_top_bar.dart was created to end, and said it was
+  /// worth hoisting into lib/widgets/ next time one of them was touched. That
+  /// is still true and is still not what this pass is scoped to — but the
+  /// count is now five, so it is worth doing before it is six.
+  ///
+  /// The behaviour that matters, unchanged from the original: the FILTER
+  /// matches either the English key or the translated label, so a Sinhala
+  /// user can type "කැ" or "car" and reach Carrot either way. Matching only
+  /// the display label would strand farmers whose keyboard is in the other
+  /// script.
+  Widget _searchableDropdown({
+    required String label,
+    required String? value,
+    required List<String> items,
+    required IconData icon,
+    required ValueChanged<String?> onChanged,
+    required TextEditingController controller,
+    required FocusNode focusNode,
+    required String Function(String) itemLabel,
+    String? hint,
+    bool enabled = true,
+  }) => LayoutBuilder(
+    // Captures the field's own width so the options overlay lines up
+    // edge-to-edge below it instead of sizing itself to its content.
+    builder: (ctx, bc) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        RawAutocomplete<String>(
+          textEditingController: controller,
+          focusNode: focusNode,
+          displayStringForOption: itemLabel,
+          optionsBuilder: (TextEditingValue v) {
+            if (!enabled) return const Iterable<String>.empty();
+            final q = v.text.trim().toLowerCase();
+            // Empty, or still showing the committed selection (the farmer
+            // reopened the field to change their mind) -> offer everything.
+            if (q.isEmpty ||
+                q == itemLabel(value ?? '').toLowerCase() ||
+                q == (value ?? '').toLowerCase()) {
+              return items;
+            }
+            return items.where(
+              (e) =>
+                  e.toLowerCase().contains(q) ||
+                  itemLabel(e).toLowerCase().contains(q),
+            );
+          },
+          onSelected: (sel) {
+            onChanged(sel);
+            focusNode.unfocus();
+          },
+          fieldViewBuilder: (ctx, ctrl, fn, onFieldSubmitted) => TextFormField(
+            controller: ctrl,
+            focusNode: fn,
+            enabled: enabled,
+            onFieldSubmitted: (_) => onFieldSubmitted(),
+            style: TextStyle(fontSize: 14, color: AppTheme.login.textPrimary),
+            decoration: InputDecoration(
+              labelText: label,
+              hintText: enabled
+                  ? _t({
+                      'en': 'Type to search',
+                      'si': 'සෙවීමට ටයිප් කරන්න',
+                      'ta': 'தேட தட்டச்சு செய்க',
+                    })
+                  : null,
+              hintStyle: TextStyle(
+                color: AppTheme.login.textSecondary,
+                fontSize: 13,
+              ),
+              labelStyle: TextStyle(color: AppTheme.login.textSecondary),
+              prefixIcon: Icon(
+                icon,
+                color: enabled
+                    ? AppTheme.accents.demand.ink
+                    : AppTheme.login.textSecondary,
+                size: 20,
+              ),
+              // Tick + caret together. mainAxisSize.min keeps the Row from
+              // trying to fill the field, and the loosened constraints stop
+              // InputDecoration squeezing two icons into one icon's width.
+              suffixIconConstraints: const BoxConstraints(
+                minWidth: 0,
+                minHeight: 0,
+              ),
+              suffixIcon: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _fieldCheck(value != null),
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Icon(
+                      Icons.arrow_drop_down,
+                      color: enabled
+                          ? AppTheme.accents.demand.ink
+                          : AppTheme.login.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: AppTheme.login.borderSubtle),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: AppTheme.login.borderSubtle),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(
+                  color: AppTheme.login.focusRing,
+                  width: 2,
+                ),
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 10,
+              ),
+              filled: !enabled,
+              fillColor: enabled ? null : AppTheme.disabledSurface,
+            ),
+          ),
+          optionsViewBuilder: (ctx, onSelected, options) => Align(
+            alignment: Alignment.topLeft,
+            child: Material(
+              elevation: 4,
+              borderRadius: BorderRadius.circular(8),
+              color: AppTheme.login.background,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: 240,
+                  maxWidth: bc.maxWidth,
+                ),
+                child: SizedBox(
+                  width: bc.maxWidth,
+                  child: ListView.builder(
+                    padding: EdgeInsets.zero,
+                    shrinkWrap: true,
+                    itemCount: options.length,
+                    itemBuilder: (c, i) {
+                      final opt = options.elementAt(i);
+                      final isSelected = opt == value;
+                      return InkWell(
+                        onTap: () => onSelected(opt),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 11,
+                          ),
+                          color: isSelected
+                              ? AppTheme.accents.demand.fill.withValues(
+                                  alpha: 0.14,
+                                )
+                              : null,
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  itemLabel(opt),
+                                  style: TextStyle(
+                                    fontSize: 13.5,
+                                    fontWeight: isSelected
+                                        ? FontWeight.w700
+                                        : FontWeight.w500,
+                                    color: isSelected
+                                        ? AppTheme.accents.demand.ink
+                                        : AppTheme.login.textPrimary,
+                                  ),
+                                ),
+                              ),
+                              if (isSelected)
+                                Icon(
+                                  Icons.check,
+                                  size: 16,
+                                  color: AppTheme.accents.demand.ink,
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        if (hint != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 4, left: 4),
+            child: Text(
+              hint,
+              style: TextStyle(
+                fontSize: 11,
+                color: AppTheme.login.textSecondary,
+              ),
+            ),
+          ),
+      ],
+    ),
+  );
+
   Widget _infoBox(
     String text, {
     required Color color,
@@ -1578,6 +2101,7 @@ class _DemandScreenState extends State<DemandScreen> {
     String Function(double)? levelLabel,
     String? helperText,
     int? divisions,
+    bool showRawValue = false,
   }) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 4),
     child: Column(
@@ -1604,6 +2128,13 @@ class _DemandScreenState extends State<DemandScreen> {
               child: Text(
                 levelLabel == null
                     ? '${value.toStringAsFixed(max <= 3 ? 2 : 0)} $unit'.trim()
+                    // The band alone ("Moderate") is not something a farmer
+                    // can act on or re-enter — it hides the one number the
+                    // model is actually given. showRawValue puts it back
+                    // beside the band without replacing it, so the plain-
+                    // language reading stays primary.
+                    : showRawValue
+                    ? '${levelLabel(value)}  ·  ${value.toStringAsFixed(0)}'
                     : levelLabel(value),
                 style: TextStyle(
                   fontSize: 11,

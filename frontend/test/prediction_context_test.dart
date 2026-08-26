@@ -66,6 +66,86 @@ void main() {
     });
   });
 
+  group('demand-forecast shape', () {
+    // The demand screen sets four fields no other screen does, and crucially
+    // sets NO district — it has no district input. See
+    // schemas.PredictionContext's demand block for why none of the four reuse
+    // a price-side field.
+    const demand = PredictionContext(
+      crop: 'Carrot',
+      season: 'Maha',
+      retailPriceLkrKg: 180.0,
+      holidayWeek: true,
+      festivalWeek: false,
+      realMarketData: false,
+      predictedDemandIndex: 82.4,
+      demandTrend: 'rising',
+      confidence: 'high',
+    );
+
+    test('uses the backend schema key names', () {
+      final json = demand.toJson();
+      expect(json['crop'], 'Carrot');
+      expect(json['season'], 'Maha');
+      expect(json['retail_price_lkr_kg'], 180.0);
+      expect(json['holiday_week'], isTrue);
+      expect(json['festival_week'], isFalse);
+      expect(json['real_market_data'], isFalse);
+      expect(json['predicted_demand_index'], 82.4);
+      expect(json['demand_trend'], 'rising');
+      expect(json['confidence'], 'high');
+    });
+
+    test('sends no district — that field is not collected on this page', () {
+      expect(demand.toJson().containsKey('district'), isFalse);
+    });
+
+    test('real_market_data is sent even when FALSE', () {
+      // The load-bearing one. "This used typical values, not the farmer's own
+      // data" is the caveat the assistant needs; toJson's `!= null` guard is
+      // what keeps a false from being dropped the way a null is.
+      expect(demand.toJson()['real_market_data'], isFalse);
+      expect(
+        const PredictionContext().toJson().containsKey('real_market_data'),
+        isFalse,
+      );
+    });
+
+    test('does not collide with the price screen\'s own fields', () {
+      // demand_level is a price INPUT (low|normal|high); the demand index is
+      // an ML output on a different scale. Pin that they stay separate keys.
+      final json = demand.toJson();
+      expect(json.containsKey('demand_level'), isFalse);
+      expect(json.containsKey('predicted_price_lkr_kg'), isFalse);
+      expect(json.containsKey('average_price_lkr_kg'), isFalse);
+    });
+
+    test('demand_trend matches the backend TrendEnum casing', () {
+      for (final t in ['rising', 'stable', 'falling']) {
+        expect(PredictionContext(demandTrend: t).toJson()['demand_trend'], t);
+      }
+    });
+
+    test('every demand starter chip keeps the message short', () {
+      expect(kDemandStarters, hasLength(4));
+      for (final q in kDemandStarters) {
+        final json = ChatRequest(
+          message: q,
+          conversationHistory: const [],
+          userId: 'u-1',
+          predictionContext: demand,
+        ).toJson();
+        expect(json['message'], q);
+        expect(json['message'], isNot(contains('82')));
+        expect(json['message'], isNot(contains('180')));
+        expect(
+          (json['prediction_context'] as Map)['predicted_demand_index'],
+          82.4,
+        );
+      }
+    });
+  });
+
   group('ChatRequest.toJson', () {
     test('omits prediction_context entirely when there is none', () {
       // Backward compatibility: a chat request with no prediction must be

@@ -93,6 +93,22 @@ List<String> recommendStarters(String? topCrop) => [
   ...kRecommendStarters.skip(1),
 ];
 
+/// The four quick questions offered on a demand forecast result.
+///
+/// English-only for the same reason as [kPredictionStarters]: they are sent
+/// verbatim as the farmer's chat message, so translating the label would mean
+/// the transcript no longer matched the chip that was tapped.
+///
+/// The fifth action on that page — "Ask something else about this" — is the
+/// free-form button, not a starter, so it is not listed here. Same shape as
+/// the recommend block.
+const List<String> kDemandStarters = [
+  'Explain this demand forecast',
+  'Should I sell now or wait?',
+  'What affects demand for this crop?',
+  'How does this compare to other crops?',
+];
+
 /// The four quick questions offered on a weather forecast result.
 ///
 /// English-only for the same reason as [kPredictionStarters].

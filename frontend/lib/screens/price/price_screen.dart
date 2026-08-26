@@ -24,6 +24,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../app_lang.dart';
 import '../../models/api_models.dart';
 import '../../services/prediction_handoff.dart';
+import '../../services/price_prefill.dart';
 import '../../services/service_factory.dart';
 import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
@@ -320,6 +321,22 @@ class _PriceScreenState extends State<PriceScreen> {
   @override
   void initState() {
     super.initState();
+    pricePrefill.addListener(_onPricePrefill);
+    // A pre-fill can already be waiting when this screen first mounts (the
+    // demand screen published one before the price tab had ever been built).
+    //
+    // Deferred to after the first frame, NOT applied inline: setState() is
+    // illegal in initState, and _applyPrefill reads _langKey, which resolves
+    // AppLangProvider through dependOnInheritedWidgetOfExactType — also
+    // illegal here, and an assertion failure rather than a silent one. Same
+    // deferral chat_screen uses for its own handoff question.
+    final pending = pricePrefill.value;
+    if (pending != null) {
+      pricePrefill.value = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _applyPrefill(pending));
+      });
+    }
     _cropFocus.addListener(
       () => _syncSearchField(
         _cropFocus,
@@ -371,8 +388,57 @@ class _PriceScreenState extends State<PriceScreen> {
     if (ctrl.text != selected) ctrl.text = selected;
   }
 
+  /// Picks up a crop/season carried over from a demand forecast's "Check
+  /// Price Forecast" button.
+  ///
+  /// Consume-once — the channel is reset to null immediately, so returning to
+  /// the price tab later doesn't silently re-apply a stale crop over something
+  /// the farmer has since changed.
+  ///
+  /// Deliberately does NOT predict. The farmer arrives with both fields
+  /// filled and taps Predict themselves, which is the whole point of the
+  /// hand-off: it removes the re-typing, not the decision.
+  void _onPricePrefill() {
+    final pending = pricePrefill.value;
+    if (pending == null) return;
+    // Cleared BEFORE any work, for the same reason chat_screen clears
+    // predictionHandoff first: assigning re-enters this listener
+    // synchronously, and the re-entrant call must find null and return.
+    pricePrefill.value = null;
+    if (!mounted) return;
+    setState(() => _applyPrefill(pending));
+  }
+
+  /// Writes the pre-filled values into this screen's own state.
+  ///
+  /// Not wrapped in setState itself — both callers supply their own, and both
+  /// call it from somewhere `context` is safe to read (see initState).
+  ///
+  /// District is deliberately left alone. Demand collects none, and this
+  /// screen's crop -> district dependency means a crop change normally CLEARS
+  /// the district; so a pre-filled crop that differs from what is already
+  /// selected has to clear it here too, or the form would carry a district
+  /// that no longer belongs to the crop shown above it.
+  void _applyPrefill(PricePrefill p) {
+    if (p.crop != null && _cropDistricts.containsKey(p.crop)) {
+      if (_selectedCrop != p.crop) {
+        _selectedDistrict = null;
+        _districtSearchCtrl.clear();
+      }
+      _selectedCrop = p.crop;
+      // The searchable field shows committed text, so it has to be told —
+      // _syncSearchField only runs on focus changes, and this is neither.
+      _cropSearchCtrl.text = _cropLabel(_langKey, p.crop);
+    }
+    if (p.season != null && _seasons.any((s) => s['name']!['en'] == p.season)) {
+      _selectedSeason = p.season;
+    }
+    _result = null;
+  }
+
   @override
   void dispose() {
+    pricePrefill.removeListener(_onPricePrefill);
     _cropSearchCtrl.dispose();
     _districtSearchCtrl.dispose();
     _cropFocus.dispose();

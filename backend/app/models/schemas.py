@@ -381,6 +381,27 @@ class PredictionContext(BaseModel):
         default=None, max_length=6
     )
 
+    # ── Demand-forecast-side fields ──────────────────────────────────────────
+    # Set by the demand screen. That screen has NO district input, so a demand
+    # handoff sets `crop` and leaves `district` None — the reverse of a weather
+    # handoff. _should_confirm_saved_context handles that correctly already:
+    # the forecast's crop wins over any saved-profile crop, and only the
+    # district is confirmed with the farmer.
+    #
+    # None of the four reuse a price-side field, deliberately. demand_level is
+    # a Literal low|normal|high that the PRICE screen sends as an INPUT; the
+    # index below is an ML output on a different scale, and collapsing one into
+    # the other would let the assistant describe a farmer's own dropdown choice
+    # as a prediction. Likewise retail_price_lkr_kg is what the farmer TYPED,
+    # not a predicted or average price, so it cannot ride on either of those.
+    predicted_demand_index: Optional[float] = Field(default=None, ge=0, le=1000)
+    demand_trend: Optional[TrendEnum] = None
+    retail_price_lkr_kg: Optional[float] = Field(default=None, ge=0, le=100000)
+    # Whether the farmer opened "I have real market data" and supplied actual
+    # recent figures, or left the per-crop typical defaults in place. The
+    # assistant needs this to know how much weight the index deserves.
+    real_market_data: Optional[bool] = None
+
 
 class ChatRequest(BaseModel):
     message: str = Field(..., max_length=500)

@@ -251,7 +251,13 @@ class AppLoginTheme {
 //                                          self-sufficient hue before this
 //                                          revision.
 //   #7CA759   2.79✗   5.34✓     2.69✗     Muted Olive
-//   #BA9454   2.82✗   5.29✓     2.72✗     Ochre
+//   #613298   8.69✓   1.72✗     8.38✓     Rebecca Purple (2026-08) — the ONLY
+//                                          hue here that clears AA in BOTH
+//                                          directions at once. Replaced #BA9454
+//                                          Ochre (2.82✗ / 5.29✓ / 2.72✗), which
+//                                          the demand screen never actually
+//                                          rendered — that page was hardcoded
+//                                          indigo. See demand's entry below.
 //
 // So [fill] keeps the identity hue, [onFill] is whichever of white/textPrimary
 // actually clears 4.5:1 on it, and [ink] is that hue darkened in HLS — hue and
@@ -287,7 +293,12 @@ class FeatureAccent {
 class AppFeatureAccents {
   const AppFeatureAccents._();
 
-  static const Color _onLight = Color(0xFF1F2A1F); // == login.textPrimary
+  // NOTE: there was a `_onLight` (#1F2A1F, == login.textPrimary) here until
+  // demand moved to Rebecca Purple. It was that accent's onFill and its last
+  // consumer — dark ink measures 1.72:1 on the new fill — so it is gone
+  // rather than left dangling. The class doc above still measures every hue
+  // against #1F2A1F as one of the two candidate text colours; that is a
+  // reference point for choosing an onFill, not a token anything now uses.
   static const Color _hunter = Color(0xFF306534); // == login.primaryDark
 
   /// Sea Green identity, but see the class comment: #3A8943 carries no small
@@ -368,11 +379,36 @@ class AppFeatureAccents {
     ink: Color(0xFF5D7D42), // 4.53:1 on #FCFBF6
   );
 
-  /// Ochre.
+  /// Rebecca Purple (2026-08 revision from the ochre #BA9454, by request).
+  ///
+  /// SELF-SUFFICIENT, and the only accent in this class that currently is:
+  /// #613298 measures 8.38:1 as text on the page background, so `ink` needs
+  /// no separate HLS darkening at all — fill doubles as its own ink, the way
+  /// weather's #2D689B did before it was muted. yield/chat also ship
+  /// ink == fill, but by falling back to primaryDark rather than by passing
+  /// on their own hue's merits.
+  ///
+  /// Nothing here is a known-accepted failure. Both gradient ends clear AA
+  /// for normal-size text with real margin:
+  ///
+  ///   #613298 (dark anchor, == fill)      onFill 8.38:1
+  ///   #8751C6 (light stop, +0.15 HLS L)   onFill 5.04:1
+  ///
+  /// onFill is the app's warm off-white (== login.background), matching
+  /// cropRec's reasoning rather than price/weather's pure white — it costs
+  /// almost nothing against it (8.38 vs 8.69 for #FFFFFF) and matches the
+  /// page ground the rest of the UI is built on. The old _onLight (#1F2A1F)
+  /// is NOT an option on this hue: it measures 1.72:1, far under any floor.
+  ///
+  /// WHY THIS ACCENT MOVED AT ALL. The ochre it replaces was never rendered.
+  /// demand_screen predated the accent system and hardcoded #283593/#3F51B5
+  /// indigo in six places, so accents.demand had exactly one reference in
+  /// the whole repo — accent_contrast_test.dart. This revision is the first
+  /// time the token reaches the screen.
   FeatureAccent get demand => const FeatureAccent(
-    fill: Color(0xFFBA9454),
-    onFill: _onLight, // 5.29:1
-    ink: Color(0xFF8F6F3A), // 4.50:1 on #FCFBF6
+    fill: Color(0xFF613298),
+    onFill: Color(0xFFFCFBF6), // 8.38:1 on fill, 5.04:1 on the light stop
+    ink: Color(0xFF613298), // == fill; 8.38:1 on #FCFBF6, no darkening needed
   );
 
   /// Core brand green — same Sea Green caveat as [yield].

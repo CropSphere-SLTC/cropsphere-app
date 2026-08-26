@@ -718,6 +718,25 @@ class PredictionContext {
   final double? soilMoisturePct;
   final List<PredictionCropRecommendation>? recommendations;
 
+  // ── Demand-forecast-side fields ───────────────────────────────────────────
+  // Set by the demand screen. That screen collects NO district, so a demand
+  // handoff sets `crop` and leaves `district` null — the reverse of a weather
+  // handoff, and handled the same way by the backend's confirmation gate.
+  //
+  // None of these reuse a price-side field: [demandLevel] is a low|normal|high
+  // INPUT the price screen sends, whereas [predictedDemandIndex] is an ML
+  // output on a different scale, and [retailPriceLkrKg] is what the farmer
+  // typed rather than a predicted or average price.
+  final double? predictedDemandIndex;
+  final String? demandTrend; // rising | stable | falling
+  final double? retailPriceLkrKg;
+
+  /// Whether the farmer opened "I have real market data" and supplied actual
+  /// figures, or left the per-crop typical defaults in place. Sent in BOTH
+  /// states — "these were typical values" is the caveat that stops the
+  /// assistant treating a defaulted forecast as a grounded one.
+  final bool? realMarketData;
+
   const PredictionContext({
     this.crop,
     this.district,
@@ -743,6 +762,10 @@ class PredictionContext {
     this.soilPh,
     this.soilMoisturePct,
     this.recommendations,
+    this.predictedDemandIndex,
+    this.demandTrend,
+    this.retailPriceLkrKg,
+    this.realMarketData,
   });
 
   /// One-line "Carrot · Badulla · 19612 kg/ha" summary for the chat screen's
@@ -756,6 +779,8 @@ class PredictionContext {
     if (predictedPriceLkrKg != null)
       'Rs. ${predictedPriceLkrKg!.toStringAsFixed(0)}/kg',
     if (weeksAhead != null) '$weeksAhead-week forecast',
+    if (predictedDemandIndex != null)
+      'demand ${predictedDemandIndex!.toStringAsFixed(0)}',
   ].join(' · ');
 
   Map<String, dynamic> toJson() => {
@@ -789,6 +814,11 @@ class PredictionContext {
     if (soilMoisturePct != null) 'soil_moisture_pct': soilMoisturePct,
     if (recommendations != null)
       'recommendations': recommendations!.map((r) => r.toJson()).toList(),
+    if (predictedDemandIndex != null)
+      'predicted_demand_index': predictedDemandIndex,
+    if (demandTrend != null) 'demand_trend': demandTrend,
+    if (retailPriceLkrKg != null) 'retail_price_lkr_kg': retailPriceLkrKg,
+    if (realMarketData != null) 'real_market_data': realMarketData,
   };
 }
 

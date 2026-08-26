@@ -18,6 +18,7 @@ from app.models.schemas import (
     ConversationTurn,
     CropEnum,
     DistrictEnum,
+    PredictionContext,
 )
 from app.user.services import chatbot_service as cs
 
@@ -466,6 +467,126 @@ def test_build_messages_no_context_chunks():
 # ═══════════════════════════════════════════════════════════════════════════
 
 _EMPTY_CONTEXT = {"chunks": [], "sources": [], "score": 0.0}
+
+# The demand screen's shape. Note what is ABSENT: a district. That page has no
+# district input, so a demand hand-off is the mirror image of a weather one
+# (district set, crop null).
+_DEMAND_PREDICTION = {
+    "crop": "Carrot",
+    "season": "Maha",
+    "retail_price_lkr_kg": 180.0,
+    "holiday_week": True,
+    "festival_week": False,
+    "real_market_data": False,
+    "predicted_demand_index": 82.4,
+    "demand_trend": "rising",
+    "confidence": "high",
+}
+
+
+def test_demand_context_renders_index_trend_and_price():
+    out = cs._format_prediction_context(PredictionContext(**_DEMAND_PREDICTION))
+    assert "- Predicted demand index: 82 (rising)" in out
+    assert "Today's market price the farmer entered: Rs. 180/kg" in out
+    assert "- Crop: Carrot" in out
+    assert "- Season: Maha" in out
+    assert "- This is a holiday week" in out
+
+
+def test_demand_context_states_typical_values_when_not_real():
+    """The load-bearing caveat: an index built from per-crop defaults is a much
+    weaker claim than one built from the farmer's own figures, and an assistant
+    told nothing would present them identically."""
+    out = cs._format_prediction_context(PredictionContext(**_DEMAND_PREDICTION))
+    assert "NOT the farmer's own recent market data" in out
+
+    real = cs._format_prediction_context(
+        PredictionContext(**{**_DEMAND_PREDICTION, "real_market_data": True})
+    )
+    assert "supplied real recent market data" in real
+    assert "NOT the farmer's own" not in real
+
+
+def test_demand_context_omits_the_flag_when_unset():
+    out = cs._format_prediction_context(
+        PredictionContext(crop="Carrot", predicted_demand_index=50.0)
+    )
+    assert "market data" not in out
+
+
+def test_demand_context_does_not_emit_price_side_lines():
+    """demand_level/predicted_price are the PRICE screen's fields. A demand
+    hand-off must not render them — collapsing the index into demand_level
+    would let the assistant describe a farmer's dropdown choice as an ML
+    output."""
+    out = cs._format_prediction_context(PredictionContext(**_DEMAND_PREDICTION))
+    assert "Buyer demand:" not in out
+    assert "Predicted farmgate price:" not in out
+    assert "Average farmgate price" not in out
+
+
+def test_demand_context_never_confirms_a_district():
+    """A demand forecast is not district-scoped: demand_service._build_features
+    feeds the model a constant district_enc = 0 and DemandPredictRequest has no
+    district field at all. So the saved-profile district must never be
+    confirmed against one.
+
+    This was a real bug: two of the demand screen's four starter chips — the
+    two carrying agricultural intent — got "Do you mean Carrot in Jaffna?"
+    instead of an answer, while the other two went straight through, so the
+    same block of chips behaved two different ways.
+    """
+    req = _make_request(prediction_context=_DEMAND_PREDICTION)
+    for chip in (
+        "Explain this demand forecast",
+        "Should I sell now or wait?",
+        "What affects demand for this crop?",
+        "How does this compare to other crops?",
+    ):
+        assert (
+            cs._should_confirm_saved_context(req, chip, "Maize", "Jaffna") is False
+        ), f"{chip!r} was intercepted by the confirmation gate"
+
+
+def test_demand_suppression_is_scoped_to_demand_contexts():
+    """Only the demand shape is exempt. A weather hand-off (district set, crop
+    absent — the mirror image) must still confirm the crop it is missing, and a
+    bare request with no prediction at all must still confirm both."""
+    msg = "What affects demand for this crop?"
+
+    weather = _make_request(
+        prediction_context={"district": "Badulla", "weeks_ahead": 2}
+    )
+    assert cs._should_confirm_saved_context(weather, msg, "Maize", "Jaffna") is True
+
+    bare = _make_request()
+    assert cs._should_confirm_saved_context(bare, msg, "Maize", "Jaffna") is True
+
+
+def test_demand_context_still_wins_the_crop_over_a_stale_saved_one():
+    """Suppressing the district must not weaken crop resolution: the forecast's
+    crop still outranks the saved profile's wherever the crop is resolved."""
+    req = _make_request(prediction_context=_DEMAND_PREDICTION)
+    assert cs._prediction_context_terms(req) == ("Carrot", None)
+
+    reply, _chips = cs._build_context_confirmation(
+        req, "What affects demand for this crop?", "Maize", "Jaffna"
+    )
+    assert "Carrot" in reply
+    assert "Maize" not in reply
+
+
+def test_is_demand_context_only_matches_the_demand_shape():
+    assert cs._is_demand_context(_make_request(prediction_context=_DEMAND_PREDICTION))
+    assert not cs._is_demand_context(_make_request(prediction_context=_FULL_PREDICTION))
+    assert not cs._is_demand_context(_make_request())
+
+
+def test_demand_context_leaves_district_unset():
+    pc = PredictionContext(**_DEMAND_PREDICTION)
+    assert pc.district is None
+    assert "- District:" not in cs._format_prediction_context(pc)
+
 
 _FULL_PREDICTION = {
     "crop": "Carrot",

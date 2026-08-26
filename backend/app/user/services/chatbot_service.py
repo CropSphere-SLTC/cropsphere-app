@@ -2492,6 +2492,23 @@ def _prediction_context_terms(req) -> tuple:
     )
 
 
+def _is_demand_context(req) -> bool:
+    """True when prediction_context carries a demand forecast.
+
+    Demand is the ONE prediction that is not district-scoped. demand_service
+    ._build_features feeds the model a constant `district_enc = 0` and its
+    own docstring says so ("not in request schema") — there is no district on
+    DemandPredictRequest at all, and the demand screen collects none.
+
+    That matters to the confirmation gate below: asking "do you mean Carrot in
+    Jaffna?" about a demand forecast tells the farmer the answer depends on a
+    dimension the model never saw, and makes them resolve a question that
+    cannot change the reply.
+    """
+    pc = getattr(req, "prediction_context", None)
+    return pc is not None and pc.predicted_demand_index is not None
+
+
 def _should_confirm_saved_context(req, message, saved_crop, saved_district) -> bool:
     """True when a fresh, dropdown-free query omits a crop OR district that the
     saved profile can supply — so we confirm ("Do you mean … in Jaffna?")
@@ -2510,7 +2527,19 @@ def _should_confirm_saved_context(req, message, saved_crop, saved_district) -> b
     """
     pc_crop, pc_district = _prediction_context_terms(req)
     eff_saved_crop = None if (req.crop or pc_crop) else saved_crop
-    eff_saved_district = None if (req.district or pc_district) else saved_district
+    # _is_demand_context suppresses the saved DISTRICT the same way pc_district
+    # would: a demand forecast has no district by construction, so there is
+    # nothing to confirm against. Without this, two of the demand screen's four
+    # starter chips ("What affects demand for this crop?", "How does this
+    # compare to other crops?" — the two that carry agricultural intent) were
+    # answered with a district confirmation instead of an answer, while the
+    # other two went straight through. An explicit req.district dropdown still
+    # wins, as it does everywhere else; this only drops the account-level guess.
+    eff_saved_district = (
+        None
+        if (req.district or pc_district or _is_demand_context(req))
+        else saved_district
+    )
     if not (eff_saved_crop or eff_saved_district):
         return False
     msg_crop, msg_district = _extract_context_terms(message)
@@ -2900,6 +2929,34 @@ def _format_prediction_context(pc) -> str:
     if pc.festival_week:
         facts.append("- This is a festival week")
 
+    # ── Demand-forecast facts ────────────────────────────────────────────────
+    # Rendered before the soil/confidence block so the index sits next to the
+    # crop and season it belongs to. demand_trend is a bounded TrendEnum, not
+    # client prose — same guarantee as every other field here.
+    if pc.predicted_demand_index is not None:
+        line = f"- Predicted demand index: {pc.predicted_demand_index:,.0f}"
+        if pc.demand_trend:
+            line += f" ({pc.demand_trend.value})"
+        facts.append(line)
+    elif pc.demand_trend:
+        facts.append(f"- Demand trend: {pc.demand_trend.value}")
+    if pc.retail_price_lkr_kg is not None:
+        facts.append(
+            "- Today's market price the farmer entered: "
+            f"Rs. {pc.retail_price_lkr_kg:,.0f}/kg"
+        )
+    # Stated in BOTH directions rather than only when true. "Typical values"
+    # is the load-bearing caveat on a demand index — an assistant that is told
+    # nothing would treat a defaulted forecast as though it were grounded in
+    # the farmer's own market observations.
+    if pc.real_market_data is True:
+        facts.append("- The farmer supplied real recent market data for this forecast")
+    elif pc.real_market_data is False:
+        facts.append(
+            "- This forecast used typical market values for the crop, NOT the "
+            "farmer's own recent market data"
+        )
+
     if pc.soil_ph is not None:
         facts.append(f"- Soil pH: {pc.soil_ph:.1f}")
     if pc.soil_moisture_pct is not None:
@@ -3096,9 +3153,7 @@ def _build_messages(system: str, context: dict, req: ChatRequest, message: str) 
     # list and the instruction to cover it together. Absent for every other
     # kind of context. See _RECOMMENDATION_ANSWER_RULES.
     if _pc is not None and getattr(_pc, "recommendations", None):
-        msgs.append(
-            {"role": "system", "content": _RECOMMENDATION_ANSWER_RULES}
-        )
+        msgs.append({"role": "system", "content": _RECOMMENDATION_ANSWER_RULES})
     # Style/formatting rules — separate system message so they stay close to
     # the conversation and don't compete with the safety-critical rules in
     # the core prompt (see _FORMATTING_RULES).

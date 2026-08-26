@@ -829,7 +829,10 @@ class _RecommendScreenState extends State<RecommendScreen> {
               'ta': 'வாரம் ${farmWeekOfYear()}',
             }),
             style: TextStyle(
-              color: AppTheme.accents.cropRec.onFill, // 9.64:1 / 6.89:1 on the badge
+              color: AppTheme
+                  .accents
+                  .cropRec
+                  .onFill, // 9.64:1 / 6.89:1 on the badge
               fontSize: 12,
               fontWeight: FontWeight.w600,
             ),

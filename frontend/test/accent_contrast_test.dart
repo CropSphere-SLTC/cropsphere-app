@@ -161,7 +161,10 @@ void main() {
       // Pins the reason rather than the value: at 0.90 (the alpha that was
       // correct for dark ink on the old light fill) off-white measures
       // 4.39:1 on the light stop, under the floor.
-      final faded = Color.alphaBlend(offWhite.withValues(alpha: 0.90), lightStop);
+      final faded = Color.alphaBlend(
+        offWhite.withValues(alpha: 0.90),
+        lightStop,
+      );
       expect(contrast(faded, lightStop), lessThan(kAA));
       expect(contrast(faded, lightStop), closeTo(4.39, 0.03));
     });
@@ -190,7 +193,10 @@ void main() {
       // ink was verified as text against #FCFBF6, never against fill, so
       // darkening the fill does not affect it.
       expect(AppTheme.accents.cropRec.ink, const Color(0xFF5D7D42));
-      expect(contrast(AppTheme.accents.cropRec.ink, _bg), greaterThanOrEqualTo(kAA));
+      expect(
+        contrast(AppTheme.accents.cropRec.ink, _bg),
+        greaterThanOrEqualTo(kAA),
+      );
     });
 
     test('the light stop is derivable from fill, not a free-floating hex', () {
@@ -412,10 +418,11 @@ void main() {
 
   test('primary actions stay on primaryDark, not on any accent', () {
     // Step 3's rule. primaryDark is the one action colour app-wide, and it
-    // clears AA against white comfortably. price_screen's "Predict Price"
-    // and weather_screen's "Get Forecast" buttons are now TWO explicit,
-    // requested exceptions to this — see the 'Predict Price button' /
-    // 'Get Forecast button' tests below — every other primary action,
+    // clears AA against white comfortably. price_screen's "Predict Price",
+    // weather_screen's "Get Forecast" and demand_screen's "Forecast Demand"
+    // buttons are now THREE explicit, requested exceptions to this — see the
+    // 'Predict Price button' / 'Get Forecast button' / 'Forecast Demand
+    // button' tests below — every other primary action,
     // including each screen's own "Ask AI about this", still follows this
     // rule.
     expect(
@@ -436,6 +443,31 @@ void main() {
       );
     },
   );
+
+  test('Forecast Demand button: uses the demand accent, and PASSES', () {
+    // The THIRD explicit, requested exception to the primary-action rule —
+    // see demand_screen's _predictButton. Unlike price's (2.65:1) and
+    // weather's (4.30:1), this one is not a trade-off: white on #613298
+    // measures 8.69:1, more margin than any other accent-coloured action
+    // button in the app. It replaced a hardcoded #283593 that matched no
+    // token at all.
+    final c = contrast(Colors.white, AppTheme.accents.demand.fill);
+    expect(c, greaterThanOrEqualTo(kAA));
+    expect(c, closeTo(8.69, 0.02));
+    expect(c, greaterThan(contrast(Colors.white, AppTheme.accents.price.fill)));
+  });
+
+  test('selected season card carries the demand accent, both text tiers', () {
+    // The season cards go accent-coloured on selection rather than
+    // AppTheme.primary, which read as another feature's green on a purple
+    // page. The months line runs at white@0.85, so it is checked separately
+    // from the name.
+    final fill = AppTheme.accents.demand.fill;
+    expect(contrast(Colors.white, fill), greaterThanOrEqualTo(kAA));
+    final months = Color.alphaBlend(Colors.white.withValues(alpha: 0.85), fill);
+    expect(contrast(months, fill), greaterThanOrEqualTo(kAA));
+    expect(contrast(months, fill), closeTo(6.75, 0.03));
+  });
 
   test(
     'Get Forecast button: uses the weather accent, KNOWN FAILING contrast',
@@ -594,6 +626,184 @@ void main() {
       expect(
         contrast(AppTheme.login.dividerText, pinkTint),
         greaterThanOrEqualTo(kAANonText),
+      );
+    });
+  });
+
+  group('demand header gradient — Rebecca Purple, AA-clean at both ends', () {
+    // 2026-08. This accent replaced an ochre (#BA9454) that the demand screen
+    // never rendered: that page predated the accent system and hardcoded
+    // #283593/#3F51B5 indigo, so accents.demand had exactly one reference in
+    // the repo — this file. The header reads blue today for that reason, not
+    // because the token was wrong.
+    //
+    // Unlike price and weather, nothing here is an accepted failure, and
+    // unlike cropRec this hue needs no separate ink: #613298 clears AA in
+    // BOTH directions at once (8.69:1 against white, 8.38:1 as text on the
+    // page background), which no other identity hue in this palette does.
+    const anchor = Color(0xFF613298);
+    const lightStop = Color(0xFF8751C6);
+    const offWhite = Color(0xFFFCFBF6);
+
+    test('fill is #613298 and onFill is the warm off-white', () {
+      expect(AppTheme.accents.demand.fill, anchor);
+      expect(AppTheme.accents.demand.onFill, offWhite);
+    });
+
+    test('onFill clears AA on the dark anchor', () {
+      expect(contrast(offWhite, anchor), greaterThanOrEqualTo(kAA));
+      expect(contrast(offWhite, anchor), closeTo(8.38, 0.02));
+    });
+
+    test('onFill clears AA on the light gradient stop', () {
+      // The binding end. The subtitle is 12px, so this is the normal-text
+      // floor, not the 3:1 large-text one.
+      expect(contrast(offWhite, lightStop), greaterThanOrEqualTo(kAA));
+      expect(contrast(offWhite, lightStop), closeTo(5.04, 0.02));
+    });
+
+    test('ink == fill — this hue needs no separate darkening', () {
+      // Every other non-primaryDark accent (price, weather, cropRec) carries
+      // an independently HLS-darkened ink because its identity hue could not
+      // clear 4.5:1 as text on #FCFBF6. This one clears it at 8.38:1 as-is,
+      // so deriving a darker value would be inventing a colour to solve a
+      // problem that does not exist here.
+      expect(AppTheme.accents.demand.ink, AppTheme.accents.demand.fill);
+      expect(contrast(AppTheme.accents.demand.ink, _bg), closeTo(8.38, 0.02));
+      expect(
+        contrast(AppTheme.accents.demand.ink, _bg),
+        greaterThanOrEqualTo(kAA),
+      );
+    });
+
+    test('the retired ochre could not have carried this text', () {
+      // #BA9454 with the off-white onFill this accent now uses measures
+      // 2.29:1 — pinned so the swap is not quietly reverted on the grounds
+      // that "the old one looked fine".
+      const ochre = Color(0xFFBA9454);
+      expect(contrast(offWhite, ochre), lessThan(kAANonText));
+    });
+
+    test(
+      'the light stop is a plain +0.15 lightness step, no saturation term',
+      () {
+        // price/weather's plain widening, NOT cropRec's +0.102/-0.039. The
+        // saturation drain exists on cropRec to stop a mid-green going minty
+        // at the light end; purple has no such failure mode, and draining it
+        // here only costs contrast (#7A44BA, the cropRec-style value, is a
+        // narrower step that reads closer to flat).
+        final hsl = HSLColor.fromColor(anchor);
+        final derived = hsl
+            .withLightness((hsl.lightness + 0.15).clamp(0.0, 1.0))
+            .toColor();
+        expect(derived.toARGB32(), lightStop.toARGB32());
+      },
+    );
+
+    test('the light stop stays distinguishable from the page background', () {
+      // price rejected its own +0.20 step for falling under 3:1 here. This
+      // one measures 5.04:1, so there is no equivalent ceiling to negotiate.
+      expect(contrast(lightStop, _bg), greaterThanOrEqualTo(kAANonText));
+    });
+
+    group('glass badge: tint direction MEASURED on purple, not inherited', () {
+      // Step 3 was explicitly told not to inherit cropRec's black@0.20
+      // conclusion because purple is more saturated. It was re-measured, and
+      // the DIRECTION holds while the ALPHA does not.
+      //
+      // White washes out — this is the bug being fixed. At the light stop:
+      //   white@0.15  3.78:1   white@0.20  3.44:1   white@0.25  3.15:1
+      // all under the 4.5:1 text floor, which is why the current header's
+      // white@0.15 icon container is nearly invisible on a saturated fill.
+      //
+      // Black holds text easily at every alpha, so the alpha was chosen on
+      // SEPARATION instead — how far the tinted panel sits from the fill
+      // behind it:
+      //   black@0.20  1.27 (anchor) / 1.39 (light)
+      //   black@0.30  1.43        / 1.65          <- chosen
+      //   black@0.50  1.77        / 2.33
+      // No scrim of any alpha reaches 3:1, because a translucent tint of the
+      // colour underneath it cannot diverge far from that colour. cropRec has
+      // the identical property (its black@0.20 measures 1.30 against its own
+      // fill) — so the scrim was never what made these panels visible, and
+      // 0.30 is simply the most separation available before the panel stops
+      // reading as translucent.
+
+      test(
+        'white fails the text floor at the light stop — the washed-out bug',
+        () {
+          for (final a in [0.15, 0.20, 0.25]) {
+            final tinted = Color.alphaBlend(
+              Colors.white.withValues(alpha: a),
+              lightStop,
+            );
+            expect(
+              contrast(offWhite, tinted),
+              lessThan(kAA),
+              reason: 'white@$a is why the icon container disappears.',
+            );
+          }
+        },
+      );
+
+      test('black@0.30 clears AA at both gradient ends with margin', () {
+        final darkEnd = Color.alphaBlend(
+          Colors.black.withValues(alpha: 0.30),
+          anchor,
+        );
+        final lightEnd = Color.alphaBlend(
+          Colors.black.withValues(alpha: 0.30),
+          lightStop,
+        );
+        expect(contrast(offWhite, darkEnd), greaterThanOrEqualTo(kAA));
+        expect(contrast(offWhite, darkEnd), closeTo(11.96, 0.05));
+        expect(contrast(offWhite, lightEnd), greaterThanOrEqualTo(kAA));
+        expect(contrast(offWhite, lightEnd), closeTo(8.33, 0.05));
+      });
+
+      test(
+        '0.30 separates further from the fill than cropRec\'s 0.20 would',
+        () {
+          final at20 = Color.alphaBlend(
+            Colors.black.withValues(alpha: 0.20),
+            lightStop,
+          );
+          final at30 = Color.alphaBlend(
+            Colors.black.withValues(alpha: 0.30),
+            lightStop,
+          );
+          expect(
+            contrast(at30, lightStop),
+            greaterThan(contrast(at20, lightStop)),
+          );
+          expect(contrast(at30, lightStop), closeTo(1.65, 0.02));
+        },
+      );
+
+      test(
+        'the white EDGE is what delineates the panel, so it was raised too',
+        () {
+          // cropRec's border is white@0.25. On purple that measures 1.61:1
+          // (anchor) / 1.29:1 (light) against the fill — no edge at all. 0.45
+          // is where the highlight clears 3:1 against the panel it encloses at
+          // the anchor while still reading as glass; 0.70 clears 3:1 against
+          // the fill at BOTH ends but stops looking translucent and starts
+          // looking like a hard white outline.
+          final panel = Color.alphaBlend(
+            Colors.black.withValues(alpha: 0.30),
+            anchor,
+          );
+          final edge45 = Color.alphaBlend(
+            Colors.white.withValues(alpha: 0.45),
+            panel,
+          );
+          final edge25 = Color.alphaBlend(
+            Colors.white.withValues(alpha: 0.25),
+            panel,
+          );
+          expect(contrast(edge45, panel), greaterThanOrEqualTo(kAANonText));
+          expect(contrast(edge25, panel), lessThan(kAANonText));
+        },
       );
     });
   });

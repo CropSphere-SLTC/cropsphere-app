@@ -2412,6 +2412,96 @@ def test_price_context_never_touches_the_user_message():
     assert "78" not in user[-1]["content"]
 
 
+# ── weather-forecast-side prediction_context ────────────────────────────────
+#
+# REGRESSION: PredictionWeatherWeek.week_number was bounded 1-4 on the wrong
+# assumption that it indexed the requested forecast range. It is actually the
+# ISO calendar week-of-year (weather_service's week_date.isocalendar()[1],
+# the same number weather_screen shows as "Week 35") — so every real
+# forecast tapped from "Ask AI about this" 422'd, which api_service.dart's
+# _dioErrorCode then surfaced to the farmer as a generic "Couldn't reach the
+# server". See PredictionWeatherWeek's own doc comment in schemas.py.
+
+_FULL_WEATHER_FORECAST = {
+    "district": "Nuwara Eliya",
+    "weeks_ahead": 2,
+    "forecast_weeks": [
+        {
+            "week_number": 35,
+            "date": "2026-08-27",
+            "rainfall_mm": 45.0,
+            "temp_min_c": 12.0,
+            "temp_max_c": 22.0,
+            "humidity_pct": 70.0,
+            "condition": "good",
+        },
+        {
+            "week_number": 36,
+            "date": "2026-09-03",
+            "rainfall_mm": 70.0,
+            "temp_min_c": 13.0,
+            "temp_max_c": 21.0,
+            "humidity_pct": 80.0,
+            "condition": "heavy_rain",
+        },
+    ],
+}
+
+
+def _weather_msgs(**overrides):
+    payload = {**_FULL_WEATHER_FORECAST, **overrides}
+    req = _make_request(prediction_context=payload)
+    return cs._build_messages("system", _EMPTY_CONTEXT, req, "Explain this forecast")
+
+
+def _weather_block(**overrides):
+    return next(
+        m["content"]
+        for m in _weather_msgs(**overrides)
+        if "CropSphere just" in m["content"]
+    )
+
+
+def test_weather_context_accepts_iso_week_numbers_past_4():
+    """The exact real-world payload that used to 422 — week 35 and 36 of the
+    YEAR, not the 4-week cap the field was wrongly bounded to."""
+    body = _weather_block()
+    assert "Week 35" in body
+    assert "Week 36" in body
+
+
+def test_weather_context_rejects_out_of_range_week_number():
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        _weather_msgs(
+            forecast_weeks=[{**_FULL_WEATHER_FORECAST["forecast_weeks"][0], "week_number": 54}]
+        )
+
+
+def test_weather_context_injects_forecast_facts():
+    body = _weather_block()
+    assert "District: Nuwara Eliya" in body
+    assert "Forecast range requested: 2 week(s) ahead" in body
+    assert "rainfall 45 mm" in body
+    assert "temperature 12-22 C" in body
+    assert "humidity 70%" in body
+    assert "good growing conditions" in body
+    assert "heavy rain expected" in body
+
+
+def test_weather_context_is_named_a_weather_forecast():
+    body = _weather_block()
+    assert "own weather forecast, which CropSphere" in body
+
+
+def test_weather_context_never_touches_the_user_message():
+    msgs = _weather_msgs()
+    user = [m for m in msgs if m["role"] == "user"]
+    assert user[-1]["content"] == "Explain this forecast"
+    assert "45" not in user[-1]["content"]
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Grounding guard vs prediction_context
 #

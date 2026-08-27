@@ -280,9 +280,16 @@ class PredictionWeatherWeek(BaseModel):
     client renders — the same reasoning as `average_price_source` below:
     _format_prediction_context maps it to its own English phrase server-side,
     so nothing client-authored reaches the prompt as free text.
+
+    `week_number` is the ISO calendar week-of-year (matches WeekForecast's
+    own `week_number` — see weather_service's `week_date.isocalendar()[1]`
+    and weather_screen's "Week {week.weekNumber}" card label), NOT an index
+    into the requested range — a 1-4-week forecast starting late in the year
+    can carry week numbers up into the 50s. Originally bounded 1-4 here on
+    the wrong assumption; every real forecast 422'd against that until fixed.
     """
 
-    week_number: int = Field(..., ge=1, le=4)
+    week_number: int = Field(..., ge=1, le=53)
     date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
     rainfall_mm: float = Field(..., ge=0, le=500)
     temp_min_c: float = Field(..., ge=-5, le=45)

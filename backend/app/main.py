@@ -4,8 +4,10 @@ import logging
 import time
 from datetime import date
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.errors import RateLimitExceeded
 
@@ -337,6 +339,24 @@ def create_app() -> FastAPI:
     # ── Rate limiter ──────────────────────────────────────────────────────────
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+
+    # ── Validation-error diagnostics ─────────────────────────────────────────
+    # Added while chasing a 422 the Flutter client was surfacing as "Couldn't
+    # reach the server" (api_service.dart's _dioErrorCode maps any non-401/
+    # 403/429/5xx status to the same 'network' code as a genuine connection
+    # failure, so the real cause — PredictionWeatherWeek.week_number wrongly
+    # bounded 1-4 instead of 1-53 — was invisible client-side; see that
+    # field's doc comment in schemas.py). Logs which field(s) failed and why,
+    # server-side only — the response body sent to the client is FastAPI's
+    # normal 422 detail, unchanged. Kept permanently: cheap, and the next
+    # silent 422 gets the same fast diagnosis this one did. Remove if this
+    # turns out to be noisy in practice.
+    @app.exception_handler(RequestValidationError)
+    async def _log_validation_error(request: Request, exc: RequestValidationError):
+        logger.warning(
+            "422 on %s %s: %s", request.method, request.url.path, exc.errors()
+        )
+        return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
     # ── Routers ───────────────────────────────────────────────────────────────
     app.include_router(health_router.router)

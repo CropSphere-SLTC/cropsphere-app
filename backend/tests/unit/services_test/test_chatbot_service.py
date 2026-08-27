@@ -2475,7 +2475,9 @@ def test_weather_context_rejects_out_of_range_week_number():
 
     with pytest.raises(ValidationError):
         _weather_msgs(
-            forecast_weeks=[{**_FULL_WEATHER_FORECAST["forecast_weeks"][0], "week_number": 54}]
+            forecast_weeks=[
+                {**_FULL_WEATHER_FORECAST["forecast_weeks"][0], "week_number": 54}
+            ]
         )
 
 

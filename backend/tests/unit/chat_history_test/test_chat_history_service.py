@@ -387,7 +387,9 @@ def detectors():
         "app.user.services.chatbot_service._detect_crop_mention", _fake_crop
     ), patch(
         "app.user.services.chatbot_service._detect_district_mention", _fake_district
-    ), patch("app.user.services.chatbot_service._question_type", _fake_qtype):
+    ), patch(
+        "app.user.services.chatbot_service._question_type", _fake_qtype
+    ):
         yield
 
 

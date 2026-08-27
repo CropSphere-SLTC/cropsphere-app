@@ -997,7 +997,12 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
             from app.user.services.chat_history_service import persist_chat_turn
 
             return persist_chat_turn(
-                verified_uid, req.conversation_id, req.message, full_reply
+                verified_uid,
+                req.conversation_id,
+                req.message,
+                full_reply,
+                crop=req.crop.value if req.crop else None,
+                district=req.district.value if req.district else None,
             )
         except Exception as exc:
             logger.warning("Stream persistence failed uid=%s: %s", verified_uid, exc)

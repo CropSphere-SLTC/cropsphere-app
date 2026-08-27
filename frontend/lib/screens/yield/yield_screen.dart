@@ -1983,20 +1983,33 @@ class _YieldScreenState extends State<YieldScreen> {
   // ── Layout helpers ─────────────────────────────────────────────────────────
   // Bottom padding 100, matching every other screen: below 1024px MainShell
   // shows the FloatingBottomNav (64px capsule + 10px margin + safe area) over
-  // a body with extendBody:true, so content scrolls UNDERNEATH it. Without
-  // the clearance the last element — here the "Ask something else" button —
-  // sits permanently behind the nav capsule and can't be reached.
-  Widget _buildMobileLayout() => SingleChildScrollView(
-    padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
-    child: _stackedColumn(),
+  // a body with extendBody:true, so content scrolls UNDERNEATH it. This
+  // Stack ALSO pins its own _stickyPredict bar to the same bottom:0
+  // (10+52+14 = 76px), so two floating bars overlap the tail of the page and
+  // the 100px that clears the nav alone is not enough — the last element
+  // ("Ask something else about this") stayed behind them. 180 clears both,
+  // the same figure price_screen uses for the same pair of bars.
+  Widget _buildMobileLayout() => Stack(
+    children: [
+      SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 180),
+        child: _stackedColumn(),
+      ),
+      _stickyPredict(),
+    ],
   );
 
   Widget _buildTabletLayout() => LayoutBuilder(
     builder: (ctx, bc) {
       final hPad = ((bc.maxWidth - 700) / 2).clamp(0.0, 200.0);
-      return SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(hPad + 16, 14, hPad + 16, 100),
-        child: _stackedColumn(),
+      return Stack(
+        children: [
+          SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(hPad + 16, 14, hPad + 16, 180),
+            child: _stackedColumn(),
+          ),
+          _stickyPredict(),
+        ],
       );
     },
   );
@@ -2015,9 +2028,16 @@ class _YieldScreenState extends State<YieldScreen> {
         children: [
           SizedBox(
             width: leftW,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 14, 12, 28),
-              child: _inputsColumn(),
+            // 100, not 180: at >=1024 MainShell drops the FloatingBottomNav,
+            // so only this column's own _stickyPredict bar needs clearing.
+            child: Stack(
+              children: [
+                SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(20, 14, 12, 100),
+                  child: _inputsColumn(),
+                ),
+                _stickyPredict(),
+              ],
             ),
           ),
           Container(width: 1, color: AppTheme.divider),
@@ -2042,13 +2062,7 @@ class _YieldScreenState extends State<YieldScreen> {
   /// LEFT column on wide screens: inputs only.
   Widget _inputsColumn() => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      _pageHeader(),
-      const SizedBox(height: 16),
-      ..._inputSections(),
-      const SizedBox(height: 20),
-      _predictButton(),
-    ],
+    children: [_pageHeader(), const SizedBox(height: 16), ..._inputSections()],
   );
 
   /// RIGHT column on wide screens: progress, the two context sections that
@@ -2073,8 +2087,6 @@ class _YieldScreenState extends State<YieldScreen> {
       _pageHeader(),
       const SizedBox(height: 16),
       ..._inputSections(),
-      const SizedBox(height: 20),
-      _predictButton(),
       const SizedBox(height: 20),
       ..._weatherSection(),
       const SizedBox(height: 20),
@@ -3488,6 +3500,33 @@ class _YieldScreenState extends State<YieldScreen> {
   // can't express. The button itself — the disabled state driven by
   // `_canPredict`, the loading spinner, and the three label variants
   // including the "Complete 4 steps above first" explanation — is unchanged.
+  /// The Predict action, pinned to the bottom of its scroll area rather than
+  /// scrolling away with the form — same treatment as price_screen's
+  /// _stickyPredict, so the two prediction pages behave identically.
+  ///
+  /// Structure, padding, elevation shadow, SafeArea and the 52px button
+  /// height are all matched to that widget deliberately; the callers that
+  /// host it must carry the matching bottom padding (see _buildMobileLayout).
+  Widget _stickyPredict() => Positioned(
+    bottom: 0,
+    left: 0,
+    right: 0,
+    child: Container(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+      decoration: BoxDecoration(
+        color: AppTheme.login.background,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 12,
+            offset: const Offset(0, -3),
+          ),
+        ],
+      ),
+      child: SafeArea(top: false, child: _predictButton()),
+    ),
+  );
+
   Widget _predictButton() => SizedBox(
     width: double.infinity,
     height: 52,

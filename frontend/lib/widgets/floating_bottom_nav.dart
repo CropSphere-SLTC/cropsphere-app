@@ -57,26 +57,6 @@ class FloatingBottomNav extends StatelessWidget {
   static const double capsuleHeight = 64;
   static const double bottomMargin = 10;
 
-  /// How much vertical space this nav actually covers, including the safe
-  /// area it sits above.
-  ///
-  /// MainShell sets `Scaffold.extendBody`, so every screen's body renders
-  /// UNDERNEATH this capsule. Scrolling screens absorb that in their scroll
-  /// padding; a screen with something pinned to its bottom edge — the chat
-  /// input — has to reserve this much or the nav sits on top of it.
-  ///
-  /// Returns 0 at >=1024px, where MainShell doesn't show the nav at all.
-  ///
-  /// The SafeArea below uses `minimum`, which takes the LARGER of the device
-  /// inset and [bottomMargin] — matched here rather than summed. With the
-  /// keyboard open the inset collapses to 0 and the Scaffold lifts the nav
-  /// above the keyboard, so this stays correct in that state too.
-  static double reservedHeight(BuildContext context) {
-    final mq = MediaQuery.of(context);
-    if (mq.size.width >= 1024) return 0;
-    return capsuleHeight + math.max(mq.padding.bottom, bottomMargin);
-  }
-
   static const _labelsEn = [
     'Home',
     'Yield',

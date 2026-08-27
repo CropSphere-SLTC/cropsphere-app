@@ -875,17 +875,27 @@ class _RecommendScreenState extends State<RecommendScreen> {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          // Selected state carries the page's own accent — the same
+          // #3D5A3D the header and the Get Recommendations button use — so
+          // the three primary green surfaces on this page read as one
+          // feature rather than three unrelated greens. It was
+          // AppTheme.primary (#1B5E20), the app-wide brand green, which
+          // belongs to no feature in particular.
           decoration: BoxDecoration(
-            color: active ? AppTheme.primary : Colors.white,
+            color: active ? AppTheme.accents.cropRec.fill : Colors.white,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
-              color: active ? AppTheme.primary : const Color(0xFFD0E8C8),
+              color: active
+                  ? AppTheme.accents.cropRec.fill
+                  : const Color(0xFFD0E8C8),
               width: active ? 2 : 1.5,
             ),
             boxShadow: active
                 ? [
                     BoxShadow(
-                      color: AppTheme.primary.withValues(alpha: 0.2),
+                      color: AppTheme.accents.cropRec.fill.withValues(
+                        alpha: 0.2,
+                      ),
                       blurRadius: 6,
                       offset: const Offset(0, 2),
                     ),
@@ -900,7 +910,11 @@ class _RecommendScreenState extends State<RecommendScreen> {
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w800,
-                  color: active ? Colors.white : AppTheme.textPrimary,
+                  // The accent's own onFill, matching the header rather than
+                  // pure white. 7.43:1 on the fill.
+                  color: active
+                      ? AppTheme.accents.cropRec.onFill
+                      : AppTheme.textPrimary,
                 ),
               ),
               const SizedBox(height: 2),
@@ -908,8 +922,10 @@ class _RecommendScreenState extends State<RecommendScreen> {
                 _t(s['months']!),
                 style: TextStyle(
                   fontSize: 10.5,
+                  // 0.85 kept — re-measured on the new fill at 5.91:1, so the
+                  // month range still clears AA as normal-size text.
                   color: active
-                      ? Colors.white.withValues(alpha: 0.85)
+                      ? AppTheme.accents.cropRec.onFill.withValues(alpha: 0.85)
                       : AppTheme.textMuted,
                 ),
               ),

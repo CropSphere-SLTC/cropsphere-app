@@ -1,6 +1,7 @@
 // lib/screens/chat/chat_screen.dart
 
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
@@ -22,7 +23,6 @@ import '../../models/api_models.dart';
 import '../../models/chat_history_models.dart';
 import '../../widgets/app_theme.dart';
 import '../../widgets/app_top_bar.dart';
-import '../../widgets/floating_bottom_nav.dart';
 import '../../widgets/followup_chip.dart';
 import '../../widgets/growth_logo.dart';
 import '../../widgets/localized_names.dart';
@@ -59,6 +59,26 @@ class _ChatScreenState extends State<ChatScreen> {
   /// off it deliberately.
   static const _defaultModel = 'fast';
 
+  /// Reading width for the transcript and the input beneath it.
+  ///
+  /// Edge-to-edge messages on a desktop monitor produce 200+ character lines,
+  /// which is roughly three times the 45-75 characters typography research
+  /// puts at comfortable. Claude and ChatGPT both cap around 700-800px; 760
+  /// sits mid-range and holds ~90 characters at this 15px body size.
+  ///
+  /// Applied to the ITEMS, not the ListView, so the scrollbar stays at the
+  /// viewport edge where a scrollbar belongs. Below ~792px the Center simply
+  /// hands back the full width and the page padding does the rest.
+  static const double _contentMaxWidth = 760;
+
+  /// Wraps one transcript row in the centred reading column.
+  Widget _readingColumn(Widget child) => Center(
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: _contentMaxWidth),
+      child: child,
+    ),
+  );
+
   static const _starterIcons = [
     Icons.grass,
     Icons.calendar_month,
@@ -82,6 +102,12 @@ class _ChatScreenState extends State<ChatScreen> {
   final List<Map<String, dynamic>> _displayMessages = [];
   bool _isLoading = false;
   bool _isStreaming = false;
+
+  /// Set by [_stopGenerating] and read by the `await for` in
+  /// _sendMessageStreaming, which breaks out of the loop on the next event —
+  /// breaking an `await for` cancels its subscription, which closes the HTTP
+  /// stream. Cleared at the start of every send.
+  bool _stopRequested = false;
   // True once the user has scrolled away from the bottom far enough that a
   // "scroll to bottom" affordance should appear instead of auto-scrolling
   // them back down against their will.
@@ -652,6 +678,7 @@ class _ChatScreenState extends State<ChatScreen> {
     // field is disabled for the whole stream — initial send and retry alike.
     setState(() {
       _isStreaming = true;
+      _stopRequested = false;
       if (!isRetry) {
         _displayMessages.add({
           'role': 'user',
@@ -709,6 +736,9 @@ class _ChatScreenState extends State<ChatScreen> {
       await for (final event in ServiceFactory.getService().sendChatStream(
         request,
       )) {
+        // Checked before handling the event, so a stop lands as soon as the
+        // next chunk arrives rather than waiting for the whole answer.
+        if (_stopRequested) break;
         switch (event['type']) {
           case 'text':
             setState(() {
@@ -769,11 +799,25 @@ class _ChatScreenState extends State<ChatScreen> {
     } finally {
       setState(() {
         bubble['streaming'] = false;
-        if (!completed && bubble['errorCode'] == null) {
+        // A deliberate stop is NOT an interruption to apologise for — the
+        // farmer asked for it. No error banner, no retry affordance; the
+        // partial answer just stands as the answer.
+        if (_stopRequested) {
+          bubble['_stopped'] = true;
+          // Snap the typewriter to everything that actually arrived, so
+          // stopping reads as "that's the answer" instead of leaving the
+          // reveal to crawl on for another second after the tap.
+          bubble['_revealedLen'] = (bubble['content'] as String? ?? '').length;
+          (bubble['_revealTimer'] as Timer?)?.cancel();
+          bubble.remove('_revealTimer');
+        }
+        if (!completed && bubble['errorCode'] == null && !_stopRequested) {
           // Stream ended without [DONE] or an explicit error event.
           bubble['errorCode'] = 'stream_interrupted';
         }
-        if (completed && bubble['errorCode'] == null) {
+        // A stopped answer still joins the history: the farmer saw it, and a
+        // follow-up question has to be able to refer to it.
+        if ((completed || _stopRequested) && bubble['errorCode'] == null) {
           _history.add(
             ChatMessage(
               role: 'assistant',
@@ -787,6 +831,7 @@ class _ChatScreenState extends State<ChatScreen> {
           }
         }
         _isStreaming = false;
+        _stopRequested = false;
       });
       _scrollToBottom();
     }
@@ -893,6 +938,18 @@ class _ChatScreenState extends State<ChatScreen> {
   /// stream finishes; once both the network is done AND the reveal has
   /// caught up to the final text, the timer stops itself. Restarted (via
   /// [reuseBubble] regenerate/retry) resets from an empty buffer.
+  /// Stop the answer being generated and keep whatever has arrived.
+  ///
+  /// Sets the flag the `await for` in _sendMessageStreaming checks; breaking
+  /// that loop cancels its subscription, which closes the HTTP stream, and
+  /// the loop's own `finally` does the rest (see the _stopRequested branch
+  /// there). Deliberately does NOT remove the bubble — a farmer who stops a
+  /// long answer usually stops because they have already read enough.
+  void _stopGenerating() {
+    if (!_isStreaming) return;
+    setState(() => _stopRequested = true);
+  }
+
   void _startRevealTimer(Map<String, dynamic> bubble) {
     const tickInterval = Duration(milliseconds: 16);
     const charsPerTick = 5; // ≈310 chars/sec — brisk, readable "typing"
@@ -1022,7 +1079,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         ),
         if (_suggestedFollowups.isNotEmpty) _buildSuggestions(),
-        _buildInputBar(isWide),
+        _buildInputBar(),
       ],
     );
 
@@ -1548,95 +1605,6 @@ class _ChatScreenState extends State<ChatScreen> {
           'ta': 'விரிவான பதில்',
         });
 
-  /// The row under the text field: context, model, send.
-  ///
-  /// MOBILE (<1024): the two pills drop their labels to icon + short text and
-  /// the row scrolls horizontally rather than wrapping. Both were measured at
-  /// 320dp against Tamil, the longest-rendering language: "விரிவான பதில்" plus
-  /// a district and crop name does not fit beside a 44px send button at any
-  /// font size worth reading, and wrapping would push the field around as the
-  /// selection changes. The send button is pinned outside the scroll view so
-  /// it is always reachable.
-  Widget _buildInputCluster(bool isWide) {
-    return Row(
-      children: [
-        Expanded(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _clusterPill(
-                  icon: Icons.tune,
-                  label: _contextLabel(context),
-                  active: _hasContext,
-                  onTap: _openContextSheet,
-                ),
-                const SizedBox(width: 8),
-                _clusterPill(
-                  icon: _selectedModel == _defaultModel
-                      ? Icons.bolt_outlined
-                      : Icons.auto_awesome_outlined,
-                  // Wide shows the full wording; narrow shows the icon plus
-                  // the distinguishing word only.
-                  label: isWide ? _modelLabel : _modelLabel.split(' ').first,
-                  active: _selectedModel != _defaultModel,
-                  onTap: _openModelSheet,
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        _sendButton(),
-      ],
-    );
-  }
-
-  Widget _clusterPill({
-    required IconData icon,
-    required String label,
-    required bool active,
-    required VoidCallback onTap,
-  }) {
-    final accent = AppTheme.accents.chat.ink;
-    return Material(
-      color: active ? accent.withValues(alpha: 0.10) : Colors.transparent,
-      borderRadius: BorderRadius.circular(18),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: active ? accent : AppTheme.login.borderSubtle,
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                icon,
-                size: 16,
-                color: active ? accent : AppTheme.login.textSecondary,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: active ? FontWeight.w600 : FontWeight.w500,
-                  color: active ? accent : AppTheme.login.textSecondary,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   /// District and Crop, both as the app's shared SearchableDropdown.
   ///
   /// One sheet holding both fields rather than a menu that opens a second
@@ -1880,7 +1848,9 @@ class _ChatScreenState extends State<ChatScreen> {
       // sources), so a fixed itemExtent isn't an option here.
       cacheExtent: 800,
       itemBuilder: (ctx, i) {
-        if (i == _displayMessages.length) return _buildTypingIndicator();
+        if (i == _displayMessages.length) {
+          return _readingColumn(_buildTypingIndicator());
+        }
         final msg = _displayMessages[i];
         // ObjectKey(msg) — msg's own identity — keeps each bubble's Element
         // (and its in-flight _fadingOut/_copied/_showTime/_hovering state)
@@ -1892,7 +1862,9 @@ class _ChatScreenState extends State<ChatScreen> {
         // neighbors to repaint too.
         return RepaintBoundary(
           key: ObjectKey(msg),
-          child: _entranceAnimate(msg, _buildMessageBubble(msg, i)),
+          child: _readingColumn(
+            _entranceAnimate(msg, _buildMessageBubble(msg, i)),
+          ),
         );
       },
     );
@@ -2212,14 +2184,29 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  /// Body type for a bot answer.
+  ///
+  /// 14 -> 15px with a 1.6 line-height: the text now sits directly on the
+  /// page with no card to frame it, so leading is what separates paragraphs
+  /// and makes a long answer readable. Colour moves from Colors.black87 (an
+  /// off-palette Material default) to login.textPrimary — 13.71:1 on the
+  /// page background.
+  ///
+  /// _streamingTextStyle below MUST stay in step with `p` here, or the
+  /// answer visibly reflows the instant the typewriter hands over to
+  /// MarkdownBody.
   static final _answerStyleSheet = MarkdownStyleSheet(
-    p: TextStyle(color: Colors.black87, fontSize: 14),
-    strong: TextStyle(
-      color: Colors.black87,
-      fontSize: 14,
-      fontWeight: FontWeight.w700,
-    ),
-    listBullet: TextStyle(color: Colors.black87, fontSize: 14),
+    p: _streamingTextStyle,
+    strong: _streamingTextStyle.copyWith(fontWeight: FontWeight.w700),
+    listBullet: _streamingTextStyle,
+    pPadding: const EdgeInsets.only(bottom: 8),
+  );
+
+  /// The typewriter's own span style — see [_answerStyleSheet].
+  static final _streamingTextStyle = TextStyle(
+    color: AppTheme.login.textPrimary,
+    fontSize: 15,
+    height: 1.6,
   );
 
   /// Renders a bot answer's body. Once revealing is done (or for a loaded
@@ -2256,10 +2243,7 @@ class _ChatScreenState extends State<ChatScreen> {
     return Text.rich(
       TextSpan(
         children: [
-          TextSpan(
-            text: visible,
-            style: const TextStyle(color: Colors.black87, fontSize: 14),
-          ),
+          TextSpan(text: visible, style: _streamingTextStyle),
           const WidgetSpan(
             alignment: PlaceholderAlignment.middle,
             child: Padding(
@@ -2373,7 +2357,11 @@ class _ChatScreenState extends State<ChatScreen> {
           behavior: HitTestBehavior.translucent,
           onTap: () => setState(() => msg['_showTime'] = !showTime),
           child: Padding(
-            padding: const EdgeInsets.only(bottom: 12),
+            // Step 5: with the card boundaries gone, this gap IS the turn
+            // separation. 12 -> 20; together with the hover row's permanently
+            // reserved 34px (see _buildHoverRow) that puts ~58px between one
+            // message's last line and the next one's first.
+            padding: const EdgeInsets.only(bottom: 20),
             // The hover row is a separate element below the bubble, not part
             // of it — this Column (default crossAxisAlignment.start) is what
             // makes that row always left-align to the message's own left
@@ -2390,136 +2378,162 @@ class _ChatScreenState extends State<ChatScreen> {
                   children: [
                     if (!isUser) ...[_logo(32), const SizedBox(width: 8)],
                     Flexible(
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: isUser
-                              ? AppTheme.primaryDark
-                              : isError
-                              ? AppTheme.error.withValues(alpha: 0.08)
-                              : Colors.white,
-                          borderRadius: BorderRadius.only(
-                            topLeft: const Radius.circular(16),
-                            topRight: const Radius.circular(16),
-                            bottomLeft: Radius.circular(isUser ? 16 : 4),
-                            bottomRight: Radius.circular(isUser ? 4 : 16),
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.06),
-                              blurRadius: 4,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
+                      child: ConstrainedBox(
+                        // A user message sizes to its content and stops well
+                        // short of the column: even a long question stays
+                        // visibly narrower than the answers around it, so the
+                        // ragged right edge itself reads as "this one is
+                        // mine". Bot answers are deliberately uncapped and
+                        // use the full reading width.
+                        constraints: BoxConstraints(
+                          maxWidth: isUser
+                              ? _contentMaxWidth * 0.8
+                              : double.infinity,
                         ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // TOP — XAI confidence badge (bot messages only); held
-                            // back until the answer has fully finished revealing
-                            // (metadata can otherwise land slightly before the
-                            // buffered typewriter catches up), then fades in.
-                            if (confidence.isNotEmpty && !isRevealing) ...[
-                              wasStreamed
-                                  ? _fadeIn(_confidenceBadge(confidence))
-                                  : _confidenceBadge(confidence),
-                              const SizedBox(height: 6),
-                            ],
-                            // MIDDLE — answer text (reasoning split out for bot replies).
-                            // Before the first token arrives, a sequential dot-pulse
-                            // stands in for the empty bubble; once text is being
-                            // revealed, a blinking caret marks the growing edge.
-                            // Bot replies render as markdown (the model uses **bold**,
-                            // numbered/dash lists in math and multi-item answers) —
-                            // softLineBreak keeps single '\n's as real line breaks,
-                            // matching how our system prompt actually formats text
-                            // (single newlines between steps/list items, not blank
-                            // lines). User/error bubbles stay plain text.
-                            isBot
-                                ? (isRevealing && parsed.answer.isEmpty
-                                      ? const Padding(
-                                          padding: EdgeInsets.symmetric(
-                                            vertical: 2,
-                                          ),
-                                          child: _ThinkingDots(),
-                                        )
-                                      : _buildAnswerBody(
-                                          msg,
-                                          parsed,
-                                          isRevealing,
-                                        ))
-                                : Text(
-                                    parsed.answer,
-                                    style: TextStyle(
-                                      color: isUser
-                                          ? Colors.white
-                                          : AppTheme.error,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                            // BOTTOM — muted XAI footer; hidden when empty
-                            // (out-of-scope) or while still revealing (sources/
-                            // advisory can arrive via metadata before the
-                            // typewriter has finished typing the answer out).
-                            if (hasFooter && !isRevealing)
-                              wasStreamed
-                                  ? _fadeIn(
-                                      _xaiFooter(parsed, sources, advisory),
-                                    )
-                                  : _xaiFooter(parsed, sources, advisory),
-                            // Inline stream-error state: keeps any partial text above,
-                            // adds a muted warning + optional retry inside the bubble.
-                            if (errorCode != null) ...[
-                              const SizedBox(height: 8),
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Icon(
-                                    Icons.warning_amber_outlined,
-                                    size: 14,
-                                    color: Colors.orange[800],
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Expanded(
-                                    child: Text(
-                                      _streamErrorMessages[errorCode] ??
-                                          _streamErrorMessages['server_error']!,
+                        child: Container(
+                          // Bot answers get NO container of their own — no
+                          // card, no border, no shadow — so a reply reads as
+                          // text on the page the way a document does. Only the
+                          // two turn types that need marking off carry a fill:
+                          // the farmer's own message, and an error.
+                          //
+                          // The user tint is accents.chat.fill at 10% over the
+                          // page background (#F1F7F1), which composites to
+                          // #DEE8DE. login.textPrimary on that measures
+                          // 11.85:1 — it replaces white-on-#0A3D0A (12.46:1),
+                          // so the turn stays AAA while losing the weight that
+                          // made every question shout louder than its answer.
+                          padding: isUser || isError
+                              ? const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 10,
+                                )
+                              // Nudges the first line onto the avatar's optical
+                              // centre now that no padded card does it.
+                              : const EdgeInsets.only(top: 4),
+                          decoration: BoxDecoration(
+                            color: isUser
+                                ? AppTheme.accents.chat.fill.withValues(
+                                    alpha: 0.10,
+                                  )
+                                : isError
+                                ? AppTheme.error.withValues(alpha: 0.08)
+                                : null,
+                            borderRadius: isUser || isError
+                                ? BorderRadius.circular(14)
+                                : null,
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // TOP — XAI confidence badge (bot messages only); held
+                              // back until the answer has fully finished revealing
+                              // (metadata can otherwise land slightly before the
+                              // buffered typewriter catches up), then fades in.
+                              if (confidence.isNotEmpty && !isRevealing) ...[
+                                wasStreamed
+                                    ? _fadeIn(_confidenceBadge(confidence))
+                                    : _confidenceBadge(confidence),
+                                const SizedBox(height: 6),
+                              ],
+                              // MIDDLE — answer text (reasoning split out for bot replies).
+                              // Before the first token arrives, a sequential dot-pulse
+                              // stands in for the empty bubble; once text is being
+                              // revealed, a blinking caret marks the growing edge.
+                              // Bot replies render as markdown (the model uses **bold**,
+                              // numbered/dash lists in math and multi-item answers) —
+                              // softLineBreak keeps single '\n's as real line breaks,
+                              // matching how our system prompt actually formats text
+                              // (single newlines between steps/list items, not blank
+                              // lines). User/error bubbles stay plain text.
+                              isBot
+                                  ? (isRevealing && parsed.answer.isEmpty
+                                        ? const Padding(
+                                            padding: EdgeInsets.symmetric(
+                                              vertical: 2,
+                                            ),
+                                            child: _ThinkingDots(),
+                                          )
+                                        : _buildAnswerBody(
+                                            msg,
+                                            parsed,
+                                            isRevealing,
+                                          ))
+                                  : Text(
+                                      parsed.answer,
                                       style: TextStyle(
-                                        fontSize: 11,
-                                        color: Colors.orange[800],
+                                        // 11.85:1 on the #DEE8DE tint above.
+                                        color: isUser
+                                            ? AppTheme.login.textPrimary
+                                            : AppTheme.error,
+                                        fontSize: 15,
+                                        height: 1.5,
                                       ),
                                     ),
+                              // BOTTOM — muted XAI footer; hidden when empty
+                              // (out-of-scope) or while still revealing (sources/
+                              // advisory can arrive via metadata before the
+                              // typewriter has finished typing the answer out).
+                              if (hasFooter && !isRevealing)
+                                wasStreamed
+                                    ? _fadeIn(
+                                        _xaiFooter(parsed, sources, advisory),
+                                      )
+                                    : _xaiFooter(parsed, sources, advisory),
+                              // Inline stream-error state: keeps any partial text above,
+                              // adds a muted warning + optional retry inside the bubble.
+                              if (errorCode != null) ...[
+                                const SizedBox(height: 8),
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Icon(
+                                      Icons.warning_amber_outlined,
+                                      size: 14,
+                                      color: Colors.orange[800],
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Expanded(
+                                      child: Text(
+                                        _streamErrorMessages[errorCode] ??
+                                            _streamErrorMessages['server_error']!,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.orange[800],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                // Auth errors need a fresh sign-in, not a retry.
+                                if (errorCode != 'auth_error')
+                                  TextButton.icon(
+                                    onPressed: () => _retryStream(msg),
+                                    icon: const Icon(Icons.refresh, size: 14),
+                                    label: const Text('Tap to retry'),
+                                    style: TextButton.styleFrom(
+                                      padding: EdgeInsets.zero,
+                                      minimumSize: const Size(0, 28),
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
+                                      foregroundColor: AppTheme.primaryDark,
+                                      textStyle: const TextStyle(fontSize: 12),
+                                    ),
                                   ),
-                                ],
-                              ),
-                              // Auth errors need a fresh sign-in, not a retry.
-                              if (errorCode != 'auth_error')
-                                TextButton.icon(
-                                  onPressed: () => _retryStream(msg),
-                                  icon: const Icon(Icons.refresh, size: 14),
-                                  label: const Text('Tap to retry'),
-                                  style: TextButton.styleFrom(
-                                    padding: EdgeInsets.zero,
-                                    minimumSize: const Size(0, 28),
-                                    tapTargetSize:
-                                        MaterialTapTargetSize.shrinkWrap,
-                                    foregroundColor: AppTheme.primaryDark,
-                                    textStyle: const TextStyle(fontSize: 12),
+                              ],
+                              if (isMock)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 6),
+                                  child: Text(
+                                    'Mock response',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.orange[700],
+                                    ),
                                   ),
                                 ),
                             ],
-                            if (isMock)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 6),
-                                child: Text(
-                                  'Mock response',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: Colors.orange[700],
-                                  ),
-                                ),
-                              ),
-                          ],
+                          ),
                         ),
                       ),
                     ),
@@ -2873,8 +2887,8 @@ class _ChatScreenState extends State<ChatScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SizedBox(height: 8),
-        Container(height: 1, color: Colors.grey[200]),
+        const SizedBox(height: 10),
+        Container(height: 1, color: AppTheme.login.borderSubtle),
         const SizedBox(height: 6),
         if (parsed.reasoning.isNotEmpty)
           _xaiFooterLine(Icons.lightbulb_outline, parsed.reasoning),
@@ -2945,18 +2959,11 @@ class _ChatScreenState extends State<ChatScreen> {
       children: [
         _logo(32),
         const SizedBox(width: 8),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.06),
-                blurRadius: 4,
-              ),
-            ],
-          ),
+        // Flattened with the bot bubbles it stands in for — the dots used to
+        // arrive inside a white card that the answer replacing them no
+        // longer has, so the card visibly evaporated on first token.
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [_buildDot(0), _buildDot(150), _buildDot(300)],
@@ -2999,163 +3006,234 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  /// Extracted from the field row so the cluster beneath the input can own
-  /// it — unchanged otherwise.
-  Widget _sendButton() => GestureDetector(
-    onTap: (_isLoading || _isStreaming)
-        ? null
-        : () => _sendMessage(_controller.text),
-    child: AnimatedContainer(
-      duration: const Duration(milliseconds: 150),
-      curve: Curves.easeOut,
-      width: 44,
-      height: 44,
-      decoration: BoxDecoration(
-        color: (_isLoading || _isStreaming)
-            ? Colors.grey
-            : AppTheme.primaryDark,
-        shape: BoxShape.circle,
+  /// The button inside the right edge of the text field.
+  ///
+  /// Three states, in priority order:
+  ///   1. GENERATING -> a stop square. While an answer is coming in, stopping
+  ///      it is the only action worth offering: sending a second question
+  ///      was already refused by the `_isStreaming` guard in _sendMessage,
+  ///      so a send button here was a button that did nothing.
+  ///   2. EMPTY FIELD -> nothing at all. A send button with nothing to send
+  ///      is noise, and its disabled grey read as "chat is broken".
+  ///   3. HAS TEXT -> send.
+  ///
+  /// Rebuilds on every keystroke via the controller — cheap, and scoped to
+  /// this one button rather than the field.
+  Widget _fieldActionButton() => ValueListenableBuilder<TextEditingValue>(
+    valueListenable: _controller,
+    builder: (context, value, _) {
+      final busy = _isLoading || _isStreaming;
+      if (busy) {
+        return _fieldButton(
+          icon: Icons.stop_rounded,
+          color: AppTheme.error,
+          tooltip: tr(context, const {
+            'en': 'Stop generating',
+            'si': 'නැවැත්වීම',
+            'ta': 'நிறுத்து',
+          }),
+          onTap: _stopGenerating,
+        );
+      }
+      if (value.text.trim().isEmpty) {
+        // Reserve the space so the field doesn't visibly resize on the
+        // first and last character typed.
+        return const SizedBox(
+          width: ChatInputControls.controlHeight,
+          height: ChatInputControls.controlHeight,
+        );
+      }
+      return _fieldButton(
+        icon: Icons.send,
+        color: AppTheme.primaryDark,
+        tooltip: tr(context, const {
+          'en': 'Send',
+          'si': 'යවන්න',
+          'ta': 'அனுப்பு',
+        }),
+        onTap: () => _sendMessage(_controller.text),
+      );
+    },
+  );
+
+  Widget _fieldButton({
+    required IconData icon,
+    required Color color,
+    required String tooltip,
+    required VoidCallback onTap,
+  }) => Tooltip(
+    message: tooltip,
+    child: GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOut,
+        width: ChatInputControls.controlHeight,
+        height: ChatInputControls.controlHeight,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        child: Icon(icon, color: Colors.white, size: 18),
       ),
-      child: (_isLoading || _isStreaming)
-          ? const Padding(
-              padding: EdgeInsets.all(10),
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: Colors.white,
-              ),
-            )
-          : const Icon(Icons.send, color: Colors.white, size: 20),
     ),
   );
 
-  Widget _buildInputBar(bool isWide) {
-    // MainShell renders every screen under `Scaffold.extendBody`, so the
-    // floating bottom nav floats OVER this bar rather than above it. The
-    // other six screens are scroll views whose padding absorbs that; this one
-    // is pinned to the bottom of a non-scrolling Column, so it was sitting
-    // underneath the nav on every phone.
+  Widget _buildInputBar() {
+    // BOTTOM CLEARANCE. MainShell sets Scaffold.extendBody, so the floating
+    // nav draws OVER this bar. Flutter already accounts for that: under
+    // extendBody the Scaffold inflates the body's MediaQuery.padding.bottom
+    // to the bottom bar's full height — measured at 98px on a 390x844 phone
+    // with a 34px home indicator (64px capsule + 34px inset).
     //
-    // FloatingBottomNav.reservedHeight is the nav's own measurement (capsule
-    // + its margin from the screen edge, or the safe-area inset when that is
-    // larger), and returns 0 at >=1024px where the nav isn't shown. It stays
-    // correct with the keyboard open: the inset collapses to 0 there and the
-    // Scaffold lifts the nav above the keyboard, so the same clearance is
-    // still exactly what is needed.
-    final navClearance = FloatingBottomNav.reservedHeight(context);
-    return Container(
-      padding: EdgeInsets.fromLTRB(12, 12, 12, 12 + navClearance),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 8,
-            offset: const Offset(0, -2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
+    // The previous code added FloatingBottomNav.reservedHeight (another 64 +
+    // that same padding) ON TOP of it, so the input floated ~160px above the
+    // nav on every phone and tablet. SafeArea consumes exactly the padding
+    // Scaffold reports and nothing more, which is both correct and the
+    // idiomatic way to say it.
+    //
+    // With the keyboard open it is correct for a different reason than I
+    // first assumed: Flutter does NOT lift bottomNavigationBar above the
+    // keyboard. Measured, the nav's top stays at y=746 on a 390x844 phone
+    // while the keyboard starts at y=508 — the nav is simply behind it. So
+    // resizeToAvoidBottomInset shrinks the body, the reported bottom padding
+    // drops to 0, and the input rests directly on the keyboard with only its
+    // own 12px — which is exactly right, and would have been 74px of dead
+    // space if the old helper's clearance had still been added.
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+        // Same reading column as the transcript, so the field's edges line up
+        // with the messages above it instead of running the full window width.
+        child: _readingColumn(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Expanded(
-                // Caps growth at ~5 lines; TextField scrolls internally once
-                // content exceeds that (built into EditableText — no extra
-                // ScrollController needed).
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 120),
-                  child: Focus(
-                    // Physical/hardware Enter — web & desktop. Soft
-                    // keyboards on mobile don't dispatch this, so touch
-                    // input keeps using the IME's own return-key behavior
-                    // (still wired below via onSubmitted) untouched.
-                    onKeyEvent: (node, event) {
-                      if (event is KeyDownEvent &&
-                          event.logicalKey == LogicalKeyboardKey.enter) {
-                        if (HardwareKeyboard.instance.isShiftPressed) {
-                          // Shift+Enter: let it through as a newline.
+              Row(
+                children: [
+                  Expanded(
+                    // Caps growth at ~5 lines; TextField scrolls internally once
+                    // content exceeds that (built into EditableText — no extra
+                    // ScrollController needed).
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 120),
+                      child: Focus(
+                        // Physical/hardware Enter — web & desktop. Soft
+                        // keyboards on mobile don't dispatch this, so touch
+                        // input keeps using the IME's own return-key behavior
+                        // (still wired below via onSubmitted) untouched.
+                        onKeyEvent: (node, event) {
+                          if (event is KeyDownEvent &&
+                              event.logicalKey == LogicalKeyboardKey.enter) {
+                            if (HardwareKeyboard.instance.isShiftPressed) {
+                              // Shift+Enter: let it through as a newline.
+                              return KeyEventResult.ignored;
+                            }
+                            _sendMessage(_controller.text);
+                            return KeyEventResult.handled;
+                          }
                           return KeyEventResult.ignored;
-                        }
-                        _sendMessage(_controller.text);
-                        return KeyEventResult.handled;
-                      }
-                      return KeyEventResult.ignored;
-                    },
-                    child: TextField(
-                      controller: _controller,
-                      maxLength: 500,
-                      minLines: 1,
-                      maxLines: null,
-                      textInputAction: TextInputAction.newline,
-                      keyboardType: TextInputType.multiline,
-                      decoration: InputDecoration(
-                        hintText: 'Ask about crops, prices, weather...',
-                        counterText: '',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                          borderSide: BorderSide(color: Colors.grey[300]!),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                          borderSide: BorderSide(color: Colors.grey[300]!),
-                        ),
-                        // Same shape as enabledBorder, just the accent
-                        // color — a subtle, theme-consistent focus cue
-                        // (Flutter animates the border color transition
-                        // between states itself).
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                          borderSide: const BorderSide(
-                            color: AppTheme.primary,
-                            width: 1.5,
+                        },
+                        child: TextField(
+                          controller: _controller,
+                          maxLength: 500,
+                          minLines: 1,
+                          maxLines: null,
+                          textInputAction: TextInputAction.newline,
+                          keyboardType: TextInputType.multiline,
+                          decoration: InputDecoration(
+                            hintText: 'Ask about crops, prices, weather...',
+                            counterText: '',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(24),
+                              borderSide: BorderSide(color: Colors.grey[300]!),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(24),
+                              borderSide: BorderSide(color: Colors.grey[300]!),
+                            ),
+                            // Same shape as enabledBorder, just the accent
+                            // color — a subtle, theme-consistent focus cue
+                            // (Flutter animates the border color transition
+                            // between states itself).
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(24),
+                              borderSide: const BorderSide(
+                                color: AppTheme.primary,
+                                width: 1.5,
+                              ),
+                            ),
+                            contentPadding: const EdgeInsets.fromLTRB(
+                              16,
+                              10,
+                              4,
+                              10,
+                            ),
+                            filled: true,
+                            fillColor: Colors.grey[50],
+                            // Send/stop lives INSIDE the field now, not in the
+                            // controls row below it. Loose constraints stop
+                            // InputDecoration squeezing the button into a
+                            // default icon slot.
+                            suffixIconConstraints: const BoxConstraints(
+                              minWidth: 0,
+                              minHeight: 0,
+                            ),
+                            suffixIcon: Padding(
+                              padding: const EdgeInsets.only(right: 6, left: 4),
+                              child: _fieldActionButton(),
+                            ),
                           ),
+                          // Fallback for platforms/IMEs that do fire a "submit"
+                          // action for the return key (e.g. some mobile IMEs
+                          // configured for "send") — harmless no-op elsewhere
+                          // since Enter is already handled above on desktop/web.
+                          onSubmitted: _sendMessage,
                         ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 10,
-                        ),
-                        filled: true,
-                        fillColor: Colors.grey[50],
                       ),
-                      // Fallback for platforms/IMEs that do fire a "submit"
-                      // action for the return key (e.g. some mobile IMEs
-                      // configured for "send") — harmless no-op elsewhere
-                      // since Enter is already handled above on desktop/web.
-                      onSubmitted: _sendMessage,
                     ),
                   ),
-                ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              // Measures the width the row ACTUALLY has — after the reading
+              // column's cap and after whatever the sidebar is currently
+              // leaving. See ChatInputControls.
+              ChatInputControls(
+                contextLabel: _contextLabel(context),
+                hasContext: _hasContext,
+                onContextTap: _openContextSheet,
+                modelLabel: _modelLabel,
+                modelIsDefault: _selectedModel == _defaultModel,
+                onModelTap: _openModelSheet,
+              ),
+              // Recognition-over-recall: only surface the char budget once it
+              // actually matters, instead of a silent hard cutoff at 500.
+              ValueListenableBuilder<TextEditingValue>(
+                valueListenable: _controller,
+                builder: (context, value, _) {
+                  final len = value.text.length;
+                  if (len <= 400) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 4, right: 8),
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        '$len/500',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: len >= 500 ? FontWeight.w600 : null,
+                          color: len >= 500
+                              ? AppTheme.error
+                              : AppTheme.textMuted,
+                        ),
+                      ),
+                    ),
+                  );
+                },
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          _buildInputCluster(isWide),
-          // Recognition-over-recall: only surface the char budget once it
-          // actually matters, instead of a silent hard cutoff at 500.
-          ValueListenableBuilder<TextEditingValue>(
-            valueListenable: _controller,
-            builder: (context, value, _) {
-              final len = value.text.length;
-              if (len <= 400) return const SizedBox.shrink();
-              return Padding(
-                padding: const EdgeInsets.only(top: 4, right: 8),
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: Text(
-                    '$len/500',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: len >= 500 ? FontWeight.w600 : null,
-                      color: len >= 500 ? AppTheme.error : AppTheme.textMuted,
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -3315,6 +3393,236 @@ class _BlinkingCursorState extends State<_BlinkingCursor>
         height: 14,
         color: AppTheme.textPrimary,
       ),
+    );
+  }
+}
+
+/// The row of controls beneath the chat input: context on the left, model
+/// selector on the right.
+///
+/// Send is NOT here — it lives inside the text field, where it is adjacent to
+/// the thing it acts on (see _fieldActionButton). This row holds only the two
+/// settings, which is why it can stay visible with an empty field without
+/// offering an action there is nothing to perform.
+///
+/// A top-level widget rather than three private methods on _ChatScreenState
+/// so its responsive behaviour can be driven directly by a test at real
+/// widths — see test/chat_input_controls_test.dart, which is what actually
+/// verifies the 320/375/768/desktop cases rather than asserting them. It
+/// holds no state and makes no decisions: every label, every "is this
+/// selected" flag and every callback is passed in, so the context picker,
+/// model sheet and send behaviour all still live in the screen.
+class ChatInputControls extends StatelessWidget {
+  /// "Nuwara Eliya · Carrot", or the localised "Set context" when unset.
+  final String contextLabel;
+  final bool hasContext;
+  final VoidCallback onContextTap;
+
+  final String modelLabel;
+
+  /// True while the fast model is selected — drives the icon and the fact
+  /// that "default" is not styled as an active, opted-into choice.
+  final bool modelIsDefault;
+  final VoidCallback onModelTap;
+
+  /// Shared height for every control here, so they read as one row of
+  /// siblings rather than a big detached circle next to two small pills.
+  static const double controlHeight = 36;
+
+  /// Below this AVAILABLE width (not window width — see [build]) the context
+  /// pill drops its label and shows its icon alone.
+  static const double compactBreakpoint = 600;
+
+  /// Width of a label-less pill — 9px padding either side, a 16px icon and
+  /// the 1px border. Reserved for the context pill when budgeting the model
+  /// pill's ceiling, so the two can never fight for the same pixels.
+  static const double _collapsedPillWidth = 36;
+
+  const ChatInputControls({
+    super.key,
+    required this.contextLabel,
+    required this.hasContext,
+    required this.onContextTap,
+    required this.modelLabel,
+    required this.modelIsDefault,
+    required this.onModelTap,
+  });
+
+  @override
+  Widget build(BuildContext context) =>
+      LayoutBuilder(builder: (ctx, bc) => _row(bc.maxWidth));
+
+  /// The row under the text field: context on the left, model and send on
+  /// the right. Always visible — it does not wait for focus or for the field
+  /// to have text.
+  ///
+  /// [available] is the width this row actually gets, measured by the
+  /// LayoutBuilder in _buildInputBar rather than read from MediaQuery. That
+  /// distinction is what makes the row correct on web: the window can be
+  /// 1280px while the chat area is only 1000px because the sidebar is open,
+  /// and it changes continuously as the sidebar folds. A MediaQuery breakpoint
+  /// would be blind to both.
+  ///
+  /// The horizontal scroll view this replaces is gone. It hid overflow rather
+  /// than resolving it — a farmer with "Nuwara Eliya · Finger millet" selected
+  /// had to swipe a 4px-tall strip to discover the model selector.
+  Widget _row(double available) {
+    final compact = available < compactBreakpoint;
+    return Row(
+      children: [
+        // Expanded (not Flexible) so the right-hand group is pinned to the
+        // end of the row whatever the context label's length; Align keeps the
+        // pill itself at its natural width against the left edge. The pill
+        // truncates inside this slot — see _pill.
+        Expanded(
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: _pill(
+              icon: hasContext ? Icons.tune : Icons.tune_outlined,
+              // Compact drops the LABEL only; the tooltip still carries the
+              // full selection, and the active dot still reports that there
+              // is one. See the note on showActiveDot.
+              label: compact ? null : contextLabel,
+              tooltip: contextLabel,
+              active: hasContext,
+              showActiveDot: compact && hasContext,
+              onTap: onContextTap,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        // The model pill is measured at its NATURAL width (it is not a flex
+        // child), so without a ceiling a long label simply overflows the row
+        // — Tamil's "விரிவான பதில்" did exactly that, by 5.8px at 320dp.
+        // Budget = everything left once send, the two gaps and a collapsed
+        // context pill have been paid for. Above ~360dp this is far wider
+        // than the label needs and changes nothing; at 320dp it clips the
+        // last glyph or two instead of breaking the layout.
+        ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: math.max(0, available - 8 - _collapsedPillWidth),
+          ),
+          child: _pill(
+            icon: modelIsDefault
+                ? Icons.bolt_outlined
+                : Icons.auto_awesome_outlined,
+            // The model label is KEPT at every width, deliberately: it was
+            // the context label — a district plus a crop name — that made the
+            // old row tight, not this one. At 375dp the collapsed context
+            // pill, send and the two gaps cost 88px of 351, leaving ample
+            // room even for Tamil's "விரிவான பதில்".
+            //
+            // 320dp is the one width where it does NOT fit outright — the row
+            // overflowed by 5.8px there before the budget above was added, so
+            // the smallest phones lose a glyph or two to the ellipsis rather
+            // than the label. Every width here is pinned by
+            // test/chat_input_controls_test.dart, which fails on overflow.
+            label: modelLabel,
+            tooltip: modelLabel,
+            active: !modelIsDefault,
+            onTap: onModelTap,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// One control in the row under the input.
+  ///
+  /// [label] null renders the icon alone (mobile's context button).
+  ///
+  /// [showActiveDot] paints a small accent dot on the pill's top-right. It
+  /// exists for exactly one case: icon-only AND something is selected. With
+  /// the label gone, the tint and border alone ask the farmer to remember
+  /// which of two similar-looking pills means "set" — the dot is a second,
+  /// non-colour-dependent channel saying so, and the tooltip carries the
+  /// actual selection for anyone who long-presses.
+  Widget _pill({
+    required IconData icon,
+    required String? label,
+    required String tooltip,
+    required bool active,
+    required VoidCallback onTap,
+    bool showActiveDot = false,
+  }) {
+    final accent = AppTheme.accents.chat.ink;
+    final foreground = active ? accent : AppTheme.login.textSecondary;
+    final pill = Material(
+      color: active ? accent.withValues(alpha: 0.10) : Colors.transparent,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          height: controlHeight,
+          padding: EdgeInsets.symmetric(horizontal: label == null ? 9 : 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: active ? accent : AppTheme.login.borderSubtle,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16, color: foreground),
+              if (label != null) ...[
+                const SizedBox(width: 6),
+                // Step 6 — the intermediate case. Between the compact
+                // breakpoint and a comfortable desktop width, the label is
+                // free to shrink and ellipsise instead of overflowing:
+                // "Nuwara Eliya · Finger millet" becomes "Nuwara Eliya · Fin…"
+                // and, narrower still, "Nuwara Eli…". Flexible (loose) means
+                // a SHORT label is unaffected — the pill stays at its natural
+                // width and only a label that cannot fit is ever cut.
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    softWrap: false,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+                      color: foreground,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+    return Tooltip(
+      message: tooltip,
+      child: showActiveDot
+          ? Stack(
+              clipBehavior: Clip.none,
+              children: [
+                pill,
+                Positioned(
+                  top: -1,
+                  right: -1,
+                  child: Container(
+                    key: const ValueKey('context-active-dot'),
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: accent,
+                      shape: BoxShape.circle,
+                      // Rings the dot in the page colour so it reads as a
+                      // badge rather than a smudge on the pill's border.
+                      border: Border.all(
+                        color: AppTheme.background,
+                        width: 1.5,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            )
+          : pill,
     );
   }
 }

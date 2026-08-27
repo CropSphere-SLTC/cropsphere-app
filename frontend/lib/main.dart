@@ -611,7 +611,7 @@ class _MainShellState extends State<MainShell>
     WeatherScreen(onNavigate: _navigateTo), // 3
     RecommendScreen(onNavigate: _navigateTo), // 4
     DemandScreen(onNavigate: _navigateTo), // 5
-    const ChatScreen(), // 6
+    ChatScreen(onNavigate: _navigateTo), // 6
   ];
 
   @override

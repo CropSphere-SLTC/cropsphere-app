@@ -21,21 +21,31 @@ import '../../services/profile_service.dart';
 import '../../models/api_models.dart';
 import '../../models/chat_history_models.dart';
 import '../../widgets/app_theme.dart';
-import '../../widgets/language_control.dart';
-import '../../widgets/profile_avatar_button.dart';
+import '../../widgets/app_top_bar.dart';
 import '../../widgets/followup_chip.dart';
 import '../../widgets/growth_logo.dart';
+import '../../widgets/localized_names.dart';
 import '../../widgets/skeleton_loading.dart';
-import '../../widgets/theme_toggle_button.dart';
 
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key});
+  /// Tab switcher from MainShell, so the restored AppTopBar can navigate.
+  ///
+  /// Chat was the only one of the seven screens registered without this —
+  /// it rendered its own gradient header instead of AppTopBar and so had
+  /// nothing to navigate with. See the note above [_buildTopBar].
+  final ValueChanged<int>? onNavigate;
+
+  const ChatScreen({super.key, this.onNavigate});
   @override
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  static const double _wideBreakpoint = 900;
+  /// Matches the app's own desktop threshold — MainShell hides the floating
+  /// bottom nav at >=1024 and AppTopBar's nav row is the only navigation from
+  /// there up. Chat used to say 900, so between 900 and 1023 it laid itself
+  /// out as "wide" while the app was still in its mobile shell.
+  static const double _wideBreakpoint = 1024;
   static const _logoAsset = 'assets/images/cropsphere_logo.png';
   static const _onboardingFollowups = [
     'Carrot yield in Badulla',
@@ -955,7 +965,8 @@ class _ChatScreenState extends State<ChatScreen> {
     final isWide = MediaQuery.of(context).size.width >= _wideBreakpoint;
     final chatArea = Column(
       children: [
-        _buildHeader(isWide),
+        _buildTopBar(context),
+        _buildChatToolbar(isWide),
         _buildContextBar(),
         Expanded(
           child: Stack(
@@ -1046,6 +1057,83 @@ class _ChatScreenState extends State<ChatScreen> {
           : chatArea,
     );
   }
+
+  /// The slim strip under the app nav holding the sidebar toggle, and the
+  /// "new chat" action the removed header used to carry.
+  ///
+  /// The hamburger works at BOTH breakpoints, which is new. Wide, it collapses
+  /// the permanent sidebar (see build) so the conversation gets the full
+  /// width; narrow, it opens the same sidebar as a Drawer overlay. One control,
+  /// two presentations — the Claude/ChatGPT pattern.
+  Widget _buildChatToolbar(bool isWide) {
+    final canToggle = isWide;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(6, 6, 6, 0),
+      child: Row(
+        children: [
+          IconButton(
+            icon: Icon(
+              // Wide: the glyph reports which way the toggle will go.
+              // Narrow: it always opens, so it is always a plain hamburger.
+              canToggle && !_sidebarCollapsed ? Icons.menu_open : Icons.menu,
+              color: AppTheme.accents.chat.ink,
+            ),
+            tooltip: canToggle && !_sidebarCollapsed
+                ? tr(context, const {
+                    'en': 'Hide conversations',
+                    'si': 'සංවාද සඟවන්න',
+                    'ta': 'உரையாடல்களை மறை',
+                  })
+                : tr(context, const {
+                    'en': 'Show conversations',
+                    'si': 'සංවාද පෙන්වන්න',
+                    'ta': 'உரையாடல்களைக் காட்டு',
+                  }),
+            onPressed: () {
+              if (canToggle) {
+                setState(() => _sidebarCollapsed = !_sidebarCollapsed);
+              } else {
+                _scaffoldKey.currentState?.openDrawer();
+              }
+            },
+          ),
+          const Spacer(),
+          if (_displayMessages.isNotEmpty)
+            TextButton.icon(
+              onPressed: _startNewChat,
+              icon: const Icon(Icons.add, size: 18),
+              label: Text(
+                tr(context, const {
+                  'en': 'New chat',
+                  'si': 'නව සංවාදය',
+                  'ta': 'புதிய உரையாடல்',
+                }),
+              ),
+              style: TextButton.styleFrom(
+                foregroundColor: AppTheme.accents.chat.ink,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// The app's ONE top nav — the same AppTopBar the other six screens render.
+  ///
+  /// Chat used to draw its own gradient bar ("CropSphere AI · Live · LLaMA 3 +
+  /// RAG") with a private copy of the language/theme/avatar cluster, and was
+  /// never migrated when app_top_bar.dart unified the other six. That bar is
+  /// gone: a full-height conversation view has no feature header card, and a
+  /// second header competed with the app nav for the same role.
+  ///
+  /// Chat's accent is `_hunter`, the same green as yield's — see
+  /// AppFeatureAccents.chat for why Sea Green could not carry small text.
+  Widget _buildTopBar(BuildContext context) => AppTopBar(
+    activeIndex: 6,
+    activeBg: AppTheme.accents.chat.fill.withValues(alpha: 0.16),
+    activeColor: AppTheme.accents.chat.ink,
+    onNavigate: widget.onNavigate,
+  );
 
   // ── Sidebar ───────────────────────────────────────────────────────────────
 
@@ -1390,83 +1478,6 @@ class _ChatScreenState extends State<ChatScreen> {
     final h = local.hour.toString().padLeft(2, '0');
     final m = local.minute.toString().padLeft(2, '0');
     return '$h:$m';
-  }
-
-  Widget _buildHeader(bool isWide) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [AppTheme.primary, AppTheme.primaryDark],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-      ),
-      child: Row(
-        children: [
-          if (!isWide)
-            IconButton(
-              icon: const Icon(Icons.menu, color: Colors.white),
-              tooltip: 'Conversations',
-              padding: EdgeInsets.zero,
-              onPressed: () => _scaffoldKey.currentState?.openDrawer(),
-            )
-          else
-            IconButton(
-              icon: Icon(
-                _sidebarCollapsed ? Icons.menu : Icons.menu_open,
-                color: Colors.white,
-              ),
-              tooltip: _sidebarCollapsed
-                  ? 'Show conversations'
-                  : 'Hide conversations',
-              padding: EdgeInsets.zero,
-              onPressed: () =>
-                  setState(() => _sidebarCollapsed = !_sidebarCollapsed),
-            ),
-          _logo(28),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'CropSphere AI',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              Text(
-                AppConfig.useMockServices
-                    ? 'Mock Mode · LLaMA 3 + RAG'
-                    : 'Live · LLaMA 3 + RAG',
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.7),
-                  fontSize: 11,
-                ),
-              ),
-            ],
-          ),
-          const Spacer(),
-          if (_displayMessages.isNotEmpty)
-            IconButton(
-              icon: const Icon(Icons.delete_outline, color: Colors.white70),
-              tooltip: 'Clear chat',
-              onPressed: _startNewChat,
-            ),
-          const SizedBox(width: 4),
-          // Chat's top bar is the one screen that never had a language
-          // switcher — added here too for a consistent cluster across all
-          // 7 screens. White icon to read against this bar's dark gradient.
-          const LanguageControl(),
-          const SizedBox(width: 8),
-          const ThemeToggleButton(color: Colors.white),
-          const SizedBox(width: 8),
-          const ProfileAvatarButton(diameter: 32),
-        ],
-      ),
-    );
   }
 
   Widget _buildContextBar() {

@@ -31,6 +31,8 @@ import '../../services/service_factory.dart';
 import '../../utils/farm_context.dart';
 import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
+import '../../widgets/localized_names.dart';
+import '../../widgets/searchable_dropdown.dart';
 import '../../widgets/app_top_bar.dart';
 import '../../widgets/followup_chip.dart';
 import '../../widgets/skeleton_loading.dart';
@@ -41,24 +43,6 @@ typedef _L = Map<String, String>;
 /// than one ratio — see _tierFor for why the old >= 0.7 could not
 /// distinguish 3 of 4 from 4 of 4.
 enum _MatchTier { ideal, good, workable, poor }
-
-// District display names — official Sinhala/Tamil district names, not a
-// literal word-for-word translation. The English key is kept as the value
-// sent to the backend; only the label shown to the farmer changes.
-const Map<String, _L> _districtNames = {
-  'Nuwara Eliya': {'en': 'Nuwara Eliya', 'si': 'නුවරඑළිය', 'ta': 'நுவரெலியா'},
-  'Badulla': {'en': 'Badulla', 'si': 'බදුල්ල', 'ta': 'பதுளை'},
-  'Anuradhapura': {
-    'en': 'Anuradhapura',
-    'si': 'අනුරාධපුරය',
-    'ta': 'அனுராதபுரம்',
-  },
-  'Monaragala': {'en': 'Monaragala', 'si': 'මොනරාගල', 'ta': 'மொணராகலை'},
-  'Ampara': {'en': 'Ampara', 'si': 'අම්පාර', 'ta': 'அம்பாறை'},
-  'Hambantota': {'en': 'Hambantota', 'si': 'හම්බන්තොට', 'ta': 'அம்பாந்தோட்டை'},
-  'Batticaloa': {'en': 'Batticaloa', 'si': 'මඩකලපුව', 'ta': 'மட்டக்களப்பு'},
-  'Jaffna': {'en': 'Jaffna', 'si': 'යාපනය', 'ta': 'யாழ்ப்பாணம்'},
-};
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Season & irrigation data — trilingual, consistent with Yield screen
@@ -332,11 +316,18 @@ class _RecommendScreenState extends State<RecommendScreen> {
 
   String _t(_L m) => m[_langKey] ?? m['en']!;
 
+  /// Placeholder for this screen's SearchableDropdown.
+  String get _searchHint => _t({
+    'en': 'Type to search',
+    'si': 'සෙවීමට ටයිප් කරන්න',
+    'ta': 'தேட தட்டச்சு செய்க',
+  });
+
   /// Translated district name for display — falls back to the raw key
-  /// (e.g. a future district not yet added to _districtNames) so nothing
+  /// (e.g. a future district not yet added to kDistrictNames) so nothing
   /// ever silently disappears from the UI.
   String _districtLabel(String englishKey) =>
-      _t(_districtNames[englishKey] ?? {'en': englishKey});
+      districtLabel(_langKey, englishKey);
 
   // ── Soil-nutrient labels ─────────────────────────────────────────────────
   // The N/P/K sliders store a plain 0–1 index for the prediction API (this
@@ -940,7 +931,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
     return _card(
       child: Column(
         children: [
-          _searchableDropdown(
+          SearchableDropdown(
             label: _t({
               'en': 'District',
               'si': 'දිස්ත්‍රික්කය',
@@ -949,6 +940,8 @@ class _RecommendScreenState extends State<RecommendScreen> {
             value: _selectedDistrict,
             items: _districts,
             icon: Icons.location_on,
+            accent: AppTheme.accents.cropRec,
+            searchHint: _searchHint,
             controller: _districtCtrl,
             focusNode: _districtFocus,
             itemLabel: _districtLabel,
@@ -992,7 +985,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
               suffixIcon: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _fieldCheck(_selectedIrrigation != null),
+                  fieldCheckIcon(_selectedIrrigation != null),
                   const Padding(
                     padding: EdgeInsets.only(right: 8),
                     child: Icon(Icons.arrow_drop_down),
@@ -2117,241 +2110,6 @@ class _RecommendScreenState extends State<RecommendScreen> {
       ),
     );
   }
-
-  /// Inline validation tick for a required field, shown as its `suffixIcon`.
-  ///
-  /// The filled state is the yield page's `_fieldCheck` verbatim —
-  /// Icons.check_circle at 19px in AppTheme.success — so a farmer moving
-  /// between the two forms sees one signal, not two dialects of one.
-  ///
-  /// Unlike yield's, this returns a widget in BOTH states: an unfilled
-  /// outline stands in for the tick when the field is empty. The removed
-  /// checklist card used to carry that "still to do" signal; with it gone,
-  /// a field that renders nothing until it is satisfied leaves nowhere for
-  /// the eye to learn that the tick is the thing to collect.
-  ///
-  /// Status is never colour-alone here: the two states differ in glyph
-  /// (filled disc vs open ring) as well as in tone.
-  Widget _fieldCheck(bool done) => Padding(
-    padding: const EdgeInsets.only(right: 2),
-    child: Icon(
-      done ? Icons.check_circle : Icons.radio_button_unchecked,
-      size: 19,
-      color: done ? AppTheme.success : AppTheme.login.borderSubtle,
-    ),
-  );
-
-  /// Type-to-filter dropdown — price_screen's `_searchableDropdown`, ported
-  /// verbatim with only the accent tokens swapped (price.ink -> cropRec.ink).
-  ///
-  /// NOTE: this is now the FOURTH copy of this widget (yield, price, weather,
-  /// here). Ported rather than extracted because this pass is scoped to one
-  /// screen, but it is the same drift app_top_bar.dart was created to end —
-  /// worth hoisting into lib/widgets/ next time one of the four is touched.
-  ///
-  /// Price's own notes, which still apply:
-  ///
-  /// 1. [itemLabel]. Yield's version shows raw English values; this screen is
-  ///    trilingual, so options render through the same label functions the old
-  ///    `_nullDropdown` used, and the FILTER matches either the English key or
-  ///    the translated label. A Sinhala user can type "කැ" or "car" and reach
-  ///    Carrot either way — matching only the display label would strand
-  ///    farmers whose keyboard is in the other script.
-  /// 2. The accent palette. Structure and behaviour are yield's; only the
-  ///    colour tokens differ.
-  Widget _searchableDropdown({
-    required String label,
-    required String? value,
-    required List<String> items,
-    required IconData icon,
-    required ValueChanged<String?> onChanged,
-    required TextEditingController controller,
-    required FocusNode focusNode,
-    required String Function(String) itemLabel,
-    String? hint,
-    bool enabled = true,
-  }) => LayoutBuilder(
-    // Captures the field's own width so the options overlay lines up
-    // edge-to-edge below it instead of sizing itself to its content.
-    builder: (ctx, bc) => Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        RawAutocomplete<String>(
-          textEditingController: controller,
-          focusNode: focusNode,
-          displayStringForOption: itemLabel,
-          optionsBuilder: (TextEditingValue v) {
-            if (!enabled) return const Iterable<String>.empty();
-            final q = v.text.trim().toLowerCase();
-            // Empty, or still showing the committed selection (the farmer
-            // reopened the field to change their mind) -> offer everything.
-            if (q.isEmpty ||
-                q == itemLabel(value ?? '').toLowerCase() ||
-                q == (value ?? '').toLowerCase()) {
-              return items;
-            }
-            return items.where(
-              (e) =>
-                  e.toLowerCase().contains(q) ||
-                  itemLabel(e).toLowerCase().contains(q),
-            );
-          },
-          onSelected: (sel) {
-            onChanged(sel);
-            focusNode.unfocus();
-          },
-          fieldViewBuilder: (ctx, ctrl, fn, onFieldSubmitted) => TextFormField(
-            controller: ctrl,
-            focusNode: fn,
-            enabled: enabled,
-            onFieldSubmitted: (_) => onFieldSubmitted(),
-            style: TextStyle(fontSize: 14, color: AppTheme.login.textPrimary),
-            decoration: InputDecoration(
-              labelText: label,
-              hintText: enabled
-                  ? _t({
-                      'en': 'Type to search',
-                      'si': 'සෙවීමට ටයිප් කරන්න',
-                      'ta': 'தேட தட்டச்சு செய்க',
-                    })
-                  : null,
-              hintStyle: TextStyle(
-                color: AppTheme.login.textSecondary,
-                fontSize: 13,
-              ),
-              labelStyle: TextStyle(color: AppTheme.login.textSecondary),
-              prefixIcon: Icon(
-                icon,
-                color: enabled
-                    ? AppTheme.accents.cropRec.ink
-                    : AppTheme.login.textSecondary,
-                size: 20,
-              ),
-              // Tick + caret together. mainAxisSize.min keeps the Row from
-              // trying to fill the field, and the loosened constraints stop
-              // InputDecoration squeezing two icons into one icon's width.
-              suffixIconConstraints: const BoxConstraints(
-                minWidth: 0,
-                minHeight: 0,
-              ),
-              suffixIcon: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _fieldCheck(value != null),
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: Icon(
-                      Icons.arrow_drop_down,
-                      color: enabled
-                          ? AppTheme.accents.cropRec.ink
-                          : AppTheme.login.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(color: AppTheme.login.borderSubtle),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(color: AppTheme.login.borderSubtle),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(
-                  color: AppTheme.login.focusRing,
-                  width: 2,
-                ),
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 10,
-              ),
-              filled: !enabled,
-              fillColor: enabled ? null : AppTheme.disabledSurface,
-            ),
-          ),
-          optionsViewBuilder: (ctx, onSelected, options) => Align(
-            alignment: Alignment.topLeft,
-            child: Material(
-              elevation: 4,
-              borderRadius: BorderRadius.circular(8),
-              color: AppTheme.login.background,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: 240,
-                  maxWidth: bc.maxWidth,
-                ),
-                child: SizedBox(
-                  width: bc.maxWidth,
-                  child: ListView.builder(
-                    padding: EdgeInsets.zero,
-                    shrinkWrap: true,
-                    itemCount: options.length,
-                    itemBuilder: (c, i) {
-                      final opt = options.elementAt(i);
-                      final isSelected = opt == value;
-                      return InkWell(
-                        onTap: () => onSelected(opt),
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 11,
-                          ),
-                          color: isSelected
-                              ? AppTheme.accents.cropRec.fill.withValues(
-                                  alpha: 0.14,
-                                )
-                              : null,
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  itemLabel(opt),
-                                  style: TextStyle(
-                                    fontSize: 13.5,
-                                    fontWeight: isSelected
-                                        ? FontWeight.w700
-                                        : FontWeight.w500,
-                                    color: isSelected
-                                        ? AppTheme.accents.cropRec.ink
-                                        : AppTheme.login.textPrimary,
-                                  ),
-                                ),
-                              ),
-                              if (isSelected)
-                                Icon(
-                                  Icons.check,
-                                  size: 16,
-                                  color: AppTheme.accents.cropRec.ink,
-                                ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-        if (hint != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 4, left: 4),
-            child: Text(
-              hint,
-              style: TextStyle(
-                fontSize: 11,
-                color: AppTheme.login.textSecondary,
-              ),
-            ),
-          ),
-      ],
-    ),
-  );
 
   // ── Chat handoff ──────────────────────────────────────────────────────────
   /// The whole recommendation, structured, for the chat screen to reason over.

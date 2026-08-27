@@ -1,8 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-// Mirrors yield_screen's _searchableDropdown + _syncSearchField so the
-// tap-to-open behaviour is pinned without dragging Firebase/services in.
+import 'package:cropsphere_app/widgets/app_theme.dart';
+import 'package:cropsphere_app/widgets/searchable_dropdown.dart';
+
+// Drives the REAL SearchableDropdown + syncSearchField from
+// lib/widgets/searchable_dropdown.dart.
+//
+// This harness used to re-implement both, because they only existed as
+// private methods inside yield_screen, which could not be imported without
+// dragging Firebase/services into the test. Now that they are extracted into
+// a widget whose only dependency is app_theme.dart, the test exercises the
+// shipping code instead of a copy of it — so a regression in the widget fails
+// here rather than passing against a stale mirror.
 //
 // The bug this guards: RawAutocomplete recomputes its options ONLY when the
 // field text changes (framework autocomplete.dart, `_onChangedField`), never
@@ -32,11 +42,9 @@ class _HarnessState extends State<_Harness> {
   @override
   void initState() {
     super.initState();
-    _cropFocus.addListener(
-      () => _syncSearchField(_cropFocus, _cropCtrl, _crop),
-    );
+    _cropFocus.addListener(() => syncSearchField(_cropFocus, _cropCtrl, _crop));
     _districtFocus.addListener(
-      () => _syncSearchField(_districtFocus, _districtCtrl, _district),
+      () => syncSearchField(_districtFocus, _districtCtrl, _district),
     );
   }
 
@@ -49,89 +57,21 @@ class _HarnessState extends State<_Harness> {
     super.dispose();
   }
 
-  // Copy of yield_screen._syncSearchField.
-  void _syncSearchField(
-    FocusNode node,
-    TextEditingController ctrl,
-    String? selected,
-  ) {
-    if (node.hasFocus) {
-      if (ctrl.text.isNotEmpty) {
-        ctrl.clear();
-      } else {
-        ctrl.value = const TextEditingValue(text: ' ');
-        ctrl.clear();
-      }
-      return;
-    }
-    final want = selected ?? '';
-    if (ctrl.text != want) ctrl.text = want;
-  }
-
   List<String> get _availableDistricts =>
       _crop != null ? (_districts[_crop!] ?? []) : [];
-
-  Widget _dropdown({
-    required String label,
-    required String? value,
-    required List<String> items,
-    required ValueChanged<String?> onChanged,
-    required TextEditingController controller,
-    required FocusNode focusNode,
-    bool enabled = true,
-  }) => LayoutBuilder(
-    builder: (ctx, bc) => RawAutocomplete<String>(
-      textEditingController: controller,
-      focusNode: focusNode,
-      optionsBuilder: (TextEditingValue v) {
-        if (!enabled) return const Iterable<String>.empty();
-        final q = v.text.trim().toLowerCase();
-        if (q.isEmpty || q == (value ?? '').toLowerCase()) return items;
-        return items.where((e) => e.toLowerCase().contains(q));
-      },
-      onSelected: (sel) {
-        onChanged(sel);
-        focusNode.unfocus();
-      },
-      fieldViewBuilder: (ctx, ctrl, fn, onFieldSubmitted) => TextFormField(
-        controller: ctrl,
-        focusNode: fn,
-        enabled: enabled,
-        decoration: InputDecoration(labelText: label),
-      ),
-      optionsViewBuilder: (ctx, onSelected, options) => Align(
-        alignment: Alignment.topLeft,
-        child: Material(
-          child: SizedBox(
-            width: bc.maxWidth,
-            child: ListView(
-              shrinkWrap: true,
-              children: [
-                for (final o in options)
-                  InkWell(
-                    onTap: () => onSelected(o),
-                    child: Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: Text(o),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
 
   @override
   Widget build(BuildContext context) => MaterialApp(
     home: Scaffold(
       body: Column(
         children: [
-          _dropdown(
+          SearchableDropdown(
             label: 'Select Crop',
             value: _crop,
             items: _crops,
+            icon: Icons.eco,
+            accent: AppTheme.accents.yield,
+            searchHint: 'Type to search',
             controller: _cropCtrl,
             focusNode: _cropFocus,
             onChanged: (val) {
@@ -142,10 +82,13 @@ class _HarnessState extends State<_Harness> {
               });
             },
           ),
-          _dropdown(
+          SearchableDropdown(
             label: 'Select District',
             value: _district,
             items: _availableDistricts,
+            icon: Icons.location_on,
+            accent: AppTheme.accents.yield,
+            searchHint: 'Type to search',
             controller: _districtCtrl,
             focusNode: _districtFocus,
             enabled: _crop != null,
@@ -269,5 +212,53 @@ void main() {
     await _tap(tester, 'Select District');
     expect(find.text('Anuradhapura'), findsOneWidget);
     expect(find.text('Nuwara Eliya'), findsNothing);
+  });
+
+  // The extraction's own guarantee: itemLabel translates what is RENDERED
+  // while the English key stays the committed value, and the filter matches
+  // either script. Yield relies on the identity default (options stay
+  // English); the other five screens pass a real label function.
+  testWidgets('itemLabel renders translations but keeps English keys', (
+    tester,
+  ) async {
+    String? committed;
+    final ctrl = TextEditingController();
+    final focus = FocusNode();
+    addTearDown(ctrl.dispose);
+    addTearDown(focus.dispose);
+    focus.addListener(() => syncSearchField(focus, ctrl, committed));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SearchableDropdown(
+            label: 'Crop',
+            value: committed,
+            items: const ['Carrot', 'Maize'],
+            icon: Icons.eco,
+            accent: AppTheme.accents.price,
+            searchHint: 'Type to search',
+            itemLabel: (c) => const {'Carrot': 'කැරට්', 'Maize': 'බඩඉරිඟු'}[c]!,
+            controller: ctrl,
+            focusNode: focus,
+            onChanged: (v) => committed = v,
+          ),
+        ),
+      ),
+    );
+
+    await _tap(tester, 'Crop');
+    expect(find.text('කැරට්'), findsOneWidget);
+    expect(find.text('Carrot'), findsNothing);
+
+    // Typing the English key still finds the crop whose label is Sinhala.
+    await tester.enterText(find.widgetWithText(TextFormField, 'Crop'), 'carr');
+    await tester.pumpAndSettle();
+    expect(find.text('කැරට්'), findsOneWidget);
+    expect(find.text('බඩඉරිඟු'), findsNothing);
+
+    await tester.tap(find.text('කැරට්').last);
+    await tester.pumpAndSettle();
+    expect(committed, 'Carrot');
   });
 }

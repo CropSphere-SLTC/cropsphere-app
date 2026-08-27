@@ -30,6 +30,8 @@ import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
 import '../../widgets/app_top_bar.dart';
 import '../../widgets/followup_chip.dart';
+import '../../widgets/localized_names.dart';
+import '../../widgets/searchable_dropdown.dart';
 import '../../widgets/skeleton_loading.dart';
 
 typedef _L = Map<String, String>;
@@ -45,50 +47,6 @@ const Map<String, List<String>> _cropDistricts = {
   'Finger millet': ['Anuradhapura', 'Monaragala', 'Ampara'],
   'Groundnut': ['Monaragala', 'Ampara', 'Batticaloa', 'Jaffna'],
 };
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  Trilingual display names — internal keys stay in English (used for API
-//  calls, map lookups, etc). Only what's shown on screen gets translated.
-// ─────────────────────────────────────────────────────────────────────────────
-const Map<String, _L> _cropNames = {
-  'Carrot': {'en': 'Carrot', 'si': 'කැරට්', 'ta': 'கேரட்'},
-  'Maize': {'en': 'Maize', 'si': 'බඩඉරිඟු', 'ta': 'மக்காச்சோளம்'},
-  'Green gram': {'en': 'Green gram', 'si': 'මුං ඇට', 'ta': 'பச்சைப்பயறு'},
-  'Cowpea': {'en': 'Cowpea', 'si': 'කව්පි', 'ta': 'காராமணி'},
-  'Finger millet': {'en': 'Finger millet', 'si': 'කුරක්කන්', 'ta': 'கேழ்வரகு'},
-  'Groundnut': {'en': 'Groundnut', 'si': 'රටකජු', 'ta': 'வேர்க்கடலை'},
-};
-
-const Map<String, _L> _districtNames = {
-  'Nuwara Eliya': {'en': 'Nuwara Eliya', 'si': 'නුවරඑළිය', 'ta': 'நுவரெலியா'},
-  'Badulla': {'en': 'Badulla', 'si': 'බදුල්ල', 'ta': 'பதுளை'},
-  'Anuradhapura': {
-    'en': 'Anuradhapura',
-    'si': 'අනුරාධපුරය',
-    'ta': 'அனுராதபுரம்',
-  },
-  'Monaragala': {'en': 'Monaragala', 'si': 'මොනරාගල', 'ta': 'மொணராகலை'},
-  'Ampara': {'en': 'Ampara', 'si': 'අම්පාර', 'ta': 'அம்பாறை'},
-  'Hambantota': {'en': 'Hambantota', 'si': 'හම්බන්තොට', 'ta': 'அம்பாந்தோட்டை'},
-  'Batticaloa': {'en': 'Batticaloa', 'si': 'මඩකලපුව', 'ta': 'மட்டக்களப்பு'},
-  'Jaffna': {'en': 'Jaffna', 'si': 'යාපනය', 'ta': 'யாழ்ப்பாணம்'},
-};
-
-/// Look up a crop's display name, falling back to the raw key if a crop
-/// isn't in the map yet (keeps the UI from crashing on new/unmapped crops).
-String _cropLabel(String langKey, String? crop) {
-  if (crop == null) return '';
-  final m = _cropNames[crop];
-  if (m == null) return crop;
-  return m[langKey] ?? m['en'] ?? crop;
-}
-
-String _districtLabel(String langKey, String? district) {
-  if (district == null) return '';
-  final m = _districtNames[district];
-  if (m == null) return district;
-  return m[langKey] ?? m['en'] ?? district;
-}
 
 String _seasonLabel(String langKey, String? season) {
   if (season == null) return '';
@@ -318,6 +276,13 @@ class _PriceScreenState extends State<PriceScreen> {
 
   String _t(_L m) => m[_langKey] ?? m['en']!;
 
+  /// Placeholder for every SearchableDropdown on this screen.
+  String get _searchHint => _t({
+    'en': 'Type to search',
+    'si': 'සෙවීමට ටයිප් කරන්න',
+    'ta': 'தேட தட்டச்சு செய்க',
+  });
+
   @override
   void initState() {
     super.initState();
@@ -338,54 +303,19 @@ class _PriceScreenState extends State<PriceScreen> {
       });
     }
     _cropFocus.addListener(
-      () => _syncSearchField(
+      () => syncSearchField(
         _cropFocus,
         _cropSearchCtrl,
-        _cropLabel(_langKey, _selectedCrop),
+        cropLabel(_langKey, _selectedCrop),
       ),
     );
     _districtFocus.addListener(
-      () => _syncSearchField(
+      () => syncSearchField(
         _districtFocus,
         _districtSearchCtrl,
-        _districtLabel(_langKey, _selectedDistrict),
+        districtLabel(_langKey, _selectedDistrict),
       ),
     );
-  }
-
-  /// Keeps a searchable dropdown honest across focus changes. Ported from the
-  /// yield screen, where the full rationale lives.
-  ///
-  /// ON FOCUS — force a real text transition so RawAutocomplete rebuilds its
-  /// option list and the field opens showing EVERY option. RawAutocomplete
-  /// recomputes options only when the field's TEXT changes (framework
-  /// autocomplete.dart, `_onChangedField`), never on focus — so without this,
-  /// tapping District after choosing a crop opens onto an empty list.
-  ///
-  /// ON BLUR — snap the text back to the committed selection, so typing a
-  /// partial query and tapping away can't leave the field showing something
-  /// that isn't actually selected.
-  ///
-  /// [selected] is the DISPLAY label, not the English key: this screen is
-  /// trilingual, so what the field snaps back to has to be what the farmer
-  /// would have read there.
-  void _syncSearchField(
-    FocusNode node,
-    TextEditingController ctrl,
-    String selected,
-  ) {
-    if (node.hasFocus) {
-      if (ctrl.text.isNotEmpty) {
-        ctrl.clear(); // real change: "Badulla" -> "" -> full list
-      } else {
-        // Already empty, so clear() alone would notify nobody (a
-        // ValueNotifier drops a write equal to its current value).
-        ctrl.value = const TextEditingValue(text: ' ');
-        ctrl.clear();
-      }
-      return;
-    }
-    if (ctrl.text != selected) ctrl.text = selected;
   }
 
   /// Picks up a crop/season carried over from a demand forecast's "Check
@@ -428,7 +358,7 @@ class _PriceScreenState extends State<PriceScreen> {
       _selectedCrop = p.crop;
       // The searchable field shows committed text, so it has to be told —
       // _syncSearchField only runs on focus changes, and this is neither.
-      _cropSearchCtrl.text = _cropLabel(_langKey, p.crop);
+      _cropSearchCtrl.text = cropLabel(_langKey, p.crop);
     }
     if (p.season != null && _seasons.any((s) => s['name']!['en'] == p.season)) {
       _selectedSeason = p.season;
@@ -650,12 +580,12 @@ class _PriceScreenState extends State<PriceScreen> {
     if (_result == null) return;
     final farmgate = _result!.predictedFarmgatePriceLkrKg.toStringAsFixed(0);
     final retail = _result!.predictedRetailPriceLkrKg.toStringAsFixed(0);
-    final cropEn = _cropLabel('en', _selectedCrop);
-    final cropSi = _cropLabel('si', _selectedCrop);
-    final cropTa = _cropLabel('ta', _selectedCrop);
-    final distEn = _districtLabel('en', _selectedDistrict);
-    final distSi = _districtLabel('si', _selectedDistrict);
-    final distTa = _districtLabel('ta', _selectedDistrict);
+    final cropEn = cropLabel('en', _selectedCrop);
+    final cropSi = cropLabel('si', _selectedCrop);
+    final cropTa = cropLabel('ta', _selectedCrop);
+    final distEn = districtLabel('en', _selectedDistrict);
+    final distSi = districtLabel('si', _selectedDistrict);
+    final distTa = districtLabel('ta', _selectedDistrict);
     final seasonEn = _seasonLabel('en', _selectedSeason);
     final seasonSi = _seasonLabel('si', _selectedSeason);
     final seasonTa = _seasonLabel('ta', _selectedSeason);
@@ -1014,34 +944,11 @@ class _PriceScreenState extends State<PriceScreen> {
     child: child,
   );
 
-  /// Inline validation tick for a required field, shown as its `suffixIcon`.
-  ///
-  /// The filled state is the yield page's `_fieldCheck` verbatim —
-  /// Icons.check_circle at 19px in AppTheme.success — so a farmer moving
-  /// between the two forms sees one signal, not two dialects of one.
-  ///
-  /// Unlike yield's, this returns a widget in BOTH states: an unfilled
-  /// outline stands in for the tick when the field is empty. The removed
-  /// checklist card used to carry that "still to do" signal; with it gone,
-  /// a field that renders nothing until it is satisfied leaves nowhere for
-  /// the eye to learn that the tick is the thing to collect.
-  ///
-  /// Status is never colour-alone here: the two states differ in glyph
-  /// (filled disc vs open ring) as well as in tone.
-  Widget _fieldCheck(bool done) => Padding(
-    padding: const EdgeInsets.only(right: 2),
-    child: Icon(
-      done ? Icons.check_circle : Icons.radio_button_unchecked,
-      size: 19,
-      color: done ? AppTheme.success : AppTheme.login.borderSubtle,
-    ),
-  );
-
   // ── Crop & location card ───────────────────────────────────────────────────
   Widget _cropLocationCard() => _card(
     child: Column(
       children: [
-        _searchableDropdown(
+        SearchableDropdown(
           label: _t({
             'en': 'Select Crop',
             'si': 'භෝගය තෝරන්න',
@@ -1050,7 +957,9 @@ class _PriceScreenState extends State<PriceScreen> {
           value: _selectedCrop,
           items: _cropDistricts.keys.toList(),
           icon: Icons.eco,
-          itemLabel: (c) => _cropLabel(_langKey, c),
+          accent: AppTheme.accents.price,
+          searchHint: _searchHint,
+          itemLabel: (c) => cropLabel(_langKey, c),
           controller: _cropSearchCtrl,
           focusNode: _cropFocus,
           onChanged: (val) {
@@ -1066,7 +975,7 @@ class _PriceScreenState extends State<PriceScreen> {
           },
         ),
         const SizedBox(height: 12),
-        _searchableDropdown(
+        SearchableDropdown(
           label: _t({
             'en': 'Select District',
             'si': 'දිස්ත්‍රික්කය',
@@ -1075,15 +984,16 @@ class _PriceScreenState extends State<PriceScreen> {
           value: _selectedDistrict,
           items: _availableDistricts,
           icon: Icons.location_on,
-          itemLabel: (d) => _districtLabel(_langKey, d),
+          accent: AppTheme.accents.price,
+          searchHint: _searchHint,
+          itemLabel: (d) => districtLabel(_langKey, d),
           controller: _districtSearchCtrl,
           focusNode: _districtFocus,
           hint: _selectedCrop != null
               ? _t({
-                  'en':
-                      'Valid districts for ${_cropLabel('en', _selectedCrop)}',
-                  'si': '${_cropLabel('si', _selectedCrop)} සඳහා දිස්ත්‍රික්ක',
-                  'ta': '${_cropLabel('ta', _selectedCrop)}-க்கான மாவட்டங்கள்',
+                  'en': 'Valid districts for ${cropLabel('en', _selectedCrop)}',
+                  'si': '${cropLabel('si', _selectedCrop)} සඳහා දිස්ත්‍රික්ක',
+                  'ta': '${cropLabel('ta', _selectedCrop)}-க்கான மாவட்டங்கள்',
                 })
               : _t({
                   'en': 'Select a crop first',
@@ -1103,11 +1013,11 @@ class _PriceScreenState extends State<PriceScreen> {
           _infoBox(
             _t({
               'en':
-                  'Recent price for ${_cropLabel('en', _selectedCrop)}: Rs. ${_recentPrice.toStringAsFixed(0)}/kg',
+                  'Recent price for ${cropLabel('en', _selectedCrop)}: Rs. ${_recentPrice.toStringAsFixed(0)}/kg',
               'si':
-                  '${_cropLabel('si', _selectedCrop)} සඳහා මෑත මිල: රු. ${_recentPrice.toStringAsFixed(0)}/kg',
+                  '${cropLabel('si', _selectedCrop)} සඳහා මෑත මිල: රු. ${_recentPrice.toStringAsFixed(0)}/kg',
               'ta':
-                  '${_cropLabel('ta', _selectedCrop)}-க்கான சமீபத்திய விலை: Rs. ${_recentPrice.toStringAsFixed(0)}/kg',
+                  '${cropLabel('ta', _selectedCrop)}-க்கான சமீபத்திய விலை: Rs. ${_recentPrice.toStringAsFixed(0)}/kg',
             }),
             color: AppTheme.accents.price.ink,
             icon: Icons.history,
@@ -1143,7 +1053,7 @@ class _PriceScreenState extends State<PriceScreen> {
         suffixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
         suffixIcon: Padding(
           padding: const EdgeInsets.only(right: 6),
-          child: _fieldCheck(_selectedSeason != null),
+          child: fieldCheckIcon(_selectedSeason != null),
         ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
@@ -1755,7 +1665,7 @@ class _PriceScreenState extends State<PriceScreen> {
                   children: [
                     _rStat(
                       _t({'en': 'Crop', 'si': 'භෝගය', 'ta': 'பயிர்'}),
-                      _cropLabel(_langKey, r.crop),
+                      cropLabel(_langKey, r.crop),
                     ),
                     _vDiv(),
                     _rStat(
@@ -1764,7 +1674,7 @@ class _PriceScreenState extends State<PriceScreen> {
                         'si': 'දිස්ත්‍රික්කය',
                         'ta': 'மாவட்டம்',
                       }),
-                      _districtLabel(_langKey, _selectedDistrict),
+                      districtLabel(_langKey, _selectedDistrict),
                     ),
                     _vDiv(),
                     _rStat(
@@ -2209,211 +2119,6 @@ class _PriceScreenState extends State<PriceScreen> {
             style: TextStyle(fontSize: 11.5, color: color, height: 1.45),
           ),
         ),
-      ],
-    ),
-  );
-
-  /// Type-to-filter dropdown — the yield screen's `_searchableDropdown`,
-  /// ported with two changes this screen needs.
-  ///
-  /// 1. [itemLabel]. Yield's version shows raw English values; this screen is
-  ///    trilingual, so options render through the same label functions the old
-  ///    `_nullDropdown` used, and the FILTER matches either the English key or
-  ///    the translated label. A Sinhala user can type "කැ" or "car" and reach
-  ///    Carrot either way — matching only the display label would strand
-  ///    farmers whose keyboard is in the other script.
-  /// 2. The accent palette. Structure and behaviour are yield's; only the
-  ///    colour tokens differ.
-  Widget _searchableDropdown({
-    required String label,
-    required String? value,
-    required List<String> items,
-    required IconData icon,
-    required ValueChanged<String?> onChanged,
-    required TextEditingController controller,
-    required FocusNode focusNode,
-    required String Function(String) itemLabel,
-    String? hint,
-    bool enabled = true,
-  }) => LayoutBuilder(
-    // Captures the field's own width so the options overlay lines up
-    // edge-to-edge below it instead of sizing itself to its content.
-    builder: (ctx, bc) => Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        RawAutocomplete<String>(
-          textEditingController: controller,
-          focusNode: focusNode,
-          displayStringForOption: itemLabel,
-          optionsBuilder: (TextEditingValue v) {
-            if (!enabled) return const Iterable<String>.empty();
-            final q = v.text.trim().toLowerCase();
-            // Empty, or still showing the committed selection (the farmer
-            // reopened the field to change their mind) -> offer everything.
-            if (q.isEmpty ||
-                q == itemLabel(value ?? '').toLowerCase() ||
-                q == (value ?? '').toLowerCase()) {
-              return items;
-            }
-            return items.where(
-              (e) =>
-                  e.toLowerCase().contains(q) ||
-                  itemLabel(e).toLowerCase().contains(q),
-            );
-          },
-          onSelected: (sel) {
-            onChanged(sel);
-            focusNode.unfocus();
-          },
-          fieldViewBuilder: (ctx, ctrl, fn, onFieldSubmitted) => TextFormField(
-            controller: ctrl,
-            focusNode: fn,
-            enabled: enabled,
-            onFieldSubmitted: (_) => onFieldSubmitted(),
-            style: TextStyle(fontSize: 14, color: AppTheme.login.textPrimary),
-            decoration: InputDecoration(
-              labelText: label,
-              hintText: enabled
-                  ? _t({
-                      'en': 'Type to search',
-                      'si': 'සෙවීමට ටයිප් කරන්න',
-                      'ta': 'தேட தட்டச்சு செய்க',
-                    })
-                  : null,
-              hintStyle: TextStyle(
-                color: AppTheme.login.textSecondary,
-                fontSize: 13,
-              ),
-              labelStyle: TextStyle(color: AppTheme.login.textSecondary),
-              prefixIcon: Icon(
-                icon,
-                color: enabled
-                    ? AppTheme.accents.price.ink
-                    : AppTheme.login.textSecondary,
-                size: 20,
-              ),
-              // Tick + caret together. mainAxisSize.min keeps the Row from
-              // trying to fill the field, and the loosened constraints stop
-              // InputDecoration squeezing two icons into one icon's width.
-              suffixIconConstraints: const BoxConstraints(
-                minWidth: 0,
-                minHeight: 0,
-              ),
-              suffixIcon: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _fieldCheck(value != null),
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: Icon(
-                      Icons.arrow_drop_down,
-                      color: enabled
-                          ? AppTheme.accents.price.ink
-                          : AppTheme.login.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(color: AppTheme.login.borderSubtle),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(color: AppTheme.login.borderSubtle),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(
-                  color: AppTheme.login.focusRing,
-                  width: 2,
-                ),
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 10,
-              ),
-              filled: !enabled,
-              fillColor: enabled ? null : AppTheme.disabledSurface,
-            ),
-          ),
-          optionsViewBuilder: (ctx, onSelected, options) => Align(
-            alignment: Alignment.topLeft,
-            child: Material(
-              elevation: 4,
-              borderRadius: BorderRadius.circular(8),
-              color: AppTheme.login.background,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: 240,
-                  maxWidth: bc.maxWidth,
-                ),
-                child: SizedBox(
-                  width: bc.maxWidth,
-                  child: ListView.builder(
-                    padding: EdgeInsets.zero,
-                    shrinkWrap: true,
-                    itemCount: options.length,
-                    itemBuilder: (c, i) {
-                      final opt = options.elementAt(i);
-                      final isSelected = opt == value;
-                      return InkWell(
-                        onTap: () => onSelected(opt),
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 11,
-                          ),
-                          color: isSelected
-                              ? AppTheme.accents.price.fill.withValues(
-                                  alpha: 0.14,
-                                )
-                              : null,
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  itemLabel(opt),
-                                  style: TextStyle(
-                                    fontSize: 13.5,
-                                    fontWeight: isSelected
-                                        ? FontWeight.w700
-                                        : FontWeight.w500,
-                                    color: isSelected
-                                        ? AppTheme.accents.price.ink
-                                        : AppTheme.login.textPrimary,
-                                  ),
-                                ),
-                              ),
-                              if (isSelected)
-                                Icon(
-                                  Icons.check,
-                                  size: 16,
-                                  color: AppTheme.accents.price.ink,
-                                ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-        if (hint != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 4, left: 4),
-            child: Text(
-              hint,
-              style: TextStyle(
-                fontSize: 11,
-                color: AppTheme.login.textSecondary,
-              ),
-            ),
-          ),
       ],
     ),
   );

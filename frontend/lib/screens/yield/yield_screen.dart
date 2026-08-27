@@ -42,6 +42,7 @@ import '../../services/prediction_handoff.dart';
 import '../../services/service_factory.dart';
 import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
+import '../../widgets/searchable_dropdown.dart';
 import '../../widgets/app_top_bar.dart';
 import '../../widgets/followup_chip.dart';
 import '../../widgets/skeleton_loading.dart';
@@ -1613,6 +1614,13 @@ class _YieldScreenState extends State<YieldScreen> {
   String _t(_L m) => m[_langKey] ?? m['en']!;
   String _ts(Map<String, String> m) => m[_langKey] ?? m['en']!;
 
+  /// Placeholder for this screen's SearchableDropdowns.
+  String get _searchHint => _ts({
+    'en': 'Type to search',
+    'si': 'සෙවීමට ටයිප් කරන්න',
+    'ta': 'தேட தட்டச்சு செய்க',
+  });
+
   @override
   void initState() {
     super.initState();
@@ -1620,10 +1628,10 @@ class _YieldScreenState extends State<YieldScreen> {
     _acresCtrl.addListener(_onAcresChanged);
     _hectCtrl.addListener(_onHectChanged);
     _cropFocus.addListener(
-      () => _syncSearchField(_cropFocus, _cropSearchCtrl, _selectedCrop),
+      () => syncSearchField(_cropFocus, _cropSearchCtrl, _selectedCrop),
     );
     _districtFocus.addListener(
-      () => _syncSearchField(
+      () => syncSearchField(
         _districtFocus,
         _districtSearchCtrl,
         _selectedDistrict,
@@ -1641,52 +1649,6 @@ class _YieldScreenState extends State<YieldScreen> {
     _cropFocus.dispose();
     _districtFocus.dispose();
     super.dispose();
-  }
-
-  /// Keeps a searchable dropdown honest across focus changes.
-  ///
-  /// ON FOCUS — force the option list to be rebuilt so the field opens showing
-  /// EVERY option, like a dropdown should.
-  ///
-  /// This is the fix for "District doesn't work like Crop". RawAutocomplete
-  /// recomputes its options only when the field's TEXT changes — see
-  /// `_onChangedField` in the framework's autocomplete.dart:
-  ///
-  ///     if (value.text != _lastFieldText) { shouldUpdateOptions = true; }
-  ///
-  /// It never calls optionsBuilder on focus. So tapping a field whose text
-  /// hasn't changed opens onto a stale list, or — before anything has ever
-  /// been typed — onto no list at all. District hit that hardest: choosing a
-  /// crop enables the field and swaps its options, but changes no text, so
-  /// tapping it showed nothing until you blind-typed a matching letter.
-  ///
-  /// The nudge below drives a real text transition so the builder re-runs
-  /// with an empty query, which returns the full list. Both writes land in
-  /// the same synchronous turn, so no intermediate value is ever painted
-  /// (Flutter only rebuilds at a frame boundary), and RawAutocomplete's own
-  /// `_onChangedCallId` discards the first, superseded result.
-  ///
-  /// ON BLUR — snap the text back to the committed selection, so typing a
-  /// partial query and tapping away can't leave the field displaying
-  /// something that isn't actually selected.
-  void _syncSearchField(
-    FocusNode node,
-    TextEditingController ctrl,
-    String? selected,
-  ) {
-    if (node.hasFocus) {
-      if (ctrl.text.isNotEmpty) {
-        ctrl.clear(); // real change: "Badulla" -> "" -> full list
-      } else {
-        // Already empty, so clear() alone would notify nobody (a
-        // ValueNotifier drops a write equal to its current value).
-        ctrl.value = const TextEditingValue(text: ' ');
-        ctrl.clear();
-      }
-      return;
-    }
-    final want = selected ?? '';
-    if (ctrl.text != want) ctrl.text = want;
   }
 
   // ── Area text field listeners ──────────────────────────────────────────────
@@ -2278,28 +2240,11 @@ class _YieldScreenState extends State<YieldScreen> {
     ),
     child: child,
   );
-
-  /// Green tick shown inside a required field once it has been answered.
-  ///
-  /// Replaces the standalone "N of 4 complete" bar: the same four booleans,
-  /// but reported on the field they belong to instead of summarised in a
-  /// separate strip the farmer has to map back onto the form. `null` when
-  /// unanswered, so the decoration simply has no suffix.
-  ///
-  /// The Predict button keeps its own disabled state and its "Complete 4
-  /// steps above first" label — that is what still names the count.
-  Widget? _fieldCheck(bool done) => done
-      ? const Padding(
-          padding: EdgeInsets.only(right: 10),
-          child: Icon(Icons.check_circle, size: 19, color: AppTheme.success),
-        )
-      : null;
-
   // ── Crop & location card ───────────────────────────────────────────────────
   Widget _cropLocationCard() => _card(
     child: Column(
       children: [
-        _searchableDropdown(
+        SearchableDropdown(
           label: _ts({
             'en': 'Select Crop',
             'si': 'භෝගය තෝරන්න',
@@ -2308,6 +2253,8 @@ class _YieldScreenState extends State<YieldScreen> {
           value: _selectedCrop,
           items: CropSphereConstants.crops,
           icon: Icons.eco,
+          accent: AppTheme.accents.yield,
+          searchHint: _searchHint,
           controller: _cropSearchCtrl,
           focusNode: _cropFocus,
           onChanged: (val) {
@@ -2326,7 +2273,7 @@ class _YieldScreenState extends State<YieldScreen> {
           },
         ),
         const SizedBox(height: 12),
-        _searchableDropdown(
+        SearchableDropdown(
           label: _ts({
             'en': 'Select District',
             'si': 'දිස්ත්‍රික්කය',
@@ -2335,6 +2282,8 @@ class _YieldScreenState extends State<YieldScreen> {
           value: _selectedDistrict,
           items: _availableDistricts,
           icon: Icons.location_on,
+          accent: AppTheme.accents.yield,
+          searchHint: _searchHint,
           controller: _districtSearchCtrl,
           focusNode: _districtFocus,
           hint: _selectedCrop != null
@@ -2394,7 +2343,7 @@ class _YieldScreenState extends State<YieldScreen> {
               minWidth: 0,
               minHeight: 0,
             ),
-            suffixIcon: _fieldCheck(_selectedSeason != null),
+            suffixIcon: fieldCheckIcon(_selectedSeason != null),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 12,
@@ -2467,7 +2416,7 @@ class _YieldScreenState extends State<YieldScreen> {
               minWidth: 0,
               minHeight: 0,
             ),
-            suffixIcon: _fieldCheck(_selectedIrrigation != null),
+            suffixIcon: fieldCheckIcon(_selectedIrrigation != null),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 12,
@@ -4242,183 +4191,6 @@ class _YieldScreenState extends State<YieldScreen> {
           ),
           child: Slider(value: value, min: min, max: max, onChanged: onChanged),
         ),
-      ],
-    ),
-  );
-
-  /// Type-to-filter dropdown used by Crop and District.
-  ///
-  /// Built on `RawAutocomplete` rather than a package: it needs no new
-  /// dependency and no app-root theme wiring, and it carries the same
-  /// `InputDecoration` the plain Season/Irrigation dropdowns use, so all
-  /// four fields in the Crop & Location card stay visually flush.
-  ///
-  /// `RawAutocomplete` (not `Autocomplete`) because the caller must own the
-  /// `TextEditingController` — clearing the district field when the crop
-  /// changes is existing behaviour that reaches into the text, which
-  /// `Autocomplete`'s private internal controller wouldn't permit.
-  ///
-  /// An empty query lists EVERY option. That alone is NOT enough to make a
-  /// tap behave like opening a dropdown — RawAutocomplete only re-runs
-  /// optionsBuilder on a text change — so [_syncSearchField] forces the
-  /// rebuild on focus. See the long note there.
-  Widget _searchableDropdown({
-    required String label,
-    required String? value,
-    required List<String> items,
-    required IconData icon,
-    required ValueChanged<String?> onChanged,
-    required TextEditingController controller,
-    required FocusNode focusNode,
-    String? hint,
-    bool enabled = true,
-  }) => LayoutBuilder(
-    // Captures the field's own width so the options overlay below it lines
-    // up edge-to-edge instead of sizing itself to its content.
-    builder: (ctx, bc) => Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        RawAutocomplete<String>(
-          textEditingController: controller,
-          focusNode: focusNode,
-          optionsBuilder: (TextEditingValue v) {
-            if (!enabled) return const Iterable<String>.empty();
-            final q = v.text.trim().toLowerCase();
-            // Empty, or still showing the committed selection (i.e. the user
-            // reopened the field to change their mind) -> offer everything.
-            if (q.isEmpty || q == (value ?? '').toLowerCase()) return items;
-            return items.where((e) => e.toLowerCase().contains(q));
-          },
-          onSelected: (sel) {
-            onChanged(sel);
-            focusNode.unfocus();
-          },
-          fieldViewBuilder: (ctx, ctrl, fn, onFieldSubmitted) => TextFormField(
-            controller: ctrl,
-            focusNode: fn,
-            enabled: enabled,
-            onFieldSubmitted: (_) => onFieldSubmitted(),
-            style: const TextStyle(fontSize: 14),
-            decoration: InputDecoration(
-              labelText: label,
-              hintText: enabled
-                  ? _ts({
-                      'en': 'Type to search',
-                      'si': 'සෙවීමට ටයිප් කරන්න',
-                      'ta': 'தேட தட்டச்சு செய்க',
-                    })
-                  : null,
-              hintStyle: const TextStyle(
-                color: AppTheme.textMuted,
-                fontSize: 13,
-              ),
-              prefixIcon: Icon(
-                icon,
-                color: enabled ? AppTheme.primary : AppTheme.textMuted,
-                size: 20,
-              ),
-              // Tick + caret together. mainAxisSize.min keeps the Row from
-              // trying to fill the field, and the loosened constraints stop
-              // InputDecoration squeezing two icons into one icon's width.
-              suffixIconConstraints: const BoxConstraints(
-                minWidth: 0,
-                minHeight: 0,
-              ),
-              suffixIcon: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ?_fieldCheck(value != null),
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: Icon(
-                      Icons.arrow_drop_down,
-                      color: enabled ? AppTheme.primary : AppTheme.textMuted,
-                    ),
-                  ),
-                ],
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 10,
-              ),
-              filled: !enabled,
-              fillColor: enabled ? null : AppTheme.disabledSurface,
-            ),
-          ),
-          optionsViewBuilder: (ctx, onSelected, options) => Align(
-            alignment: Alignment.topLeft,
-            child: Material(
-              elevation: 4,
-              borderRadius: BorderRadius.circular(8),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: 240,
-                  maxWidth: bc.maxWidth,
-                ),
-                child: SizedBox(
-                  width: bc.maxWidth,
-                  child: ListView.builder(
-                    padding: EdgeInsets.zero,
-                    shrinkWrap: true,
-                    itemCount: options.length,
-                    itemBuilder: (c, i) {
-                      final opt = options.elementAt(i);
-                      final isSelected = opt == value;
-                      return InkWell(
-                        onTap: () => onSelected(opt),
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 11,
-                          ),
-                          color: isSelected
-                              ? AppTheme.primary.withValues(alpha: 0.08)
-                              : null,
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  opt,
-                                  style: TextStyle(
-                                    fontSize: 13.5,
-                                    fontWeight: isSelected
-                                        ? FontWeight.w700
-                                        : FontWeight.w500,
-                                    color: isSelected
-                                        ? AppTheme.primaryDark
-                                        : AppTheme.textPrimary,
-                                  ),
-                                ),
-                              ),
-                              if (isSelected)
-                                const Icon(
-                                  Icons.check,
-                                  size: 16,
-                                  color: AppTheme.primary,
-                                ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-        if (hint != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 4, left: 4),
-            child: Text(
-              hint,
-              style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
-            ),
-          ),
       ],
     ),
   );

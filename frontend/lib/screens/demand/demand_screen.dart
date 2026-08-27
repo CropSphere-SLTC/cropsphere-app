@@ -31,6 +31,8 @@ import '../../services/price_prefill.dart';
 import '../../services/service_factory.dart';
 import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
+import '../../widgets/localized_names.dart';
+import '../../widgets/searchable_dropdown.dart';
 import '../../widgets/app_top_bar.dart';
 import '../../widgets/followup_chip.dart';
 import '../../widgets/skeleton_loading.dart';
@@ -47,17 +49,19 @@ int _weekOfYear() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Crop data — trilingual names + emoji + sensible per-crop defaults for the
-//  values a farmer would otherwise have to guess (retail price, demand
-//  baseline). These are typical placeholders the farmer can override.
+//  Crop data — emoji + sensible per-crop defaults for the values a farmer
+//  would otherwise have to guess (retail price, demand baseline). These are
+//  typical placeholders the farmer can override.
+//
+//  Display NAMES are not here: they live in kCropNames (localized_names.dart)
+//  with every other screen's. This map used to carry its own trilingual copy,
+//  which had drifted from price_screen's in two cells — see kCropNames.
 // ─────────────────────────────────────────────────────────────────────────────
 class _CropInfo {
-  final _L name;
   final String emoji;
   final double typicalPriceLkr;
   final double demandBaseline;
   const _CropInfo({
-    required this.name,
     required this.emoji,
     required this.typicalPriceLkr,
     required this.demandBaseline,
@@ -65,42 +69,20 @@ class _CropInfo {
 }
 
 const Map<String, _CropInfo> _crops = {
-  'Carrot': _CropInfo(
-    name: {'en': 'Carrot', 'si': 'කැරට්', 'ta': 'கேரட்'},
-    emoji: '🥕',
-    typicalPriceLkr: 180,
-    demandBaseline: 78,
-  ),
-  'Maize': _CropInfo(
-    name: {'en': 'Maize', 'si': 'ඉරිඟු', 'ta': 'மக்காச்சோளம்'},
-    emoji: '🌽',
-    typicalPriceLkr: 90,
-    demandBaseline: 70,
-  ),
+  'Carrot': _CropInfo(emoji: '🥕', typicalPriceLkr: 180, demandBaseline: 78),
+  'Maize': _CropInfo(emoji: '🌽', typicalPriceLkr: 90, demandBaseline: 70),
   'Green gram': _CropInfo(
-    name: {'en': 'Green gram', 'si': 'මුං ඇට', 'ta': 'பச்சைப்பயறு'},
     emoji: '🫘',
     typicalPriceLkr: 380,
     demandBaseline: 65,
   ),
-  'Cowpea': _CropInfo(
-    name: {'en': 'Cowpea', 'si': 'කව්පි', 'ta': 'அவரை'},
-    emoji: '🟤',
-    typicalPriceLkr: 320,
-    demandBaseline: 60,
-  ),
+  'Cowpea': _CropInfo(emoji: '🟤', typicalPriceLkr: 320, demandBaseline: 60),
   'Finger millet': _CropInfo(
-    name: {'en': 'Finger millet', 'si': 'කුරක්කන්', 'ta': 'கேழ்வரகு'},
     emoji: '🌾',
     typicalPriceLkr: 250,
     demandBaseline: 68,
   ),
-  'Groundnut': _CropInfo(
-    name: {'en': 'Groundnut', 'si': 'රටකජු', 'ta': 'வேர்க்கடலை'},
-    emoji: '🥜',
-    typicalPriceLkr: 550,
-    demandBaseline: 72,
-  ),
+  'Groundnut': _CropInfo(emoji: '🥜', typicalPriceLkr: 550, demandBaseline: 72),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -280,6 +262,13 @@ class _DemandScreenState extends State<DemandScreen> {
 
   String _t(_L m) => m[_langKey] ?? m['en']!;
 
+  /// Placeholder for this screen's SearchableDropdown.
+  String get _searchHint => _t({
+    'en': 'Type to search',
+    'si': 'සෙවීමට ටයිප් කරන්න',
+    'ta': 'தேட தட்டச்சு செய்க',
+  });
+
   String get _notSelectedLabel => _t({
     'en': 'not selected yet',
     'si': 'තවම තෝරා නැත',
@@ -287,13 +276,13 @@ class _DemandScreenState extends State<DemandScreen> {
   });
 
   String _cropLabel(String? key) =>
-      key == null ? _notSelectedLabel : _t(_crops[key]?.name ?? {'en': key});
+      key == null ? _notSelectedLabel : cropLabel(_langKey, key);
 
   /// The same translated name, but for a key that is always present — what
   /// the searchable dropdown renders and filters its options on. Separate
   /// from [_cropLabel] because that one substitutes "not selected yet" for
   /// null, which is a prose stand-in, not an option label.
-  String _cropName(String key) => _t(_crops[key]?.name ?? {'en': key});
+  String _cropName(String key) => cropLabel(_langKey, key);
 
   // ── Meaningful labels for the "I have real market data" sliders ─────────
   // These replace raw, meaningless numbers (e.g. "87", "1.15") with bands a
@@ -873,11 +862,13 @@ class _DemandScreenState extends State<DemandScreen> {
   // applies that crop's typical-price/demand-baseline defaults and clears any
   // stale result.
   Widget _cropCard() => _card(
-    child: _searchableDropdown(
+    child: SearchableDropdown(
       label: _t({'en': 'Crop', 'si': 'භෝගය', 'ta': 'பயிர்'}),
       value: _selectedCrop,
       items: _crops.keys.toList(),
       icon: Icons.eco,
+      accent: AppTheme.accents.demand,
+      searchHint: _searchHint,
       controller: _cropCtrl,
       focusNode: _cropFocus,
       itemLabel: _cropName,
@@ -1837,231 +1828,6 @@ class _DemandScreenState extends State<DemandScreen> {
         ),
       ),
     ],
-  );
-
-  /// Inline validation tick for a required field, shown as its `suffixIcon`.
-  ///
-  /// recommend_screen's `_fieldCheck` verbatim — Icons.check_circle at 19px in
-  /// AppTheme.success, with an open ring standing in for the unfilled state so
-  /// there is somewhere for the eye to learn that the tick is the thing to
-  /// collect. Status is never colour-alone: the two states differ in glyph as
-  /// well as in tone.
-  Widget _fieldCheck(bool done) => Padding(
-    padding: const EdgeInsets.only(right: 2),
-    child: Icon(
-      done ? Icons.check_circle : Icons.radio_button_unchecked,
-      size: 19,
-      color: done ? AppTheme.success : AppTheme.login.borderSubtle,
-    ),
-  );
-
-  /// Type-to-filter dropdown — recommend_screen's `_searchableDropdown`,
-  /// ported with only the accent tokens swapped (cropRec.ink -> demand.ink).
-  ///
-  /// NOTE: this is now the FIFTH copy of this widget (yield, price, weather,
-  /// recommend, here). recommend_screen's own comment already flagged the
-  /// fourth as the drift app_top_bar.dart was created to end, and said it was
-  /// worth hoisting into lib/widgets/ next time one of them was touched. That
-  /// is still true and is still not what this pass is scoped to — but the
-  /// count is now five, so it is worth doing before it is six.
-  ///
-  /// The behaviour that matters, unchanged from the original: the FILTER
-  /// matches either the English key or the translated label, so a Sinhala
-  /// user can type "කැ" or "car" and reach Carrot either way. Matching only
-  /// the display label would strand farmers whose keyboard is in the other
-  /// script.
-  Widget _searchableDropdown({
-    required String label,
-    required String? value,
-    required List<String> items,
-    required IconData icon,
-    required ValueChanged<String?> onChanged,
-    required TextEditingController controller,
-    required FocusNode focusNode,
-    required String Function(String) itemLabel,
-    String? hint,
-    bool enabled = true,
-  }) => LayoutBuilder(
-    // Captures the field's own width so the options overlay lines up
-    // edge-to-edge below it instead of sizing itself to its content.
-    builder: (ctx, bc) => Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        RawAutocomplete<String>(
-          textEditingController: controller,
-          focusNode: focusNode,
-          displayStringForOption: itemLabel,
-          optionsBuilder: (TextEditingValue v) {
-            if (!enabled) return const Iterable<String>.empty();
-            final q = v.text.trim().toLowerCase();
-            // Empty, or still showing the committed selection (the farmer
-            // reopened the field to change their mind) -> offer everything.
-            if (q.isEmpty ||
-                q == itemLabel(value ?? '').toLowerCase() ||
-                q == (value ?? '').toLowerCase()) {
-              return items;
-            }
-            return items.where(
-              (e) =>
-                  e.toLowerCase().contains(q) ||
-                  itemLabel(e).toLowerCase().contains(q),
-            );
-          },
-          onSelected: (sel) {
-            onChanged(sel);
-            focusNode.unfocus();
-          },
-          fieldViewBuilder: (ctx, ctrl, fn, onFieldSubmitted) => TextFormField(
-            controller: ctrl,
-            focusNode: fn,
-            enabled: enabled,
-            onFieldSubmitted: (_) => onFieldSubmitted(),
-            style: TextStyle(fontSize: 14, color: AppTheme.login.textPrimary),
-            decoration: InputDecoration(
-              labelText: label,
-              hintText: enabled
-                  ? _t({
-                      'en': 'Type to search',
-                      'si': 'සෙවීමට ටයිප් කරන්න',
-                      'ta': 'தேட தட்டச்சு செய்க',
-                    })
-                  : null,
-              hintStyle: TextStyle(
-                color: AppTheme.login.textSecondary,
-                fontSize: 13,
-              ),
-              labelStyle: TextStyle(color: AppTheme.login.textSecondary),
-              prefixIcon: Icon(
-                icon,
-                color: enabled
-                    ? AppTheme.accents.demand.ink
-                    : AppTheme.login.textSecondary,
-                size: 20,
-              ),
-              // Tick + caret together. mainAxisSize.min keeps the Row from
-              // trying to fill the field, and the loosened constraints stop
-              // InputDecoration squeezing two icons into one icon's width.
-              suffixIconConstraints: const BoxConstraints(
-                minWidth: 0,
-                minHeight: 0,
-              ),
-              suffixIcon: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _fieldCheck(value != null),
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: Icon(
-                      Icons.arrow_drop_down,
-                      color: enabled
-                          ? AppTheme.accents.demand.ink
-                          : AppTheme.login.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(color: AppTheme.login.borderSubtle),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(color: AppTheme.login.borderSubtle),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(
-                  color: AppTheme.login.focusRing,
-                  width: 2,
-                ),
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 10,
-              ),
-              filled: !enabled,
-              fillColor: enabled ? null : AppTheme.disabledSurface,
-            ),
-          ),
-          optionsViewBuilder: (ctx, onSelected, options) => Align(
-            alignment: Alignment.topLeft,
-            child: Material(
-              elevation: 4,
-              borderRadius: BorderRadius.circular(8),
-              color: AppTheme.login.background,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: 240,
-                  maxWidth: bc.maxWidth,
-                ),
-                child: SizedBox(
-                  width: bc.maxWidth,
-                  child: ListView.builder(
-                    padding: EdgeInsets.zero,
-                    shrinkWrap: true,
-                    itemCount: options.length,
-                    itemBuilder: (c, i) {
-                      final opt = options.elementAt(i);
-                      final isSelected = opt == value;
-                      return InkWell(
-                        onTap: () => onSelected(opt),
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 11,
-                          ),
-                          color: isSelected
-                              ? AppTheme.accents.demand.fill.withValues(
-                                  alpha: 0.14,
-                                )
-                              : null,
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  itemLabel(opt),
-                                  style: TextStyle(
-                                    fontSize: 13.5,
-                                    fontWeight: isSelected
-                                        ? FontWeight.w700
-                                        : FontWeight.w500,
-                                    color: isSelected
-                                        ? AppTheme.accents.demand.ink
-                                        : AppTheme.login.textPrimary,
-                                  ),
-                                ),
-                              ),
-                              if (isSelected)
-                                Icon(
-                                  Icons.check,
-                                  size: 16,
-                                  color: AppTheme.accents.demand.ink,
-                                ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-        if (hint != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 4, left: 4),
-            child: Text(
-              hint,
-              style: TextStyle(
-                fontSize: 11,
-                color: AppTheme.login.textSecondary,
-              ),
-            ),
-          ),
-      ],
-    ),
   );
 
   Widget _infoBox(

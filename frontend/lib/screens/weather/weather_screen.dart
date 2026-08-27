@@ -35,46 +35,11 @@ import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
 import '../../widgets/app_top_bar.dart';
 import '../../widgets/followup_chip.dart';
+import '../../widgets/localized_names.dart';
+import '../../widgets/searchable_dropdown.dart';
 import '../../widgets/skeleton_loading.dart';
 
 typedef _L = Map<String, String>;
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  Trilingual district names (self-contained per screen, same values as
-//  Dashboard/Yield/Price so districts read identically everywhere)
-// ─────────────────────────────────────────────────────────────────────────────
-const Map<String, _L> _districtNames = {
-  'Nuwara Eliya': {'en': 'Nuwara Eliya', 'si': 'නුවරඑළිය', 'ta': 'நுவரெலியா'},
-  'Badulla': {'en': 'Badulla', 'si': 'බදුල්ල', 'ta': 'பதுளை'},
-  'Anuradhapura': {
-    'en': 'Anuradhapura',
-    'si': 'අනුරාධපුරය',
-    'ta': 'அனுராதபுரம்',
-  },
-  'Monaragala': {'en': 'Monaragala', 'si': 'මොනරාගල', 'ta': 'மொணராகலை'},
-  'Ampara': {'en': 'Ampara', 'si': 'අම්පාර', 'ta': 'அம்பாறை'},
-  'Hambantota': {'en': 'Hambantota', 'si': 'හම්බන්තොට', 'ta': 'அம்பாந்தோட்டை'},
-  'Batticaloa': {'en': 'Batticaloa', 'si': 'මඩකලපුව', 'ta': 'மட்டக்களப்பு'},
-  'Jaffna': {'en': 'Jaffna', 'si': 'යාපනය', 'ta': 'யாழ்ப்பாணம்'},
-};
-
-const List<String> _districtKeys = [
-  'Nuwara Eliya',
-  'Badulla',
-  'Anuradhapura',
-  'Monaragala',
-  'Ampara',
-  'Hambantota',
-  'Batticaloa',
-  'Jaffna',
-];
-
-String _districtLabel(String langKey, String? district) {
-  if (district == null) return '';
-  final m = _districtNames[district];
-  if (m == null) return district;
-  return m[langKey] ?? m['en'] ?? district;
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Weeks-ahead options — farmer-friendly labels, trilingual
@@ -288,36 +253,23 @@ class _WeatherScreenState extends State<WeatherScreen> {
 
   String _t(_L m) => m[_langKey] ?? m['en']!;
 
+  /// Placeholder for this screen's SearchableDropdown.
+  String get _searchHint => _t({
+    'en': 'Type to search',
+    'si': 'සෙවීමට ටයිප් කරන්න',
+    'ta': 'தேட தட்டச்சு செய்க',
+  });
+
   @override
   void initState() {
     super.initState();
     _districtFocus.addListener(
-      () => _syncSearchField(
+      () => syncSearchField(
         _districtFocus,
         _districtSearchCtrl,
-        _districtLabel(_langKey, _selectedDistrict),
+        districtLabel(_langKey, _selectedDistrict),
       ),
     );
-  }
-
-  /// Keeps the searchable dropdown honest across focus changes. Ported
-  /// verbatim from price_screen/yield_screen — see either for the full
-  /// rationale.
-  void _syncSearchField(
-    FocusNode node,
-    TextEditingController ctrl,
-    String selected,
-  ) {
-    if (node.hasFocus) {
-      if (ctrl.text.isNotEmpty) {
-        ctrl.clear();
-      } else {
-        ctrl.value = const TextEditingValue(text: ' ');
-        ctrl.clear();
-      }
-      return;
-    }
-    if (ctrl.text != selected) ctrl.text = selected;
   }
 
   @override
@@ -818,227 +770,26 @@ class _WeatherScreenState extends State<WeatherScreen> {
     child: child,
   );
 
-  /// Inline validation tick for the district field — verbatim copy of
-  /// price_screen's `_fieldCheck`, so a farmer moving between forms sees one
-  /// signal, not two dialects of one.
-  Widget _fieldCheck(bool done) => Padding(
-    padding: const EdgeInsets.only(right: 2),
-    child: Icon(
-      done ? Icons.check_circle : Icons.radio_button_unchecked,
-      size: 19,
-      color: done ? AppTheme.success : AppTheme.login.borderSubtle,
-    ),
-  );
-
   // ── Location card — a single searchable district dropdown ─────────────────
   Widget _locationCard() => _card(
-    child: _searchableDropdown(
+    child: SearchableDropdown(
       label: _t({
         'en': 'Select District',
         'si': 'දිස්ත්‍රික්කය තෝරන්න',
         'ta': 'மாவட்டத்தை தேர்ந்தெடுக்கவும்',
       }),
       value: _selectedDistrict,
-      items: _districtKeys,
+      items: CropSphereConstants.districts,
       icon: Icons.location_on,
-      itemLabel: (d) => _districtLabel(_langKey, d),
+      accent: AppTheme.accents.weather,
+      searchHint: _searchHint,
+      itemLabel: (d) => districtLabel(_langKey, d),
       controller: _districtSearchCtrl,
       focusNode: _districtFocus,
       onChanged: (val) => setState(() {
         _selectedDistrict = val;
         _result = null;
       }),
-    ),
-  );
-
-  /// Type-to-filter dropdown — price_screen's `_searchableDropdown`, ported
-  /// with only the accent tokens changed (weather instead of price). Filter
-  /// matches either the English key or the translated label, same reasoning
-  /// as price's version.
-  Widget _searchableDropdown({
-    required String label,
-    required String? value,
-    required List<String> items,
-    required IconData icon,
-    required ValueChanged<String?> onChanged,
-    required TextEditingController controller,
-    required FocusNode focusNode,
-    required String Function(String) itemLabel,
-    String? hint,
-    bool enabled = true,
-  }) => LayoutBuilder(
-    builder: (ctx, bc) => Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        RawAutocomplete<String>(
-          textEditingController: controller,
-          focusNode: focusNode,
-          displayStringForOption: itemLabel,
-          optionsBuilder: (TextEditingValue v) {
-            if (!enabled) return const Iterable<String>.empty();
-            final q = v.text.trim().toLowerCase();
-            if (q.isEmpty ||
-                q == itemLabel(value ?? '').toLowerCase() ||
-                q == (value ?? '').toLowerCase()) {
-              return items;
-            }
-            return items.where(
-              (e) =>
-                  e.toLowerCase().contains(q) ||
-                  itemLabel(e).toLowerCase().contains(q),
-            );
-          },
-          onSelected: (sel) {
-            onChanged(sel);
-            focusNode.unfocus();
-          },
-          fieldViewBuilder: (ctx, ctrl, fn, onFieldSubmitted) => TextFormField(
-            controller: ctrl,
-            focusNode: fn,
-            enabled: enabled,
-            onFieldSubmitted: (_) => onFieldSubmitted(),
-            style: TextStyle(fontSize: 14, color: AppTheme.login.textPrimary),
-            decoration: InputDecoration(
-              labelText: label,
-              hintText: enabled
-                  ? _t({
-                      'en': 'Type to search',
-                      'si': 'සෙවීමට ටයිප් කරන්න',
-                      'ta': 'தேட தட்டச்சு செய்க',
-                    })
-                  : null,
-              hintStyle: TextStyle(
-                color: AppTheme.login.textSecondary,
-                fontSize: 13,
-              ),
-              labelStyle: TextStyle(color: AppTheme.login.textSecondary),
-              prefixIcon: Icon(
-                icon,
-                color: enabled
-                    ? AppTheme.accents.weather.ink
-                    : AppTheme.login.textSecondary,
-                size: 20,
-              ),
-              suffixIconConstraints: const BoxConstraints(
-                minWidth: 0,
-                minHeight: 0,
-              ),
-              suffixIcon: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _fieldCheck(value != null),
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: Icon(
-                      Icons.arrow_drop_down,
-                      color: enabled
-                          ? AppTheme.accents.weather.ink
-                          : AppTheme.login.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(color: AppTheme.login.borderSubtle),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(color: AppTheme.login.borderSubtle),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(
-                  color: AppTheme.login.focusRing,
-                  width: 2,
-                ),
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 10,
-              ),
-              filled: !enabled,
-              fillColor: enabled ? null : AppTheme.disabledSurface,
-            ),
-          ),
-          optionsViewBuilder: (ctx, onSelected, options) => Align(
-            alignment: Alignment.topLeft,
-            child: Material(
-              elevation: 4,
-              borderRadius: BorderRadius.circular(8),
-              color: AppTheme.login.background,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: 240,
-                  maxWidth: bc.maxWidth,
-                ),
-                child: SizedBox(
-                  width: bc.maxWidth,
-                  child: ListView.builder(
-                    padding: EdgeInsets.zero,
-                    shrinkWrap: true,
-                    itemCount: options.length,
-                    itemBuilder: (c, i) {
-                      final opt = options.elementAt(i);
-                      final isSelected = opt == value;
-                      return InkWell(
-                        onTap: () => onSelected(opt),
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 11,
-                          ),
-                          color: isSelected
-                              ? AppTheme.accents.weather.fill.withValues(
-                                  alpha: 0.14,
-                                )
-                              : null,
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  itemLabel(opt),
-                                  style: TextStyle(
-                                    fontSize: 13.5,
-                                    fontWeight: isSelected
-                                        ? FontWeight.w700
-                                        : FontWeight.w500,
-                                    color: isSelected
-                                        ? AppTheme.accents.weather.ink
-                                        : AppTheme.login.textPrimary,
-                                  ),
-                                ),
-                              ),
-                              if (isSelected)
-                                Icon(
-                                  Icons.check,
-                                  size: 16,
-                                  color: AppTheme.accents.weather.ink,
-                                ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-        if (hint != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 4, left: 4),
-            child: Text(
-              hint,
-              style: TextStyle(
-                fontSize: 11,
-                color: AppTheme.login.textSecondary,
-              ),
-            ),
-          ),
-      ],
     ),
   );
 
@@ -1285,11 +1036,11 @@ class _WeatherScreenState extends State<WeatherScreen> {
               child: Text(
                 _t({
                   'en':
-                      'Forecast for ${_districtLabel('en', _selectedDistrict)}',
+                      'Forecast for ${districtLabel('en', _selectedDistrict)}',
                   'si':
-                      '${_districtLabel('si', _selectedDistrict)} සඳහා අනාවැකිය',
+                      '${districtLabel('si', _selectedDistrict)} සඳහා අනාවැකිය',
                   'ta':
-                      '${_districtLabel('ta', _selectedDistrict)}-க்கான முன்னறிவிப்பு',
+                      '${districtLabel('ta', _selectedDistrict)}-க்கான முன்னறிவிப்பு',
                 }),
                 style: TextStyle(
                   fontSize: 15,

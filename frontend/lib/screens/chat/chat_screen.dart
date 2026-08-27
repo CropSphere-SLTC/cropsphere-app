@@ -1049,9 +1049,9 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final isWide = MediaQuery.of(context).size.width >= _wideBreakpoint;
+    // NOTE: _buildTopBar is deliberately NOT here — see the body below.
     final chatArea = Column(
       children: [
-        _buildTopBar(context),
         _buildChatToolbar(isWide),
         Expanded(
           child: Stack(
@@ -1087,59 +1087,84 @@ class _ChatScreenState extends State<ChatScreen> {
       key: _scaffoldKey,
       backgroundColor: AppTheme.background,
       drawer: isWide ? null : Drawer(child: SafeArea(child: _buildSidebar())),
-      body: isWide
-          ? Row(
-              children: [
-                // ClipRect + OverflowBox: the sidebar's own content stays
-                // pinned at its natural 280px width throughout — only the
-                // AnimatedContainer's width (and the clip) actually
-                // animates — so collapsing reads as a clean slide, not a
-                // squeeze/reflow of the conversation list.
-                ClipRect(
-                  child: AnimatedContainer(
-                    // A larger layout change than the small UI animations
-                    // elsewhere, so it gets a slower duration; easeInOutCubic
-                    // (steeper ease in and out than the default easeInOut
-                    // curve) reads as a more deliberate, natural slide
-                    // rather than a mechanical linear-ish width change.
-                    duration: const Duration(milliseconds: 340),
-                    curve: Curves.easeInOutCubic,
-                    width: _sidebarCollapsed ? 0 : 280,
-                    child: OverflowBox(
-                      minWidth: 0,
-                      maxWidth: 280,
-                      alignment: Alignment.centerLeft,
-                      child: SizedBox(
-                        width: 280,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            border: Border(
-                              right: BorderSide(color: Colors.grey[300]!),
-                            ),
-                          ),
-                          // Content fades noticeably faster (150ms) than the
-                          // 340ms width animation: collapsing, it's already
-                          // gone before the clip narrows enough to visibly
-                          // cut through any text; expanding, it's already
-                          // legible well before the panel finishes opening
-                          // rather than looking "squished" while still
-                          // catching up mid-width.
-                          child: AnimatedOpacity(
-                            duration: const Duration(milliseconds: 150),
-                            curve: Curves.easeOut,
-                            opacity: _sidebarCollapsed ? 0 : 1,
-                            child: _buildSidebar(),
-                          ),
-                        ),
-                      ),
-                    ),
+      // The app nav spans the FULL window width and the sidebar opens
+      // underneath it, rather than the two sitting side by side in one Row.
+      //
+      // Previously _buildTopBar was the first child of chatArea, which is
+      // itself inside the Row's Expanded — so opening the 280px sidebar left
+      // AppTopBar laying itself out in (width - 280) while every other screen
+      // laid it out at the full window width. The bar visibly resized as the
+      // sidebar slid: its right-hand language/theme/avatar cluster tracked the
+      // moving edge, and the nav row had 280px less to fit into.
+      //
+      // Which destinations are REACHABLE never changed — TopNavItems and
+      // AppTopBar's phone branch both decide off MediaQuery.sizeOf, i.e. the
+      // window, not the box they are handed. This is a layout fix, not a
+      // navigation one. Hoisting the bar out means its width no longer depends
+      // on the sidebar, so it matches the other six screens and holds still
+      // while the panel animates.
+      body: Column(
+        children: [
+          _buildTopBar(context),
+          Expanded(child: _buildBelowNav(isWide, chatArea)),
+        ],
+      ),
+    );
+  }
+
+  /// Everything under the app nav: the sliding sidebar and the conversation,
+  /// side by side when wide; just the conversation otherwise (the sidebar is
+  /// a Drawer at that size — see the Scaffold above).
+  Widget _buildBelowNav(bool isWide, Widget chatArea) {
+    if (!isWide) return chatArea;
+    return Row(
+      children: [
+        // ClipRect + OverflowBox: the sidebar's own content stays
+        // pinned at its natural 280px width throughout — only the
+        // AnimatedContainer's width (and the clip) actually
+        // animates — so collapsing reads as a clean slide, not a
+        // squeeze/reflow of the conversation list.
+        ClipRect(
+          child: AnimatedContainer(
+            // A larger layout change than the small UI animations
+            // elsewhere, so it gets a slower duration; easeInOutCubic
+            // (steeper ease in and out than the default easeInOut
+            // curve) reads as a more deliberate, natural slide
+            // rather than a mechanical linear-ish width change.
+            duration: const Duration(milliseconds: 340),
+            curve: Curves.easeInOutCubic,
+            width: _sidebarCollapsed ? 0 : 280,
+            child: OverflowBox(
+              minWidth: 0,
+              maxWidth: 280,
+              alignment: Alignment.centerLeft,
+              child: SizedBox(
+                width: 280,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    border: Border(right: BorderSide(color: Colors.grey[300]!)),
+                  ),
+                  // Content fades noticeably faster (150ms) than the
+                  // 340ms width animation: collapsing, it's already
+                  // gone before the clip narrows enough to visibly
+                  // cut through any text; expanding, it's already
+                  // legible well before the panel finishes opening
+                  // rather than looking "squished" while still
+                  // catching up mid-width.
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 150),
+                    curve: Curves.easeOut,
+                    opacity: _sidebarCollapsed ? 0 : 1,
+                    child: _buildSidebar(),
                   ),
                 ),
-                Expanded(child: chatArea),
-              ],
-            )
-          : chatArea,
+              ),
+            ),
+          ),
+        ),
+        Expanded(child: chatArea),
+      ],
     );
   }
 

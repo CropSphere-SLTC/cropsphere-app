@@ -22,9 +22,11 @@ import '../../models/api_models.dart';
 import '../../models/chat_history_models.dart';
 import '../../widgets/app_theme.dart';
 import '../../widgets/app_top_bar.dart';
+import '../../widgets/floating_bottom_nav.dart';
 import '../../widgets/followup_chip.dart';
 import '../../widgets/growth_logo.dart';
 import '../../widgets/localized_names.dart';
+import '../../widgets/searchable_dropdown.dart';
 import '../../widgets/skeleton_loading.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -52,6 +54,11 @@ class _ChatScreenState extends State<ChatScreen> {
     'Best season for maize in Anuradhapura',
     'What crops do you cover?',
   ];
+
+  /// Every conversation starts here; the selector only ever moves a farmer
+  /// off it deliberately.
+  static const _defaultModel = 'fast';
+
   static const _starterIcons = [
     Icons.grass,
     Icons.calendar_month,
@@ -64,6 +71,13 @@ class _ChatScreenState extends State<ChatScreen> {
   // see _swapScrollController for why.
   ScrollController _scrollController = ScrollController();
   final _historyService = ChatHistoryService();
+  // Owned here, not by the sheet, so they survive the sheet being reopened
+  // and are disposed exactly once — SearchableDropdown requires the caller to
+  // own both (see its file header).
+  final _ctxDistrictCtrl = TextEditingController();
+  final _ctxCropCtrl = TextEditingController();
+  final _ctxDistrictFocus = FocusNode();
+  final _ctxCropFocus = FocusNode();
   final List<ChatMessage> _history = [];
   final List<Map<String, dynamic>> _displayMessages = [];
   bool _isLoading = false;
@@ -118,7 +132,15 @@ class _ChatScreenState extends State<ChatScreen> {
   List<String> _suggestedFollowups = [];
   String? _selectedDistrict;
   String? _selectedCrop;
-  String _selectedModel = 'accurate';
+
+  /// Which Groq model answers: 'fast' -> openai/gpt-oss-20b, 'accurate' ->
+  /// openai/gpt-oss-120b (chatbot_service._GROQ_MODELS). A real switch, not a
+  /// label.
+  ///
+  /// Fast is the default and every new conversation resets to it — see
+  /// _startNewChat. The farmer opts IN to the slower model from the input
+  /// cluster when a particular question is worth the wait.
+  String _selectedModel = _defaultModel;
 
   /// The yield prediction this conversation is about, published by the yield
   /// screen through [predictionHandoff] when the farmer taps "Ask AI about
@@ -383,6 +405,9 @@ class _ChatScreenState extends State<ChatScreen> {
       // A new conversation is not about the old prediction. The handoff path
       // re-sets this straight after calling us — see _onPredictionHandoff.
       _predictionCtx = null;
+      // Opting into the slower model is a per-question decision, not a
+      // standing preference — a new conversation starts back on fast.
+      _selectedModel = _defaultModel;
       _chatSwitchGen++;
       _swapScrollController();
     });
@@ -957,6 +982,10 @@ class _ChatScreenState extends State<ChatScreen> {
     predictionHandoff.removeListener(_onPredictionHandoff);
     _controller.dispose();
     _scrollController.dispose();
+    _ctxDistrictCtrl.dispose();
+    _ctxCropCtrl.dispose();
+    _ctxDistrictFocus.dispose();
+    _ctxCropFocus.dispose();
     super.dispose();
   }
 
@@ -967,7 +996,6 @@ class _ChatScreenState extends State<ChatScreen> {
       children: [
         _buildTopBar(context),
         _buildChatToolbar(isWide),
-        _buildContextBar(),
         Expanded(
           child: Stack(
             children: [
@@ -994,7 +1022,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         ),
         if (_suggestedFollowups.isNotEmpty) _buildSuggestions(),
-        _buildInputBar(),
+        _buildInputBar(isWide),
       ],
     );
 
@@ -1480,147 +1508,353 @@ class _ChatScreenState extends State<ChatScreen> {
     return '$h:$m';
   }
 
-  Widget _buildContextBar() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: AppTheme.background,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            const Text(
-              'Context:',
-              style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
+  // ── Input-area control cluster (Claude/ChatGPT pattern) ───────────────────
+  //
+  // The floating "Context: District / Crop / Fast / Accurate" strip that used
+  // to sit ABOVE the messages is gone. It occupied prime vertical space on
+  // every screen, on a page whose whole job is the conversation, to hold
+  // controls a farmer touches once a session. These are the same four
+  // controls, moved under the text field where the action is.
+
+  /// True once the farmer has narrowed the conversation to a place or a crop.
+  bool get _hasContext => _selectedDistrict != null || _selectedCrop != null;
+
+  /// "Badulla · Carrot", "Badulla", or "Set context" when neither is chosen.
+  String _contextLabel(BuildContext context) {
+    final lang = langKeyOf(context);
+    final parts = [
+      if (_selectedDistrict != null) districtLabel(lang, _selectedDistrict),
+      if (_selectedCrop != null) cropLabel(lang, _selectedCrop),
+    ];
+    if (parts.isEmpty) {
+      return tr(context, const {
+        'en': 'Set context',
+        'si': 'සන්දර්භය',
+        'ta': 'சூழல்',
+      });
+    }
+    return parts.join(' \u00b7 ');
+  }
+
+  String get _modelLabel => _selectedModel == _defaultModel
+      ? tr(context, const {
+          'en': 'Quick answer',
+          'si': 'ඉක්මන් පිළිතුර',
+          'ta': 'விரைவான பதில்',
+        })
+      : tr(context, const {
+          'en': 'Detailed answer',
+          'si': 'විස්තරාත්මක පිළිතුර',
+          'ta': 'விரிவான பதில்',
+        });
+
+  /// The row under the text field: context, model, send.
+  ///
+  /// MOBILE (<1024): the two pills drop their labels to icon + short text and
+  /// the row scrolls horizontally rather than wrapping. Both were measured at
+  /// 320dp against Tamil, the longest-rendering language: "விரிவான பதில்" plus
+  /// a district and crop name does not fit beside a 44px send button at any
+  /// font size worth reading, and wrapping would push the field around as the
+  /// selection changes. The send button is pinned outside the scroll view so
+  /// it is always reachable.
+  Widget _buildInputCluster(bool isWide) {
+    return Row(
+      children: [
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _clusterPill(
+                  icon: Icons.tune,
+                  label: _contextLabel(context),
+                  active: _hasContext,
+                  onTap: _openContextSheet,
+                ),
+                const SizedBox(width: 8),
+                _clusterPill(
+                  icon: _selectedModel == _defaultModel
+                      ? Icons.bolt_outlined
+                      : Icons.auto_awesome_outlined,
+                  // Wide shows the full wording; narrow shows the icon plus
+                  // the distinguishing word only.
+                  label: isWide ? _modelLabel : _modelLabel.split(' ').first,
+                  active: _selectedModel != _defaultModel,
+                  onTap: _openModelSheet,
+                ),
+              ],
             ),
-            const SizedBox(width: 8),
-            _buildContextChip(
-              'District',
-              _selectedDistrict,
-              _districts,
-              (v) => setState(() => _selectedDistrict = v),
-            ),
-            const SizedBox(width: 8),
-            _buildContextChip(
-              'Crop',
-              _selectedCrop,
-              _crops,
-              (v) => setState(() => _selectedCrop = v),
-            ),
-            const SizedBox(width: 8),
-            _buildModelToggle(),
-          ],
+          ),
         ),
-      ),
+        const SizedBox(width: 8),
+        _sendButton(),
+      ],
     );
   }
 
-  Widget _buildContextChip(
-    String label,
-    String? selected,
-    List<String> options,
-    ValueChanged<String?> onChanged,
-  ) {
-    return GestureDetector(
-      onTap: () async {
-        final result = await showDialog<String>(
-          context: context,
-          builder: (ctx) => SimpleDialog(
-            title: Text('Select $label'),
+  Widget _clusterPill({
+    required IconData icon,
+    required String label,
+    required bool active,
+    required VoidCallback onTap,
+  }) {
+    final accent = AppTheme.accents.chat.ink;
+    return Material(
+      color: active ? accent.withValues(alpha: 0.10) : Colors.transparent,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: active ? accent : AppTheme.login.borderSubtle,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              SimpleDialogOption(
-                onPressed: () => Navigator.pop(ctx, null),
-                child: Text('Any $label'),
+              Icon(
+                icon,
+                size: 16,
+                color: active ? accent : AppTheme.login.textSecondary,
               ),
-              ...options.map(
-                (o) => SimpleDialogOption(
-                  onPressed: () => Navigator.pop(ctx, o),
-                  child: Text(o),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+                  color: active ? accent : AppTheme.login.textSecondary,
                 ),
               ),
             ],
           ),
-        );
-        onChanged(result);
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(
-          color: selected != null
-              ? AppTheme.primary.withValues(alpha: 0.1)
-              : Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: selected != null ? AppTheme.primary : AppTheme.textMuted,
-          ),
         ),
-        child: Row(
+      ),
+    );
+  }
+
+  /// District and Crop, both as the app's shared SearchableDropdown.
+  ///
+  /// One sheet holding both fields rather than a menu that opens a second
+  /// sheet per field: the two are almost always set together, and the extra
+  /// hop bought nothing. "Any district" / "Any crop" clear a selection, which
+  /// the old SimpleDialog offered and a bare dropdown does not.
+  Future<void> _openContextSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppTheme.login.background,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) => Padding(
+        // Lifts the sheet clear of the soft keyboard the dropdowns summon.
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(sheetCtx).viewInsets.bottom,
+        ),
+        child: StatefulBuilder(
+          builder: (sheetCtx, setSheetState) {
+            // Mirror every change into the screen's own state as it happens,
+            // so dismissing the sheet by dragging still commits the choice.
+            void commit(VoidCallback change) {
+              setSheetState(change);
+              setState(() {});
+            }
+
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _sheetHandle(),
+                  Text(
+                    tr(sheetCtx, const {
+                      'en': 'Narrow the conversation',
+                      'si': 'සංවාදය නිශ්චිත කරන්න',
+                      'ta': 'உரையாடலைக் குறிப்பிடுங்கள்',
+                    }),
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.login.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  SearchableDropdown(
+                    label: tr(sheetCtx, const {
+                      'en': 'District',
+                      'si': 'දිස්ත්‍රික්කය',
+                      'ta': 'மாவட்டம்',
+                    }),
+                    value: _selectedDistrict,
+                    items: _districts,
+                    icon: Icons.location_on,
+                    accent: AppTheme.accents.chat,
+                    searchHint: _searchHint(sheetCtx),
+                    itemLabel: (d) => districtLabel(langKeyOf(sheetCtx), d),
+                    controller: _ctxDistrictCtrl,
+                    focusNode: _ctxDistrictFocus,
+                    onChanged: (v) => commit(() => _selectedDistrict = v),
+                  ),
+                  const SizedBox(height: 12),
+                  SearchableDropdown(
+                    label: tr(sheetCtx, const {
+                      'en': 'Crop',
+                      'si': 'භෝගය',
+                      'ta': 'பயிர்',
+                    }),
+                    value: _selectedCrop,
+                    items: _crops,
+                    icon: Icons.eco,
+                    accent: AppTheme.accents.chat,
+                    searchHint: _searchHint(sheetCtx),
+                    itemLabel: (c) => cropLabel(langKeyOf(sheetCtx), c),
+                    controller: _ctxCropCtrl,
+                    focusNode: _ctxCropFocus,
+                    onChanged: (v) => commit(() => _selectedCrop = v),
+                  ),
+                  const SizedBox(height: 14),
+                  if (_hasContext)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed: () {
+                          _ctxDistrictCtrl.clear();
+                          _ctxCropCtrl.clear();
+                          commit(() {
+                            _selectedDistrict = null;
+                            _selectedCrop = null;
+                          });
+                        },
+                        icon: const Icon(Icons.clear, size: 16),
+                        label: Text(
+                          tr(sheetCtx, const {
+                            'en': 'Clear context',
+                            'si': 'සන්දර්භය ඉවත් කරන්න',
+                            'ta': 'சூழலை அழி',
+                          }),
+                        ),
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppTheme.login.textSecondary,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  /// The model switch. Two rows, each naming what the farmer gets rather than
+  /// the model behind it — "20b"/"120b" and "accuracy" mean nothing here, and
+  /// calling one option "accurate" implies the other is wrong.
+  Future<void> _openModelSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppTheme.login.background,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) => SafeArea(
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              selected ?? label,
-              style: TextStyle(
-                fontSize: 12,
-                color: selected != null
-                    ? AppTheme.primary
-                    : AppTheme.textSecondary,
-                fontWeight: selected != null
-                    ? FontWeight.w600
-                    : FontWeight.normal,
-              ),
+            _sheetHandle(),
+            _modelOption(
+              sheetCtx,
+              value: _defaultModel,
+              icon: Icons.bolt_outlined,
+              title: const {
+                'en': 'Quick answer',
+                'si': 'ඉක්මන් පිළිතුර',
+                'ta': 'விரைவான பதில்',
+              },
+              subtitle: const {
+                'en': 'Answers in a few seconds. Good for most questions.',
+                'si': 'තත්පර කිහිපයකින් පිළිතුරු. බොහෝ ප්‍රශ්න සඳහා සුදුසුයි.',
+                'ta':
+                    'சில வினாடிகளில் பதில். பெரும்பாலான கேள்விகளுக்கு ஏற்றது.',
+              },
             ),
-            const SizedBox(width: 4),
-            Icon(
-              Icons.arrow_drop_down,
-              size: 16,
-              color: selected != null ? AppTheme.primary : AppTheme.textMuted,
+            _modelOption(
+              sheetCtx,
+              value: 'accurate',
+              icon: Icons.auto_awesome_outlined,
+              title: const {
+                'en': 'Detailed answer',
+                'si': 'විස්තරාත්මක පිළිතුර',
+                'ta': 'விரிவான பதில்',
+              },
+              subtitle: const {
+                'en': 'Thinks it through. Slower, for harder questions.',
+                'si': 'වඩාත් සිතා බලයි. දුෂ්කර ප්‍රශ්න සඳහා, ටිකක් සෙමින්.',
+                'ta': 'ஆழமாக யோசிக்கும். கடினமான கேள்விகளுக்கு, மெதுவாக.',
+              },
             ),
+            const SizedBox(height: 8),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildModelToggle() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.textMuted),
+  Widget _modelOption(
+    BuildContext sheetCtx, {
+    required String value,
+    required IconData icon,
+    required Map<String, String> title,
+    required Map<String, String> subtitle,
+  }) {
+    final selected = _selectedModel == value;
+    final accent = AppTheme.accents.chat.ink;
+    return ListTile(
+      leading: Icon(
+        icon,
+        color: selected ? accent : AppTheme.login.textSecondary,
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _buildModelOption('fast', '⚡ Fast'),
-          _buildModelOption('accurate', '🎯 Accurate'),
-        ],
+      title: Text(
+        tr(sheetCtx, title),
+        style: TextStyle(
+          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+          color: selected ? accent : AppTheme.login.textPrimary,
+          fontSize: 14.5,
+        ),
       ),
+      subtitle: Text(
+        tr(sheetCtx, subtitle),
+        style: TextStyle(fontSize: 12, color: AppTheme.login.textSecondary),
+      ),
+      trailing: selected ? Icon(Icons.check, color: accent) : null,
+      onTap: () {
+        setState(() => _selectedModel = value);
+        Navigator.of(sheetCtx).pop();
+      },
     );
   }
 
-  Widget _buildModelOption(String value, String label) {
-    final isSelected = _selectedModel == value;
-    return GestureDetector(
-      onTap: () => setState(() => _selectedModel = value),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? AppTheme.primary.withValues(alpha: 0.1)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(16),
-          border: isSelected ? Border.all(color: AppTheme.primary) : null,
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: isSelected ? AppTheme.primary : AppTheme.textSecondary,
-            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-          ),
-        ),
-      ),
-    );
-  }
+  Widget _sheetHandle() => Container(
+    width: 36,
+    height: 4,
+    margin: const EdgeInsets.only(bottom: 14),
+    decoration: BoxDecoration(
+      color: AppTheme.login.borderSubtle,
+      borderRadius: BorderRadius.circular(2),
+    ),
+  );
+
+  String _searchHint(BuildContext ctx) => tr(ctx, const {
+    'en': 'Type to search',
+    'si': 'සෙවීමට ටයිප් කරන්න',
+    'ta': 'தேட தட்டச்சு செய்க',
+  });
 
   Widget _buildMessageList() {
     if (_openingConversation) {
@@ -2765,9 +2999,51 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _buildInputBar() {
+  /// Extracted from the field row so the cluster beneath the input can own
+  /// it — unchanged otherwise.
+  Widget _sendButton() => GestureDetector(
+    onTap: (_isLoading || _isStreaming)
+        ? null
+        : () => _sendMessage(_controller.text),
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      curve: Curves.easeOut,
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        color: (_isLoading || _isStreaming)
+            ? Colors.grey
+            : AppTheme.primaryDark,
+        shape: BoxShape.circle,
+      ),
+      child: (_isLoading || _isStreaming)
+          ? const Padding(
+              padding: EdgeInsets.all(10),
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            )
+          : const Icon(Icons.send, color: Colors.white, size: 20),
+    ),
+  );
+
+  Widget _buildInputBar(bool isWide) {
+    // MainShell renders every screen under `Scaffold.extendBody`, so the
+    // floating bottom nav floats OVER this bar rather than above it. The
+    // other six screens are scroll views whose padding absorbs that; this one
+    // is pinned to the bottom of a non-scrolling Column, so it was sitting
+    // underneath the nav on every phone.
+    //
+    // FloatingBottomNav.reservedHeight is the nav's own measurement (capsule
+    // + its margin from the screen edge, or the safe-area inset when that is
+    // larger), and returns 0 at >=1024px where the nav isn't shown. It stays
+    // correct with the keyboard open: the inset collapses to 0 there and the
+    // Scaffold lifts the nav above the keyboard, so the same clearance is
+    // still exactly what is needed.
+    final navClearance = FloatingBottomNav.reservedHeight(context);
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: EdgeInsets.fromLTRB(12, 12, 12, 12 + navClearance),
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
@@ -2852,35 +3128,10 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
-              GestureDetector(
-                onTap: (_isLoading || _isStreaming)
-                    ? null
-                    : () => _sendMessage(_controller.text),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 150),
-                  curve: Curves.easeOut,
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: (_isLoading || _isStreaming)
-                        ? Colors.grey
-                        : AppTheme.primaryDark,
-                    shape: BoxShape.circle,
-                  ),
-                  child: (_isLoading || _isStreaming)
-                      ? const Padding(
-                          padding: EdgeInsets.all(10),
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.send, color: Colors.white, size: 20),
-                ),
-              ),
             ],
           ),
+          const SizedBox(height: 8),
+          _buildInputCluster(isWide),
           // Recognition-over-recall: only surface the char budget once it
           // actually matters, instead of a silent hard cutoff at 500.
           ValueListenableBuilder<TextEditingValue>(

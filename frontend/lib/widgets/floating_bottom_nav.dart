@@ -51,6 +51,32 @@ class FloatingBottomNav extends StatelessWidget {
 
   static const int itemCount = 7;
 
+  /// The capsule's own height, and its margin from the bottom of the screen.
+  /// Both are read by [reservedHeight]; keep them and the build() values in
+  /// step.
+  static const double capsuleHeight = 64;
+  static const double bottomMargin = 10;
+
+  /// How much vertical space this nav actually covers, including the safe
+  /// area it sits above.
+  ///
+  /// MainShell sets `Scaffold.extendBody`, so every screen's body renders
+  /// UNDERNEATH this capsule. Scrolling screens absorb that in their scroll
+  /// padding; a screen with something pinned to its bottom edge — the chat
+  /// input — has to reserve this much or the nav sits on top of it.
+  ///
+  /// Returns 0 at >=1024px, where MainShell doesn't show the nav at all.
+  ///
+  /// The SafeArea below uses `minimum`, which takes the LARGER of the device
+  /// inset and [bottomMargin] — matched here rather than summed. With the
+  /// keyboard open the inset collapses to 0 and the Scaffold lifts the nav
+  /// above the keyboard, so this stays correct in that state too.
+  static double reservedHeight(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    if (mq.size.width >= 1024) return 0;
+    return capsuleHeight + math.max(mq.padding.bottom, bottomMargin);
+  }
+
   static const _labelsEn = [
     'Home',
     'Yield',
@@ -99,13 +125,13 @@ class FloatingBottomNav extends StatelessWidget {
       // sides so it reads as a capsule sitting over the content behind it
       // (MainShell sets Scaffold.extendBody so that content actually
       // scrolls underneath, which is what makes the blur meaningful).
-      minimum: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+      minimum: const EdgeInsets.fromLTRB(12, 0, 12, bottomMargin),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(28),
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
           child: Container(
-            height: 64,
+            height: capsuleHeight,
             decoration: BoxDecoration(
               // Most host screens sit on a near-white/pale-green gradient,
               // so a pure-white fill at low opacity all but disappeared

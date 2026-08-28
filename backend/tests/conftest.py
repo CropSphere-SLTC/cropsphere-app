@@ -11,6 +11,20 @@ os.environ.setdefault("GROQ_API_KEY", "test-groq-key")
 os.environ.setdefault("ALLOWED_ORIGINS", "http://localhost:3000")
 os.environ.setdefault("MODEL_DIR", "/tmp/models")
 
+# Two OpenMP runtimes end up in this process on macOS: the copy scikit-learn
+# bundles in sklearn/.dylibs, and the system one that XGBoost's wheel loads
+# through @rpath (Homebrew's libomp on Apple silicon). Both spin up their own
+# thread pool, and once TensorFlow, XGBoost and scikit-learn have all been
+# imported into one interpreter the next sklearn call segfaults the whole
+# run — reliably, at tests/ml/test_m5_recommendation_golden.py.
+#
+# Pinning OpenMP to a single thread removes the contention (KMP_DUPLICATE_LIB_OK
+# does not — it was tried and the run still segfaulted). Set here rather than
+# left to the caller's shell so the suite is reproducible; the ML tests assert
+# on model accuracy, not throughput, so one thread costs little.
+# setdefault, so a deliberate override from the environment still wins.
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+
 import pytest  # noqa: E402
 from unittest.mock import MagicMock, patch  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

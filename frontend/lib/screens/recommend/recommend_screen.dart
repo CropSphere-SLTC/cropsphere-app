@@ -286,6 +286,14 @@ class _RecommendScreenState extends State<RecommendScreen> {
   RecommendResponse? _result;
   String? _errorMessage;
 
+  /// All three selections are required by the API, so the action stays
+  /// disabled until they are made — same gating as yield_screen's
+  /// _canPredict.
+  bool get _canRecommend =>
+      _selectedDistrict != null &&
+      _selectedSeason != null &&
+      _selectedIrrigation != null;
+
   final List<String> _districts = [
     'Nuwara Eliya',
     'Badulla',
@@ -1640,7 +1648,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
     width: double.infinity,
     height: 52,
     child: ElevatedButton.icon(
-      onPressed: _isLoading ? null : _recommend,
+      onPressed: (_isLoading || !_canRecommend) ? null : _recommend,
       icon: _isLoading
           ? const SizedBox(
               width: 20,
@@ -1658,10 +1666,16 @@ class _RecommendScreenState extends State<RecommendScreen> {
                 'si': 'විශ්ලේෂණය කරමින්...',
                 'ta': 'பகுப்பாய்வு செய்கிறோம்...',
               })
-            : _t({
+            : _canRecommend
+            ? _t({
                 'en': 'Get Crop Recommendations',
                 'si': 'භෝග නිර්දේශ ලබාගන්න',
                 'ta': 'பயிர் பரிந்துரைகளைப் பெறவும்',
+              })
+            : _t({
+                'en': 'Complete 3 steps above first',
+                'si': 'ඉහළ පියවර 3 සම්පූර්ණ කරන්න',
+                'ta': 'மேலே 3 படிகள் முடிக்கவும்',
               }),
         style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
       ),
@@ -1682,7 +1696,9 @@ class _RecommendScreenState extends State<RecommendScreen> {
       // here. The label is white rather than the accent's off-white onFill:
       // on a button this is a surface, not the header's text-on-fill pairing.
       style: ElevatedButton.styleFrom(
-        backgroundColor: AppTheme.accents.cropRec.fill,
+        backgroundColor: _canRecommend
+            ? AppTheme.accents.cropRec.fill
+            : Colors.grey.shade400,
         foregroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         elevation: 2,

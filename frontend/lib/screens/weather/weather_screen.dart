@@ -237,6 +237,10 @@ class _WeatherScreenState extends State<WeatherScreen> {
   String? _errorMessage;
   bool _tipsExpanded = false;
 
+  /// Both inputs are required by the API, so the action stays disabled until
+  /// the farmer has picked them — same gating as yield_screen's _canPredict.
+  bool get _canForecast => _selectedDistrict != null && _weeksAhead != null;
+
   // ── Searchable district dropdown text state ────────────────────────────
   // Same pattern as price_screen/yield_screen: the controller is owned HERE
   // (not left to RawAutocomplete) so _syncSearchField can reach into it on
@@ -979,7 +983,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
         child: SizedBox(
           height: 52,
           child: ElevatedButton.icon(
-            onPressed: _isLoading ? null : _forecast,
+            onPressed: (_isLoading || !_canForecast) ? null : _forecast,
             icon: _isLoading
                 ? const SizedBox(
                     width: 20,
@@ -997,15 +1001,23 @@ class _WeatherScreenState extends State<WeatherScreen> {
                       'si': 'අනාවැකිය ලබාගනිමින්...',
                       'ta': 'முன்னறிவிப்பு பெறப்படுகிறது...',
                     })
-                  : _t({
+                  : _canForecast
+                  ? _t({
                       'en': 'Get Forecast',
                       'si': 'අනාවැකිය ලබාගන්න',
                       'ta': 'முன்னறிவிப்பு பெறவும்',
+                    })
+                  : _t({
+                      'en': 'Complete 2 steps above first',
+                      'si': 'ඉහළ පියවර 2 සම්පූර්ණ කරන්න',
+                      'ta': 'மேலே 2 படிகள் முடிக்கவும்',
                     }),
               style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
             ),
             style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.accents.weather.fill,
+              backgroundColor: _canForecast
+                  ? AppTheme.accents.weather.fill
+                  : Colors.grey.shade400,
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),

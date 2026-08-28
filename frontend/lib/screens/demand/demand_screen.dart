@@ -230,6 +230,11 @@ class _DemandScreenState extends State<DemandScreen> {
   DemandResponse? _result;
   String? _errorMessage;
 
+  /// Crop and Season are both required by the API, so the action stays
+  /// disabled until the farmer has picked them — same gating as
+  /// yield_screen's _canPredict.
+  bool get _canPredict => _selectedCrop != null && _selectedSeason != null;
+
   // Retail price is entered as exact text (no artificial ceiling) rather
   // than a capped slider — real market prices can go well past what any
   // fixed slider maximum would allow.
@@ -1380,7 +1385,7 @@ class _DemandScreenState extends State<DemandScreen> {
     width: double.infinity,
     height: 52,
     child: ElevatedButton.icon(
-      onPressed: _isLoading ? null : _predict,
+      onPressed: (_isLoading || !_canPredict) ? null : _predict,
       icon: _isLoading
           ? const SizedBox(
               width: 20,
@@ -1398,10 +1403,16 @@ class _DemandScreenState extends State<DemandScreen> {
                 'si': 'පුරෝකථනය කරමින්...',
                 'ta': 'முன்னறிவிக்கிறோம்...',
               })
-            : _t({
+            : _canPredict
+            ? _t({
                 'en': 'Forecast Demand',
                 'si': 'ඉල්ලුම පුරෝකථනය කරන්න',
                 'ta': 'தேவையை முன்னறிவிக்கவும்',
+              })
+            : _t({
+                'en': 'Complete 2 steps above first',
+                'si': 'ඉහළ පියවර 2 සම්පූර්ණ කරන්න',
+                'ta': 'மேலே 2 படிகள் முடிக்கவும்',
               }),
         style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
       ),
@@ -1420,7 +1431,9 @@ class _DemandScreenState extends State<DemandScreen> {
       // accent-coloured action buttons in the app, and unlike price's (2.65:1)
       // and weather's (4.30:1) nothing is being accepted here.
       style: ElevatedButton.styleFrom(
-        backgroundColor: AppTheme.accents.demand.fill,
+        backgroundColor: _canPredict
+            ? AppTheme.accents.demand.fill
+            : Colors.grey.shade400,
         foregroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         elevation: 2,

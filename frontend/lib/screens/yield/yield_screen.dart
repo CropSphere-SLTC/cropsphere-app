@@ -77,6 +77,13 @@ String _fmtKg(double v) => v
     .replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+$)'), (m) => '${m[1]},');
 double _acresToHa(double a) => a / 2.47105;
 
+/// One value, one unit at a time — replaces the old three-field layout
+/// where Perches / Acres / Hectares were all shown and editing any one
+/// converted the other two. _areaPerches stays the canonical value
+/// everywhere else in the file; this only changes which unit the single
+/// input field is reading and writing.
+enum _AreaUnit { perches, acres, hectares }
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  Weather data model (from Open-Meteo)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1555,10 +1562,11 @@ class _YieldScreenState extends State<YieldScreen> {
 
   // ── Area — stored in perches internally ────────────────────────────────────
   double _areaPerches = 160.0;
-  final _perchesCtrl = TextEditingController(text: '160');
-  final _acresCtrl = TextEditingController(text: '1.00');
-  final _hectCtrl = TextEditingController(text: '0.405');
-  bool _areaUpdating = false; // prevents recursive controller updates
+  _AreaUnit _areaUnit = _AreaUnit.perches;
+  final _areaInputCtrl = TextEditingController(text: '160');
+  bool _areaUpdating = false; // guards the field while it is being
+  // reformatted programmatically (unit switch), so that write doesn't
+  // loop back through the listener as if the farmer had typed it.
 
   // ── Weather ────────────────────────────────────────────────────────────────
   _WeatherData? _weather;
@@ -1624,9 +1632,7 @@ class _YieldScreenState extends State<YieldScreen> {
   @override
   void initState() {
     super.initState();
-    _perchesCtrl.addListener(_onPerchesChanged);
-    _acresCtrl.addListener(_onAcresChanged);
-    _hectCtrl.addListener(_onHectChanged);
+    _areaInputCtrl.addListener(_onAreaInputChanged);
     _cropFocus.addListener(
       () => syncSearchField(_cropFocus, _cropSearchCtrl, _selectedCrop),
     );
@@ -1641,9 +1647,7 @@ class _YieldScreenState extends State<YieldScreen> {
 
   @override
   void dispose() {
-    _perchesCtrl.dispose();
-    _acresCtrl.dispose();
-    _hectCtrl.dispose();
+    _areaInputCtrl.dispose();
     _cropSearchCtrl.dispose();
     _districtSearchCtrl.dispose();
     _cropFocus.dispose();
@@ -1651,40 +1655,57 @@ class _YieldScreenState extends State<YieldScreen> {
     super.dispose();
   }
 
-  // ── Area text field listeners ──────────────────────────────────────────────
-  void _onPerchesChanged() {
+  // ── Area field ──────────────────────────────────────────────────────────────
+  // One text field, reinterpreted per the unit currently selected in
+  // _areaUnitDropdown — not three fields converting each other live.
+
+  double _areaUnitToHa(_AreaUnit u, double v) => switch (u) {
+    _AreaUnit.perches => _perchesToHa(v),
+    _AreaUnit.acres => _acresToHa(v),
+    _AreaUnit.hectares => v,
+  };
+
+  /// _areaPerches, rendered in unit [u] at the precision that unit used when
+  /// three fields showed it simultaneously (perches 1dp, acres 3dp, hectares
+  /// 4dp) — kept so switching units and switching back reproduces the same
+  /// text rather than drifting through repeated rounding.
+  String _formatAreaFor(_AreaUnit u) => switch (u) {
+    _AreaUnit.perches => _areaPerches.toStringAsFixed(1),
+    _AreaUnit.acres => _haToAcres(
+      _perchesToHa(_areaPerches),
+    ).toStringAsFixed(3),
+    _AreaUnit.hectares => _perchesToHa(_areaPerches).toStringAsFixed(4),
+  };
+
+  void _onAreaInputChanged() {
     if (_areaUpdating) return;
-    final v = double.tryParse(_perchesCtrl.text);
+    final v = double.tryParse(_areaInputCtrl.text);
     if (v == null || v <= 0) return;
+    setState(() => _areaPerches = _haToPerches(_areaUnitToHa(_areaUnit, v)));
+  }
+
+  /// Switching units must not change the area — only how it's displayed.
+  /// _areaUpdating suppresses _onAreaInputChanged for this one programmatic
+  /// write, the same guard the old three-field version used for the same
+  /// reason: without it, reformatting the text would be read back as the
+  /// farmer retyping the number in the OLD unit.
+  void _onAreaUnitChanged(_AreaUnit? unit) {
+    if (unit == null || unit == _areaUnit) return;
     _areaUpdating = true;
-    setState(() => _areaPerches = v);
-    _acresCtrl.text = _haToAcres(_perchesToHa(v)).toStringAsFixed(3);
-    _hectCtrl.text = _perchesToHa(v).toStringAsFixed(4);
+    setState(() => _areaUnit = unit);
+    _areaInputCtrl.text = _formatAreaFor(unit);
     _areaUpdating = false;
   }
 
-  void _onAcresChanged() {
-    if (_areaUpdating) return;
-    final v = double.tryParse(_acresCtrl.text);
-    if (v == null || v <= 0) return;
-    _areaUpdating = true;
-    final ha = _acresToHa(v);
-    setState(() => _areaPerches = _haToPerches(ha));
-    _perchesCtrl.text = _haToPerches(ha).toStringAsFixed(1);
-    _hectCtrl.text = ha.toStringAsFixed(4);
-    _areaUpdating = false;
-  }
-
-  void _onHectChanged() {
-    if (_areaUpdating) return;
-    final v = double.tryParse(_hectCtrl.text);
-    if (v == null || v <= 0) return;
-    _areaUpdating = true;
-    setState(() => _areaPerches = _haToPerches(v));
-    _perchesCtrl.text = _haToPerches(v).toStringAsFixed(1);
-    _acresCtrl.text = _haToAcres(v).toStringAsFixed(3);
-    _areaUpdating = false;
-  }
+  String _areaUnitLabel(_AreaUnit u) => switch (u) {
+    _AreaUnit.perches => _ts({'en': 'Perches', 'si': 'පර්ච', 'ta': 'பர்ச்'}),
+    _AreaUnit.acres => _ts({'en': 'Acres', 'si': 'අක්කර', 'ta': 'ஏக்கர்'}),
+    _AreaUnit.hectares => _ts({
+      'en': 'Hectares',
+      'si': 'හෙක්ටෙයාර්',
+      'ta': 'ஹெக்டேர்',
+    }),
+  };
 
   // ── Weather fetch ──────────────────────────────────────────────────────────
   Future<void> _loadWeather(String district) async {
@@ -2464,7 +2485,16 @@ class _YieldScreenState extends State<YieldScreen> {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  //  (ii) Area card — three manual text fields, no slider
+  //  (ii) Area card — one input field, then a unit selector beside it
+  //
+  //  Was three fields (Perches / Acres / Hectares) shown at once, any one
+  //  editable and the other two updating live. Now one field holds the
+  //  number and a dropdown beside it says which unit that number is in;
+  //  switching units reformats the same field rather than revealing another
+  //  one. _areaPerches is still the canonical value the rest of the file
+  //  reads (_predict, the result card, etc.) — only the input UI changed.
+  //  The field comes FIRST in the row, the unit selector after it, by
+  //  request — a farmer types the number, then names its unit.
   // ──────────────────────────────────────────────────────────────────────────
   Widget _areaCard() => _card(
     child: Column(
@@ -2491,42 +2521,19 @@ class _YieldScreenState extends State<YieldScreen> {
         const SizedBox(height: 4),
         Text(
           _ts({
-            'en': 'Enter any one — the others update automatically.',
-            'si':
-                'ඕනෑම එකක් ඇතුළු කරන්න — අනිත් ඒවා ස්වයංක්‍රීයව යාවත්කාලීන වේ.',
-            'ta':
-                'ஏதேனும் ஒன்றை உள்ளிடுங்கள் — மற்றவை தானாக புதுப்பிக்கப்படும்.',
+            'en': 'Enter the area, then choose its unit.',
+            'si': 'ප්‍රදේශය ඇතුළු කර, ඒකකය තෝරන්න.',
+            'ta': 'பரப்பளவை உள்ளிட்டு, அலகைத் தேர்ந்தெடுக்கவும்.',
           }),
           style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
         ),
         const SizedBox(height: 14),
         Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: _areaField(
-                controller: _perchesCtrl,
-                label: _ts({'en': 'Perches', 'si': 'පර්ච', 'ta': 'பர்ச்'}),
-                isMain: true,
-              ),
-            ),
+            Expanded(flex: 3, child: _areaField()),
             const SizedBox(width: 10),
-            Expanded(
-              child: _areaField(
-                controller: _acresCtrl,
-                label: _ts({'en': 'Acres', 'si': 'අක්කර', 'ta': 'ஏக்கர்'}),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _areaField(
-                controller: _hectCtrl,
-                label: _ts({
-                  'en': 'Hectares',
-                  'si': 'හෙක්ටෙයාර්',
-                  'ta': 'ஹெக்டேர்',
-                }),
-              ),
-            ),
+            Expanded(flex: 2, child: _areaUnitDropdown()),
           ],
         ),
         const SizedBox(height: 10),
@@ -2543,22 +2550,18 @@ class _YieldScreenState extends State<YieldScreen> {
     ),
   );
 
-  Widget _areaField({
-    required TextEditingController controller,
-    required String label,
-    bool isMain = false,
-  }) => TextField(
-    controller: controller,
+  Widget _areaField() => TextField(
+    controller: _areaInputCtrl,
     keyboardType: const TextInputType.numberWithOptions(decimal: true),
     inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.]'))],
-    style: TextStyle(
-      fontSize: isMain ? 20 : 15,
+    style: const TextStyle(
+      fontSize: 20,
       fontWeight: FontWeight.bold,
       color: AppTheme.primary,
     ),
     decoration: InputDecoration(
-      labelText: label,
-      labelStyle: TextStyle(
+      labelText: _areaUnitLabel(_areaUnit),
+      labelStyle: const TextStyle(
         fontSize: 11,
         color: AppTheme.primary,
         fontWeight: FontWeight.w600,
@@ -2567,17 +2570,52 @@ class _YieldScreenState extends State<YieldScreen> {
         borderRadius: BorderRadius.circular(10),
         borderSide: BorderSide(
           color: AppTheme.primary.withValues(alpha: 0.3),
-          width: isMain ? 2 : 1.2,
+          width: 2,
         ),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
-        borderSide: BorderSide(color: AppTheme.primary, width: 2),
+        borderSide: const BorderSide(color: AppTheme.primary, width: 2),
       ),
       filled: true,
       fillColor: AppTheme.primary.withValues(alpha: 0.05),
       contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
     ),
+  );
+
+  Widget _areaUnitDropdown() => DropdownButtonFormField<_AreaUnit>(
+    initialValue: _areaUnit,
+    decoration: InputDecoration(
+      labelText: _ts({'en': 'Unit', 'si': 'ඒකකය', 'ta': 'அலகு'}),
+      labelStyle: const TextStyle(
+        fontSize: 11,
+        color: AppTheme.primary,
+        fontWeight: FontWeight.w600,
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: AppTheme.primary.withValues(alpha: 0.3)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: AppTheme.primary, width: 2),
+      ),
+      filled: true,
+      fillColor: AppTheme.primary.withValues(alpha: 0.05),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+    ),
+    items: _AreaUnit.values
+        .map(
+          (u) => DropdownMenuItem(
+            value: u,
+            child: Text(
+              _areaUnitLabel(u),
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+          ),
+        )
+        .toList(),
+    onChanged: _onAreaUnitChanged,
   );
 
   // ── Weather card ───────────────────────────────────────────────────────────

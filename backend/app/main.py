@@ -4,8 +4,10 @@ import logging
 import time
 from datetime import date
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.errors import RateLimitExceeded
 
@@ -14,6 +16,9 @@ from app.middleware.auth import FirebaseAuthMiddleware
 from app.middleware.rate_limit import limiter, rate_limit_exceeded_handler
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.models.loader import model_loader
+from app.user.services.crop_suitability import assert_bands_available
+from app.user.services.recommend_service import assert_feature_contract
+from app.user.services.weather_service import assert_weather_seeds_in_range
 from app.user.routers import (
     chat_history_router,
     chat_router,
@@ -260,6 +265,18 @@ def create_app() -> FastAPI:
         model_loader.load_all(settings.MODEL_DIR)
         logger.info("Models loaded: %s", model_loader.status_report())
 
+        # Shift-left, same spirit as the Dockerfile's torch/dist-info guards:
+        # verify the recommendation feature vector still matches what M5 was
+        # trained on. A mismatch makes every recommendation fall back to a
+        # revenue heuristic while still returning 200 OK — invisible to health
+        # checks, and it shipped that way once already. Fail the boot instead.
+        assert_feature_contract()
+        assert_bands_available()
+        # Not an assertion despite the name shape: four districts breach
+        # the M2 scaler's fitted range today and two of them forecast
+        # fine, so this logs loudly rather than refusing to boot.
+        assert_weather_seeds_in_range()
+
         # Warm the RAG sentence-encoder once, now, from the baked offline cache.
         # This moves the (previously per-request, network-bound) load to boot,
         # so a bad cache surfaces here instead of hanging the first chat request.
@@ -274,6 +291,18 @@ def create_app() -> FastAPI:
         # Prediction models — warm up all 20 individually loaded models
         # (RAG's own model, the sentence-encoder above, is separate).
         _warmup_models()
+
+        # Average farmgate price per crop — a static per-crop mean read
+        # once from the price CSVs, cached so /api/price/predict never
+        # re-reads them per request. See price_service for source/coverage
+        # details.
+        try:
+            from app.user.services.price_service import warm_average_farmgate_prices
+
+            warm_average_farmgate_prices()
+            logger.info("Average farmgate prices preloaded")
+        except Exception as exc:
+            logger.warning("Average farmgate price warm-up failed: %s", exc)
 
         # Firestore — verify connectivity, but never block startup on it.
         _check_firestore(settings)
@@ -310,6 +339,24 @@ def create_app() -> FastAPI:
     # ── Rate limiter ──────────────────────────────────────────────────────────
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+
+    # ── Validation-error diagnostics ─────────────────────────────────────────
+    # Added while chasing a 422 the Flutter client was surfacing as "Couldn't
+    # reach the server" (api_service.dart's _dioErrorCode maps any non-401/
+    # 403/429/5xx status to the same 'network' code as a genuine connection
+    # failure, so the real cause — PredictionWeatherWeek.week_number wrongly
+    # bounded 1-4 instead of 1-53 — was invisible client-side; see that
+    # field's doc comment in schemas.py). Logs which field(s) failed and why,
+    # server-side only — the response body sent to the client is FastAPI's
+    # normal 422 detail, unchanged. Kept permanently: cheap, and the next
+    # silent 422 gets the same fast diagnosis this one did. Remove if this
+    # turns out to be noisy in practice.
+    @app.exception_handler(RequestValidationError)
+    async def _log_validation_error(request: Request, exc: RequestValidationError):
+        logger.warning(
+            "422 on %s %s: %s", request.method, request.url.path, exc.errors()
+        )
+        return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
     # ── Routers ───────────────────────────────────────────────────────────────
     app.include_router(health_router.router)

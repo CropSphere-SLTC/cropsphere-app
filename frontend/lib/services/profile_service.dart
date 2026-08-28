@@ -47,7 +47,51 @@ class ProfileService {
     return UserPreferences.fromJson(response.data);
   }
 
-  Future<void> updatePreferences(UserPreferences preferences) async {
-    await _dio.patch('/api/user/preferences', data: preferences.toJson());
+  /// Saves preferences and verifies the server actually stored the farm
+  /// fields, rather than trusting the 200.
+  ///
+  /// A backend older than the one that introduced preferred_district /
+  /// preferred_crop drops them as unknown request fields (Pydantic defaults
+  /// to extra='ignore') and still answers 200 — which made a save look
+  /// successful while nothing persisted, so the values were gone on the
+  /// next load. The PATCH response echoes both fields back, so comparing
+  /// the echo against what was sent catches exactly that case at the point
+  /// it happens instead of leaving it to surface as a mystery later.
+  Future<PreferencesSaveResult> updatePreferences(
+    UserPreferences preferences,
+  ) async {
+    final response = await _dio.patch(
+      '/api/user/preferences',
+      data: preferences.toJson(),
+    );
+
+    final data = response.data is Map
+        ? Map<String, dynamic>.from(response.data as Map)
+        : const <String, dynamic>{};
+
+    // Only the fields actually sent are checked — an omitted field is meant
+    // to be left untouched server-side, so no echo is expected for it.
+    final unconfirmed = <PreferenceField>[];
+    if (preferences.preferredDistrict != null &&
+        data['preferred_district'] != preferences.preferredDistrict) {
+      unconfirmed.add(PreferenceField.district);
+    }
+    if (preferences.preferredCrop != null &&
+        data['preferred_crop'] != preferences.preferredCrop) {
+      unconfirmed.add(PreferenceField.crop);
+    }
+    return PreferencesSaveResult(unconfirmed);
   }
+}
+
+enum PreferenceField { district, crop }
+
+/// Outcome of a preferences save — [unconfirmed] lists fields the server
+/// did not echo back, meaning they were NOT stored despite a 200 response.
+class PreferencesSaveResult {
+  final List<PreferenceField> unconfirmed;
+
+  const PreferencesSaveResult(this.unconfirmed);
+
+  bool get fullyConfirmed => unconfirmed.isEmpty;
 }

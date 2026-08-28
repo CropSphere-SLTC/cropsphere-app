@@ -43,7 +43,12 @@ async def chat_endpoint(
 
     try:
         response.conversation_id = persist_chat_turn(
-            user_id, body.conversation_id, body.message, response.reply
+            user_id,
+            body.conversation_id,
+            body.message,
+            response.reply,
+            crop=body.crop.value if body.crop else None,
+            district=body.district.value if body.district else None,
         )
     except Exception as exc:
         logger.warning("Conversation persistence failed uid=%s: %s", user_id, exc)

@@ -38,10 +38,13 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:http/http.dart' as http;
 import '../../app_lang.dart';
 import '../../models/api_models.dart';
+import '../../services/prediction_handoff.dart';
 import '../../services/service_factory.dart';
 import '../../widgets/animated_lang_text.dart';
 import '../../widgets/app_theme.dart';
-import '../../widgets/profile_avatar_button.dart';
+import '../../widgets/searchable_dropdown.dart';
+import '../../widgets/app_top_bar.dart';
+import '../../widgets/followup_chip.dart';
 import '../../widgets/skeleton_loading.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -65,7 +68,21 @@ const Map<String, List<double>> _districtCoords = {
 double _haToPerches(double ha) => ha * 395.3686;
 double _haToAcres(double ha) => ha * 2.47105;
 double _perchesToHa(double p) => p / 395.3686;
+
+/// Thousands-separated whole kilograms — "19612" reads as "19,612". Yield
+/// figures run to five digits, which is exactly where an unseparated number
+/// stops being scannable at a glance.
+String _fmtKg(double v) => v
+    .toStringAsFixed(0)
+    .replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+$)'), (m) => '${m[1]},');
 double _acresToHa(double a) => a / 2.47105;
+
+/// One value, one unit at a time — replaces the old three-field layout
+/// where Perches / Acres / Hectares were all shown and editing any one
+/// converted the other two. _areaPerches stays the canonical value
+/// everywhere else in the file; this only changes which unit the single
+/// input field is reading and writing.
+enum _AreaUnit { perches, acres, hectares }
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Weather data model (from Open-Meteo)
@@ -264,7 +281,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'கையுறை அணியுங்கள். தோலில் நேரடியாக படாமல் தவிர்க்கவும். உலர் இடத்தில் சேமிக்கவும்.',
         },
-        color: Color(0xFFE65100),
+        color: AppTheme.data3,
         icon: Icons.grass,
       ),
       _ChemicalInstruction(
@@ -301,7 +318,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'அதிக யூரியா கேரட்டில் கிளைத்த, மயிரான வேர்களை ஏற்படுத்தும். குறைவாக பயன்படுத்தவும்.',
         },
-        color: Color(0xFF2E7D32),
+        color: AppTheme.data1,
         icon: Icons.water_drop,
       ),
       _ChemicalInstruction(
@@ -333,7 +350,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'அதிகமாக பயன்படுத்தாதீர்கள் — அதிக பொட்டாசியம் வேர்களை கசப்பாக மாற்றும்.',
         },
-        color: Color(0xFF7B1FA2),
+        color: AppTheme.data2,
         icon: Icons.science,
       ),
     ],
@@ -371,7 +388,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'கையுறை, முககவசம், காலணி அணியுங்கள். காற்றுள்ள நாட்களில் தெளிக்காதீர்கள். அறுவடை இடைவெளி: 14 நாட்கள்.',
         },
-        color: Color(0xFFC62828),
+        color: AppTheme.data5,
         icon: Icons.bug_report,
       ),
       _ChemicalInstruction(
@@ -410,7 +427,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'முககவசம் அணியுங்கள். மழையில் அல்லது அதிக காற்றில் தெளிக்காதீர்கள். அறுவடை இடைவெளி: 7 நாட்கள்.',
         },
-        color: Color(0xFF7B1FA2),
+        color: AppTheme.data2,
         icon: Icons.spa,
       ),
     ],
@@ -487,7 +504,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'பிரித்து பயன்படுத்துவது திறனை இரட்டிப்பாக்கும். ஒரே நேரத்தில் அனைத்தையும் பயன்படுத்தாதீர்கள் — வேர்களை எரிக்கும்.',
         },
-        color: Color(0xFF2E7D32),
+        color: AppTheme.data1,
         icon: Icons.grass,
       ),
       _ChemicalInstruction(
@@ -521,7 +538,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'ஈரத்திலிருந்து விலகி சேமிக்கவும். உலர் துகள்கள் மட்டும் — கரைக்காதீர்கள்.',
         },
-        color: Color(0xFFE65100),
+        color: AppTheme.data3,
         icon: Icons.grass,
       ),
       _ChemicalInstruction(
@@ -552,7 +569,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'si': 'කොළ ස්පර්ශය වළකින්න — සාමාන්‍ය කොළ දහනය සිදු විය හැකිය.',
           'ta': 'இலை தொடர்பு தவிர்க்கவும் — சிறிய இலை எரிவு ஏற்படலாம்.',
         },
-        color: Color(0xFF7B1FA2),
+        color: AppTheme.data2,
         icon: Icons.science,
       ),
     ],
@@ -592,7 +609,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'தேனீக்களுக்கு மிகவும் நச்சு — மாலையில் மட்டும் தெளிக்கவும். முழு பாதுகாப்பு உடை அணியுங்கள். அறுவடை இடைவெளி: 21 நாட்கள்.',
         },
-        color: Color(0xFFC62828),
+        color: AppTheme.data5,
         icon: Icons.bug_report,
       ),
       _ChemicalInstruction(
@@ -629,7 +646,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'நீர் ஆதாரங்களுக்கு அருகில் பயன்படுத்தாதீர்கள். மாஸ்க் மற்றும் கையுறை அணியுங்கள். அறுவடை இடைவெளி: 45 நாட்கள்.',
         },
-        color: Color(0xFF1565C0),
+        color: AppTheme.data4,
         icon: Icons.eco,
       ),
     ],
@@ -705,7 +722,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'அதிகமாக உரமிடாதீர்கள் — அதிக ஊட்டச்சத்து வேர் பாக்டீரியாவின் இயற்கை N-நிலைநிறுத்தலை தடுக்கும்.',
         },
-        color: Color(0xFFE65100),
+        color: AppTheme.data3,
         icon: Icons.grass,
       ),
       _ChemicalInstruction(
@@ -740,7 +757,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'பச்சைப்பயிருக்கு மிகக் குறைந்த பொட்டாசியம் தேவை — பரிந்துரைக்கப்பட்ட அளவை தாண்டாதீர்கள்.',
         },
-        color: Color(0xFF7B1FA2),
+        color: AppTheme.data2,
         icon: Icons.science,
       ),
     ],
@@ -779,7 +796,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'பூக்கும் காலத்தில் தெளிக்காதீர்கள் — தேனீக்களுக்கு தீங்கு. அறுவடை இடைவெளி: 14 நாட்கள்.',
         },
-        color: Color(0xFFC62828),
+        color: AppTheme.data5,
         icon: Icons.bug_report,
       ),
       _ChemicalInstruction(
@@ -815,7 +832,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'si': 'මාස්ක් පළඳින්න. අස்வனු ගැළපීම: දින 7.',
           'ta': 'முககவசம் அணியுங்கள். அறுவடை இடைவெளி: 7 நாட்கள்.',
         },
-        color: Color(0xFF7B1FA2),
+        color: AppTheme.data2,
         icon: Icons.spa,
       ),
     ],
@@ -890,7 +907,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'குறைந்த உரம் அணுகுமுறை. அதிக நைட்ரஜன் N-நிலைநிறுத்தலை தடுக்கும்.',
         },
-        color: Color(0xFFE65100),
+        color: AppTheme.data3,
         icon: Icons.grass,
       ),
     ],
@@ -927,7 +944,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'மிதமான நச்சு — கையுறை மற்றும் முககவசம் அணியுங்கள். அறுவடை இடைவெளி: 7 நாட்கள்.',
         },
-        color: Color(0xFFC62828),
+        color: AppTheme.data5,
         icon: Icons.bug_report,
       ),
     ],
@@ -1003,7 +1020,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'சிறந்த விளைவுக்கு அளவை பிரிக்கவும். குளிர்ச்சியான மாலை நேரத்தில் பயன்படுத்தவும்.',
         },
-        color: Color(0xFF2E7D32),
+        color: AppTheme.data1,
         icon: Icons.grass,
       ),
       _ChemicalInstruction(
@@ -1035,7 +1052,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'si': 'ආර්ද්‍රතාවෙන් ඈත සද්ධ බෑගයක ගබඩා කරන්න.',
           'ta': 'ஈரத்திலிருந்து விலகி மூடிய பையில் சேமிக்கவும்.',
         },
-        color: Color(0xFF7B1FA2),
+        color: AppTheme.data2,
         icon: Icons.science,
       ),
     ],
@@ -1074,7 +1091,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'முழு பாதுகாப்பு உடை அணியுங்கள். பயன்படுத்திய பிறகு உபகரணங்களை கழுவுங்கள். அறுவடை இடைவெளி: 7 நாட்கள்.',
         },
-        color: Color(0xFFC62828),
+        color: AppTheme.data5,
         icon: Icons.bug_report,
       ),
     ],
@@ -1150,7 +1167,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'வேர்க்கடலை தனது நைட்ரஜனை நிலைநிறுத்துகிறது — நடவு நேரத்தில் யூரியா தேவையில்லை.',
         },
-        color: Color(0xFFE65100),
+        color: AppTheme.data3,
         icon: Icons.grass,
       ),
       _ChemicalInstruction(
@@ -1188,7 +1205,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'இது உரம் அல்ல — TSP அல்லது MOP-ஐ மாற்றாதீர்கள். வேர்க்கடலை தரத்திற்கு முக்கியம்.',
         },
-        color: Color(0xFF1565C0),
+        color: AppTheme.data4,
         icon: Icons.water_drop,
       ),
       _ChemicalInstruction(
@@ -1221,7 +1238,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'பயன்படுத்திய பிறகு நீர் தேக்கம் தவிர்க்கவும் — வேர்க்கடலை வேர்கள் அதிக ஈரத்திற்கு உணர்திறன் உடையவை.',
         },
-        color: Color(0xFF7B1FA2),
+        color: AppTheme.data2,
         icon: Icons.science,
       ),
     ],
@@ -1261,7 +1278,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'சிகிச்சை செய்யப்பட்ட விதைகளை சாப்பிடாதீர்கள். கையுறை அணியுங்கள். குழந்தைகளிடமிருந்து விலகி வைக்கவும்.',
         },
-        color: Color(0xFF7B1FA2),
+        color: AppTheme.data2,
         icon: Icons.spa,
       ),
       _ChemicalInstruction(
@@ -1298,7 +1315,7 @@ const Map<String, _SoilRec> _kSoilRecs = {
           'ta':
               'முககவசம் அணியுங்கள். மழையில் தெளிக்காதீர்கள். அறுவடை இடைவெளி: 14 நாட்கள்.',
         },
-        color: Color(0xFFC62828),
+        color: AppTheme.data5,
         icon: Icons.bug_report,
       ),
     ],
@@ -1433,40 +1450,6 @@ final List<Map<String, _L>> _seasons = [
   },
 ];
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Crop quick-select emoji
-// ─────────────────────────────────────────────────────────────────────────────
-const Map<String, String> _cropEmoji = {
-  'Carrot': '🥕',
-  'Maize': '🌽',
-  'Green gram': '🫘',
-  'Cowpea': '🟤',
-  'Finger millet': '🌾',
-  'Groundnut': '🥜',
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  SVG icon strings (matching Dashboard)
-// ─────────────────────────────────────────────────────────────────────────────
-const String _cropSphereSvg =
-    '''<svg viewBox="0 0 110 110" xmlns="http://www.w3.org/2000/svg">
-  <ellipse cx="55" cy="96" rx="36" ry="7" fill="#1B4D1B" opacity="0.7"/>
-  <path d="M55 95 C55 80 52 65 50 50" stroke="#4CAF50" stroke-width="2.5" stroke-linecap="round" fill="none"/>
-  <path d="M50 65 C35 58 22 42 28 28 C38 40 48 55 50 65Z" fill="#388E3C" opacity="0.9"/>
-  <path d="M50 65 C42 58 35 44 28 28" stroke="#2E7D32" stroke-width="1" fill="none" opacity="0.6"/>
-  <path d="M52 58 C67 50 80 36 74 22 C64 34 55 50 52 58Z" fill="#4CAF50" opacity="0.9"/>
-  <path d="M52 58 C62 50 70 36 74 22" stroke="#388E3C" stroke-width="1" fill="none" opacity="0.6"/>
-  <path d="M50 50 C38 44 30 32 34 20 C42 30 48 42 50 50Z" fill="#66BB6A" opacity="0.8"/>
-  <circle cx="50" cy="28" r="3.5" fill="#FFC107" opacity="0.9"/>
-  <circle cx="44" cy="22" r="3" fill="#FFB300" opacity="0.85"/>
-  <circle cx="56" cy="20" r="3" fill="#FFC107" opacity="0.9"/>
-  <circle cx="50" cy="14" r="3.5" fill="#FFD54F" opacity="0.95"/>
-  <circle cx="43" cy="13" r="2.5" fill="#FFB300" opacity="0.8"/>
-  <circle cx="57" cy="12" r="2.5" fill="#FFC107" opacity="0.85"/>
-  <circle cx="50" cy="8" r="2" fill="#FFD54F" opacity="0.9"/>
-  <path d="M50 50 C50 42 50 35 50 28" stroke="#558B2F" stroke-width="2" stroke-linecap="round" fill="none"/>
-</svg>''';
-
 String _navSvg(int i, Color color) {
   final c =
       '#${color.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}';
@@ -1566,12 +1549,24 @@ class _YieldScreenState extends State<YieldScreen> {
   String? _selectedSeason;
   String? _selectedIrrigation; // raw value key e.g. 'drip'
 
+  // ── Searchable dropdown text state ─────────────────────────────────────────
+  // Crop and District are type-to-filter (RawAutocomplete). Their controllers
+  // are owned HERE rather than left to RawAutocomplete so this screen can
+  // force-clear the district field when the crop changes — the existing
+  // "district resets when crop changes" rule needs to reach into the text
+  // field, which the widget's own internal controller wouldn't allow.
+  final _cropSearchCtrl = TextEditingController();
+  final _districtSearchCtrl = TextEditingController();
+  final _cropFocus = FocusNode();
+  final _districtFocus = FocusNode();
+
   // ── Area — stored in perches internally ────────────────────────────────────
   double _areaPerches = 160.0;
-  final _perchesCtrl = TextEditingController(text: '160');
-  final _acresCtrl = TextEditingController(text: '1.00');
-  final _hectCtrl = TextEditingController(text: '0.405');
-  bool _areaUpdating = false; // prevents recursive controller updates
+  _AreaUnit _areaUnit = _AreaUnit.perches;
+  final _areaInputCtrl = TextEditingController(text: '160');
+  bool _areaUpdating = false; // guards the field while it is being
+  // reformatted programmatically (unit switch), so that write doesn't
+  // loop back through the listener as if the farmer had typed it.
 
   // ── Weather ────────────────────────────────────────────────────────────────
   _WeatherData? _weather;
@@ -1627,56 +1622,90 @@ class _YieldScreenState extends State<YieldScreen> {
   String _t(_L m) => m[_langKey] ?? m['en']!;
   String _ts(Map<String, String> m) => m[_langKey] ?? m['en']!;
 
+  /// Placeholder for this screen's SearchableDropdowns.
+  String get _searchHint => _ts({
+    'en': 'Type to search',
+    'si': 'සෙවීමට ටයිප් කරන්න',
+    'ta': 'தேட தட்டச்சு செய்க',
+  });
+
   @override
   void initState() {
     super.initState();
-    _perchesCtrl.addListener(_onPerchesChanged);
-    _acresCtrl.addListener(_onAcresChanged);
-    _hectCtrl.addListener(_onHectChanged);
+    _areaInputCtrl.addListener(_onAreaInputChanged);
+    _cropFocus.addListener(
+      () => syncSearchField(_cropFocus, _cropSearchCtrl, _selectedCrop),
+    );
+    _districtFocus.addListener(
+      () => syncSearchField(
+        _districtFocus,
+        _districtSearchCtrl,
+        _selectedDistrict,
+      ),
+    );
   }
 
   @override
   void dispose() {
-    _perchesCtrl.dispose();
-    _acresCtrl.dispose();
-    _hectCtrl.dispose();
+    _areaInputCtrl.dispose();
+    _cropSearchCtrl.dispose();
+    _districtSearchCtrl.dispose();
+    _cropFocus.dispose();
+    _districtFocus.dispose();
     super.dispose();
   }
 
-  // ── Area text field listeners ──────────────────────────────────────────────
-  void _onPerchesChanged() {
+  // ── Area field ──────────────────────────────────────────────────────────────
+  // One text field, reinterpreted per the unit currently selected in
+  // _areaUnitDropdown — not three fields converting each other live.
+
+  double _areaUnitToHa(_AreaUnit u, double v) => switch (u) {
+    _AreaUnit.perches => _perchesToHa(v),
+    _AreaUnit.acres => _acresToHa(v),
+    _AreaUnit.hectares => v,
+  };
+
+  /// _areaPerches, rendered in unit [u] at the precision that unit used when
+  /// three fields showed it simultaneously (perches 1dp, acres 3dp, hectares
+  /// 4dp) — kept so switching units and switching back reproduces the same
+  /// text rather than drifting through repeated rounding.
+  String _formatAreaFor(_AreaUnit u) => switch (u) {
+    _AreaUnit.perches => _areaPerches.toStringAsFixed(1),
+    _AreaUnit.acres => _haToAcres(
+      _perchesToHa(_areaPerches),
+    ).toStringAsFixed(3),
+    _AreaUnit.hectares => _perchesToHa(_areaPerches).toStringAsFixed(4),
+  };
+
+  void _onAreaInputChanged() {
     if (_areaUpdating) return;
-    final v = double.tryParse(_perchesCtrl.text);
+    final v = double.tryParse(_areaInputCtrl.text);
     if (v == null || v <= 0) return;
+    setState(() => _areaPerches = _haToPerches(_areaUnitToHa(_areaUnit, v)));
+  }
+
+  /// Switching units must not change the area — only how it's displayed.
+  /// _areaUpdating suppresses _onAreaInputChanged for this one programmatic
+  /// write, the same guard the old three-field version used for the same
+  /// reason: without it, reformatting the text would be read back as the
+  /// farmer retyping the number in the OLD unit.
+  void _onAreaUnitChanged(_AreaUnit? unit) {
+    if (unit == null || unit == _areaUnit) return;
     _areaUpdating = true;
-    setState(() => _areaPerches = v);
-    _acresCtrl.text = _haToAcres(_perchesToHa(v)).toStringAsFixed(3);
-    _hectCtrl.text = _perchesToHa(v).toStringAsFixed(4);
+    setState(() => _areaUnit = unit);
+    _areaInputCtrl.text = _formatAreaFor(unit);
     _areaUpdating = false;
   }
 
-  void _onAcresChanged() {
-    if (_areaUpdating) return;
-    final v = double.tryParse(_acresCtrl.text);
-    if (v == null || v <= 0) return;
-    _areaUpdating = true;
-    final ha = _acresToHa(v);
-    setState(() => _areaPerches = _haToPerches(ha));
-    _perchesCtrl.text = _haToPerches(ha).toStringAsFixed(1);
-    _hectCtrl.text = ha.toStringAsFixed(4);
-    _areaUpdating = false;
-  }
-
-  void _onHectChanged() {
-    if (_areaUpdating) return;
-    final v = double.tryParse(_hectCtrl.text);
-    if (v == null || v <= 0) return;
-    _areaUpdating = true;
-    setState(() => _areaPerches = _haToPerches(v));
-    _perchesCtrl.text = _haToPerches(v).toStringAsFixed(1);
-    _acresCtrl.text = _haToAcres(v).toStringAsFixed(3);
-    _areaUpdating = false;
-  }
+  String _areaUnitLabel(_AreaUnit u) => switch (u) {
+    _AreaUnit.perches => _ts({'en': 'Perches', 'si': 'පර්ච', 'ta': 'பர்ச்'}),
+    _AreaUnit.acres => _ts({'en': 'Acres', 'si': 'අක්කර', 'ta': 'ஏக்கர்'}),
+    _AreaUnit.hectares => _ts({
+      'en': 'Hectares',
+      'si': 'හෙක්ටෙයාර්',
+      'ta': 'ஹெக்டேர்',
+    }),
+  };
 
   // ── Weather fetch ──────────────────────────────────────────────────────────
   Future<void> _loadWeather(String district) async {
@@ -1804,6 +1833,50 @@ class _YieldScreenState extends State<YieldScreen> {
     });
   }
 
+  /// The headline comparison: predicted yield and the district average side
+  /// by side, e.g. "19,612 kg/ha — about 2% below the district average of
+  /// 19,961 kg/ha". The average comes straight from the backend's
+  /// `average_yield_kg_per_ha`; when it is absent (0.0) there is nothing to
+  /// compare against, so only the prediction is stated.
+  String _comparisonLine(double yieldVal) {
+    final avg = _result!['average'] as double? ?? 0.0;
+    final y = _fmtKg(yieldVal);
+    if (avg <= 0) {
+      return _ts({
+        'en': '$y kg/ha predicted for this field.',
+        'si': 'මෙම කුඹුර සඳහා $y kg/ha පුරෝකථනය කර ඇත.',
+        'ta': 'இந்த வயலுக்கு $y kg/ha கணிக்கப்பட்டுள்ளது.',
+      });
+    }
+    final a = _fmtKg(avg);
+    final pct = ((yieldVal - avg) / avg * 100).round();
+    if (pct == 0) {
+      return _ts({
+        'en': '$y kg/ha — in line with the district average of $a kg/ha.',
+        'si': '$y kg/ha — දිස්ත්‍රික් සාමාන්‍යය වන $a kg/ha ට සමානයි.',
+        'ta': '$y kg/ha — மாவட்ட சராசரியான $a kg/ha உடன் ஒத்துள்ளது.',
+      });
+    }
+    final n = pct.abs();
+    return pct > 0
+        ? _ts({
+            'en':
+                '$y kg/ha — about $n% above the district average of $a kg/ha.',
+            'si':
+                '$y kg/ha — දිස්ත්‍රික් සාමාන්‍යය වන $a kg/ha ට වඩා ආසන්න වශයෙන් $n%ක් වැඩියි.',
+            'ta':
+                '$y kg/ha — மாவட்ட சராசரியான $a kg/ha ஐ விட சுமார் $n% அதிகம்.',
+          })
+        : _ts({
+            'en':
+                '$y kg/ha — about $n% below the district average of $a kg/ha.',
+            'si':
+                '$y kg/ha — දිස්ත්‍රික් සාමාන්‍යය වන $a kg/ha ට වඩා ආසන්න වශයෙන් $n%ක් අඩුයි.',
+            'ta':
+                '$y kg/ha — மாவட்ட சராசரியான $a kg/ha ஐ விட சுமார் $n% குறைவு.',
+          });
+  }
+
   bool get _isAboveAverage {
     if (_result == null) return true;
     final avg = _result!['average'] as double? ?? 0.0;
@@ -1824,17 +1897,69 @@ class _YieldScreenState extends State<YieldScreen> {
     _ => AppTheme.error,
   };
 
-  // ── AI Chat context string ─────────────────────────────────────────────────
-  String _buildAiContext() {
-    final yieldVal = (_result!['yield'] as double).toStringAsFixed(0);
-    final avg = (_result!['average'] as double? ?? 0.0).toStringAsFixed(0);
-    final conf = _result!['confidence'] as String;
-    return 'My yield prediction for $_selectedCrop in $_selectedDistrict '
-        '($_selectedSeason season, $_selectedIrrigation irrigation, '
-        '${_areaPerches.toStringAsFixed(0)} perches): '
-        '$yieldVal kg/ha predicted vs $avg kg/ha average. '
-        'Confidence: $conf. '
-        'Please give me detailed advice to improve my yield and explain what factors are affecting it.';
+  // ── AI Chat handoff ────────────────────────────────────────────────────────
+  /// Package the current prediction as structured context for the chat
+  /// screen and the backend.
+  ///
+  /// Replaces the old `_buildAiContext()` free-text sentence, which was
+  /// stuffed into the user's message. Two problems with that: the farmer's
+  /// visible message became a wall of generated prose, and chat analytics
+  /// logged that prose as their "question". The structured form rides in
+  /// `prediction_context` on the request body instead, so the visible
+  /// message stays whatever short thing the farmer actually tapped or typed.
+  PredictionContext _predictionContext() {
+    final w = _effectiveWeather;
+    return PredictionContext(
+      crop: _selectedCrop,
+      district: _selectedDistrict,
+      season: _selectedSeason,
+      irrigation: _selectedIrrigation,
+      areaPerches: _areaPerches,
+      areaHectares: _areaHa,
+      predictedYieldKgPerHa: _result?['yield'] as double?,
+      averageYieldKgPerHa: _result?['average'] as double?,
+      // Backend ConfidenceEnum is lowercase; the API already returns it that
+      // way, but normalise so a stray "High" can't 422 the whole chat call.
+      confidence: (_result?['confidence'] as String?)?.toLowerCase(),
+      weather: PredictionWeather(
+        rainfallMm: w.rainfallMm,
+        tempMinC: w.tempMinC,
+        tempMaxC: w.tempMaxC,
+        humidityPct: w.humidityPct,
+        windSpeedKmh: w.windSpeedKmh,
+        solarRadiationMj: w.solarRadMj,
+      ),
+    );
+  }
+
+  /// Styling shared by every action in the "Ask AI about this" block — the
+  /// four quick questions and the free-form button. They all do the same
+  /// thing (open a grounded chat about this prediction), so they read as one
+  /// class of action rather than pale chips next to a solid button.
+  ///
+  /// Deliberately NOT the chat FollowupChip styling used for reply
+  /// suggestions: these are a primary call to action on the result card, not
+  /// a trailing hint under an answer.
+  ButtonStyle get _askAiButtonStyle => ElevatedButton.styleFrom(
+    backgroundColor: AppTheme.primary,
+    foregroundColor: AppTheme.onPrimary,
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    elevation: 2,
+  );
+
+  /// Publish the prediction to the chat screen and switch to the AI Chat tab.
+  ///
+  /// [question] is the quick-question chip the farmer tapped, if any; the chat
+  /// screen sends it as the conversation's first message. Omitted for the
+  /// free-form button, which just opens the conversation.
+  void _askAi({String? question}) {
+    final ctx = _predictionContext();
+    predictionHandoff.value = PredictionHandoff(ctx, question: question);
+    // Kept for callers that still supply the older text callback (none in the
+    // app today — main.dart never wired it up).
+    widget.onAiChatContext?.call(question ?? ctx.summary);
+    widget.onNavigate?.call(6); // navigate to AI Chat tab
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -1850,7 +1975,11 @@ class _YieldScreenState extends State<YieldScreen> {
           children: [
             _buildTopBar(context),
             Expanded(
-              child: w >= 960
+              // 1024 is the two-column threshold: below it the page stacks
+              // into ONE column (header -> progress -> inputs -> Predict ->
+              // Weather -> Soil Guide -> Result) rather than squeezing the
+              // context panel alongside the form.
+              child: w >= 1024
                   ? _buildWebLayout()
                   : w >= 600
                   ? _buildTabletLayout()
@@ -1863,166 +1992,80 @@ class _YieldScreenState extends State<YieldScreen> {
   }
 
   // ── Top bar ────────────────────────────────────────────────────────────────
-  Widget _buildTopBar(BuildContext context) {
-    final lang = AppLangProvider.lang(context);
-    final List<String> navLabels = lang == AppLang.si
-        ? ['ඩෑෂ්', 'අස්වැන්න', 'මිල', 'කාලගුණ', 'භෝග', 'ඉල්ලුම', 'AI']
-        : lang == AppLang.ta
-        ? ['முகப்பு', 'விளைச்சல்', 'விலை', 'வானிலை', 'பயிர்', 'தேவை', 'AI']
-        : [
-            'Dashboard',
-            'Yield',
-            'Price',
-            'Weather',
-            'Crop Rec.',
-            'Demand',
-            'AI Chat',
-          ];
-
-    const activeBg = Color(0xFFE8F5E9);
-    const activeColor = Color(0xFF2E7D32);
-
-    return Container(
-      height: 60,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: Color(0xFFE4EEE4))),
-        boxShadow: [
-          BoxShadow(
-            color: Color(0x0A000000),
-            blurRadius: 6,
-            offset: Offset(0, 2),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: const Color(0xFF4CAF50).withValues(alpha: 0.15),
-            ),
-            child: Center(
-              child: SvgPicture.string(_cropSphereSvg, width: 32, height: 32),
-            ),
-          ),
-          const SizedBox(width: 10),
-          const Text(
-            'CropSphere',
-            style: TextStyle(
-              color: Color(0xFF1B4D1B),
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.3,
-            ),
-          ),
-          Expanded(
-            child: Center(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: List.generate(navLabels.length, (i) {
-                    final active = i == 1;
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 2),
-                      child: TextButton(
-                        onPressed: widget.onNavigate == null
-                            ? null
-                            : () => widget.onNavigate!(i),
-                        style: TextButton.styleFrom(
-                          backgroundColor: active
-                              ? activeBg
-                              : Colors.transparent,
-                          foregroundColor: active
-                              ? activeColor
-                              : const Color(0xFF555555),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 11,
-                            vertical: 6,
-                          ),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        child: Text(
-                          navLabels[i],
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            fontWeight: active
-                                ? FontWeight.w700
-                                : FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                    );
-                  }),
-                ),
-              ),
-            ),
-          ),
-          const _LangPill(),
-          const SizedBox(width: 10),
-          const ProfileAvatarButton(),
-        ],
-      ),
-    );
-  }
+  // Yield is nav index 1. See app_top_bar.dart for why this is one shared
+  // widget now instead of six independent copies of this same bar.
+  Widget _buildTopBar(BuildContext context) => AppTopBar(
+    activeIndex: 1,
+    activeBg: const Color(0xFFE8F5E9),
+    activeColor: AppTheme.success,
+    onNavigate: widget.onNavigate,
+  );
 
   // ── Layout helpers ─────────────────────────────────────────────────────────
+  // Bottom padding 100, matching every other screen: below 1024px MainShell
+  // shows the FloatingBottomNav (64px capsule + 10px margin + safe area) over
+  // a body with extendBody:true, so content scrolls UNDERNEATH it. This
+  // Stack ALSO pins its own _stickyPredict bar to the same bottom:0
+  // (10+52+14 = 76px), so two floating bars overlap the tail of the page and
+  // the 100px that clears the nav alone is not enough — the last element
+  // ("Ask something else about this") stayed behind them. 180 clears both,
+  // the same figure price_screen uses for the same pair of bars.
   Widget _buildMobileLayout() => Stack(
     children: [
       SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
-        child: _formColumn(),
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 180),
+        child: _stackedColumn(),
       ),
       _stickyPredict(),
     ],
   );
 
-  Widget _buildTabletLayout() => Stack(
-    children: [
-      LayoutBuilder(
-        builder: (ctx, bc) {
-          final hPad = ((bc.maxWidth - 700) / 2).clamp(0.0, 200.0);
-          return SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(hPad + 16, 14, hPad + 16, 100),
-            child: _formColumn(),
-          );
-        },
-      ),
-      _stickyPredict(),
-    ],
+  Widget _buildTabletLayout() => LayoutBuilder(
+    builder: (ctx, bc) {
+      final hPad = ((bc.maxWidth - 700) / 2).clamp(0.0, 200.0);
+      return Stack(
+        children: [
+          SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(hPad + 16, 14, hPad + 16, 180),
+            child: _stackedColumn(),
+          ),
+          _stickyPredict(),
+        ],
+      );
+    },
   );
 
+  /// Two columns: inputs on the left, context + results on the right.
+  ///
+  /// The split is closer to even than it used to be (was 45% capped at
+  /// 520px) because the left column no longer carries Weather and the Soil
+  /// Guide — those are the two tallest sections on the page and they now
+  /// live on the right, alongside the result they inform.
   Widget _buildWebLayout() => LayoutBuilder(
     builder: (ctx, bc) {
-      final leftW = (bc.maxWidth * 0.45).clamp(340.0, 520.0);
+      final leftW = (bc.maxWidth * 0.44).clamp(360.0, 560.0);
       return Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           SizedBox(
             width: leftW,
+            // 100, not 180: at >=1024 MainShell drops the FloatingBottomNav,
+            // so only this column's own _stickyPredict bar needs clearing.
             child: Stack(
               children: [
                 SingleChildScrollView(
                   padding: const EdgeInsets.fromLTRB(20, 14, 12, 100),
-                  child: _formColumn(webLeft: true),
+                  child: _inputsColumn(),
                 ),
                 _stickyPredict(),
               ],
             ),
           ),
-          Container(width: 1, color: const Color(0xFFE4EEE4)),
+          Container(width: 1, color: AppTheme.divider),
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(16, 14, 20, 28),
-              child: _rightPanel(),
+              child: _contextColumn(),
             ),
           ),
         ],
@@ -2030,80 +2073,107 @@ class _YieldScreenState extends State<YieldScreen> {
     },
   );
 
-  // ── Form column ────────────────────────────────────────────────────────────
-  Widget _formColumn({bool webLeft = false}) => Column(
+  // ── Column compositions ────────────────────────────────────────────────────
+  //
+  // The page is assembled from four section builders below rather than two
+  // hand-written column bodies, so the wide (two-column) and narrow
+  // (stacked) arrangements can never drift apart — each section is defined
+  // exactly once and merely appears in a different order.
+
+  /// LEFT column on wide screens: inputs only.
+  Widget _inputsColumn() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [_pageHeader(), const SizedBox(height: 16), ..._inputSections()],
+  );
+
+  /// RIGHT column on wide screens: progress, the two context sections that
+  /// populate as the form is filled, then the result.
+  Widget _contextColumn() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      ..._weatherSection(),
+      const SizedBox(height: 20),
+      ..._soilSection(),
+      const SizedBox(height: 20),
+      ..._resultSections(),
+    ],
+  );
+
+  /// Single column below 1024px — same sections, ordered so the farmer
+  /// fills the form, predicts, and then scrolls into the supporting context
+  /// and the result.
+  Widget _stackedColumn() => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       _pageHeader(),
       const SizedBox(height: 16),
-      _cropQuickChips(),
-      const SizedBox(height: 16),
-      _sectionTitle(
-        _ts({
-          'en': 'Crop & Location',
-          'si': 'භෝගය හා ස්ථානය',
-          'ta': 'பயிர் மற்றும் இடம்',
-        }),
-        Icons.eco,
-      ),
-      const SizedBox(height: 10),
-      _cropLocationCard(),
+      ..._inputSections(),
       const SizedBox(height: 20),
-      _sectionTitle(
-        _ts({
-          'en': 'Farm Area',
-          'si': 'ගොවිපොළ ප්‍රමාණය',
-          'ta': 'பண்ணை பரப்பளவு',
-        }),
-        Icons.crop_square,
-      ),
-      const SizedBox(height: 10),
-      _areaCard(),
+      ..._weatherSection(),
       const SizedBox(height: 20),
-      _sectionTitle(
-        _ts({
-          'en': 'Weather Conditions',
-          'si': 'කාලගුණ තත්ත්වය',
-          'ta': 'வானிலை நிலைமைகள்',
-        }),
-        Icons.cloud,
-      ),
-      const SizedBox(height: 10),
-      _weatherCard(),
+      ..._soilSection(),
       const SizedBox(height: 20),
-      _sectionTitle(
-        _ts({
-          'en': 'Soil & Management Guide',
-          'si': 'පස හා කළමනාකරණ මාර්ගෝපදේශය',
-          'ta': 'மண் மற்றும் மேலாண்மை வழிகாட்டி',
-        }),
-        Icons.science,
-      ),
-      const SizedBox(height: 10),
-      _soilCard(),
-      if (!webLeft) ...[
-        const SizedBox(height: 16),
-        _inputChecklist(),
-        const SizedBox(height: 10),
-        if (_isLoading) _resultSkeleton(),
-        if (_errorMessage != null) _errorCard(),
-        if (_result != null) _resultCard(),
-      ],
+      ..._resultSections(),
     ],
   );
 
-  Widget _rightPanel() => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      _inputChecklist(),
-      const SizedBox(height: 14),
-      if (_isLoading) ...[_resultSkeleton(), const SizedBox(height: 14)],
-      if (_errorMessage != null) ...[_errorCard(), const SizedBox(height: 14)],
-      if (_result != null) ...[_resultCard(), const SizedBox(height: 14)],
-      if (_result == null && _errorMessage == null && !_isLoading)
-        _emptyResultPlaceholder(),
-    ],
-  );
+  List<Widget> _inputSections() => [
+    _sectionTitle(
+      _ts({
+        'en': 'Crop & Location',
+        'si': 'භෝගය හා ස්ථානය',
+        'ta': 'பயிர் மற்றும் இடம்',
+      }),
+      Icons.eco,
+    ),
+    const SizedBox(height: 10),
+    _cropLocationCard(),
+    const SizedBox(height: 20),
+    _sectionTitle(
+      _ts({
+        'en': 'Farm Area',
+        'si': 'ගොවිපොළ ප්‍රමාණය',
+        'ta': 'பண்ணை பரப்பளவு',
+      }),
+      Icons.crop_square,
+    ),
+    const SizedBox(height: 10),
+    _areaCard(),
+  ];
+
+  List<Widget> _weatherSection() => [
+    _sectionTitle(
+      _ts({
+        'en': 'Weather Conditions',
+        'si': 'කාලගුණ තත්ත්වය',
+        'ta': 'வானிலை நிலைமைகள்',
+      }),
+      Icons.cloud,
+    ),
+    const SizedBox(height: 10),
+    _weatherCard(),
+  ];
+
+  List<Widget> _soilSection() => [
+    _sectionTitle(
+      _ts({
+        'en': 'Soil & Management Guide',
+        'si': 'පස හා කළමනාකරණ මාර්ගෝපදේශය',
+        'ta': 'மண் மற்றும் மேலாண்மை வழிகாட்டி',
+      }),
+      Icons.science,
+    ),
+    const SizedBox(height: 10),
+    _soilCard(),
+  ];
+
+  List<Widget> _resultSections() => [
+    if (_isLoading) _resultSkeleton(),
+    if (_errorMessage != null) _errorCard(),
+    if (_result != null) _resultCard(),
+    if (_result == null && _errorMessage == null && !_isLoading)
+      _emptyResultPlaceholder(),
+  ];
 
   // ── Page header ────────────────────────────────────────────────────────────
   Widget _pageHeader() => Container(
@@ -2125,12 +2195,9 @@ class _YieldScreenState extends State<YieldScreen> {
     ),
     child: Row(
       children: [
-        Container(
+        _glassBadge(
+          borderRadius: 10,
           padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(10),
-          ),
           child: SvgPicture.string(
             _navSvg(1, Colors.white),
             width: 26,
@@ -2168,12 +2235,9 @@ class _YieldScreenState extends State<YieldScreen> {
             ],
           ),
         ),
-        Container(
+        _glassBadge(
+          borderRadius: 20,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(20),
-          ),
           child: Text(
             'Week ${_weekOfYear()}',
             style: const TextStyle(
@@ -2187,77 +2251,33 @@ class _YieldScreenState extends State<YieldScreen> {
     ),
   );
 
-  // ── Crop quick chips ───────────────────────────────────────────────────────
-  Widget _cropQuickChips() => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        _ts({
-          'en': 'Quick select:',
-          'si': 'ඉක්මන් තේරීම:',
-          'ta': 'விரைவு தேர்வு:',
-        }),
-        style: const TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: AppTheme.textMuted,
-        ),
-      ),
-      const SizedBox(height: 7),
-      Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: CropSphereConstants.crops.map((crop) {
-          final active = _selectedCrop == crop;
-          final emoji = _cropEmoji[crop] ?? '🌿';
-          return GestureDetector(
-            onTap: () => setState(() {
-              _selectedCrop = crop;
-              _selectedDistrict = null;
-              _result = null;
-              _fertExpanded = false;
-              _pestExpanded = false;
-            }),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-              decoration: BoxDecoration(
-                color: active ? AppTheme.primary : Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: active ? AppTheme.primary : const Color(0xFFD0E8C8),
-                  width: active ? 2 : 1.5,
-                ),
-                boxShadow: active
-                    ? [
-                        BoxShadow(
-                          color: AppTheme.primary.withValues(alpha: 0.2),
-                          blurRadius: 6,
-                          offset: const Offset(0, 2),
-                        ),
-                      ]
-                    : [],
-              ),
-              child: Text(
-                '$emoji  $crop',
-                style: TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w600,
-                  color: active ? Colors.white : AppTheme.textPrimary,
-                ),
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    ],
+  /// Glass panel — the icon badge and "Week N" pill. White tint, not
+  /// price_screen's black: that page's fill is a light terracotta, where
+  /// darkening is what keeps white text/icons legible; this page's fill is
+  /// a dark green, where lightening does the same job without any
+  /// contrast cost. Already comfortably AA both ends — 8.00:1 (dark end) /
+  /// 5.43:1 (light end) for the icon/text sitting on this exact tint — so
+  /// unlike price_screen's version, nothing here is a known trade-off,
+  /// just the shared visual treatment (tint + a faint white edge
+  /// highlight) matching that page's badges.
+  Widget _glassBadge({
+    required double borderRadius,
+    required EdgeInsets padding,
+    required Widget child,
+  }) => Container(
+    padding: padding,
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: 0.15),
+      borderRadius: BorderRadius.circular(borderRadius),
+      border: Border.all(color: Colors.white.withValues(alpha: 0.25), width: 1),
+    ),
+    child: child,
   );
-
   // ── Crop & location card ───────────────────────────────────────────────────
   Widget _cropLocationCard() => _card(
     child: Column(
       children: [
-        _nullDropdown(
+        SearchableDropdown(
           label: _ts({
             'en': 'Select Crop',
             'si': 'භෝගය තෝරන්න',
@@ -2266,16 +2286,27 @@ class _YieldScreenState extends State<YieldScreen> {
           value: _selectedCrop,
           items: CropSphereConstants.crops,
           icon: Icons.eco,
-          onChanged: (val) => setState(() {
-            _selectedCrop = val;
-            _selectedDistrict = null;
-            _result = null;
-            _fertExpanded = false;
-            _pestExpanded = false;
-          }),
+          accent: AppTheme.accents.yield,
+          searchHint: _searchHint,
+          controller: _cropSearchCtrl,
+          focusNode: _cropFocus,
+          onChanged: (val) {
+            // Same reset as before. The district's TEXT has to be cleared
+            // too now, not just its value — the searchable field would
+            // otherwise keep displaying a district that no longer applies
+            // to the newly-chosen crop.
+            _districtSearchCtrl.clear();
+            setState(() {
+              _selectedCrop = val;
+              _selectedDistrict = null;
+              _result = null;
+              _fertExpanded = false;
+              _pestExpanded = false;
+            });
+          },
         ),
         const SizedBox(height: 12),
-        _nullDropdown(
+        SearchableDropdown(
           label: _ts({
             'en': 'Select District',
             'si': 'දිස්ත්‍රික්කය',
@@ -2284,6 +2315,10 @@ class _YieldScreenState extends State<YieldScreen> {
           value: _selectedDistrict,
           items: _availableDistricts,
           icon: Icons.location_on,
+          accent: AppTheme.accents.yield,
+          searchHint: _searchHint,
+          controller: _districtSearchCtrl,
+          focusNode: _districtFocus,
           hint: _selectedCrop != null
               ? _ts({
                   'en': 'Valid districts for $_selectedCrop',
@@ -2337,6 +2372,11 @@ class _YieldScreenState extends State<YieldScreen> {
               color: AppTheme.primary,
               size: 20,
             ),
+            suffixIconConstraints: const BoxConstraints(
+              minWidth: 0,
+              minHeight: 0,
+            ),
+            suffixIcon: fieldCheckIcon(_selectedSeason != null),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 12,
@@ -2405,6 +2445,11 @@ class _YieldScreenState extends State<YieldScreen> {
               color: AppTheme.primary,
               size: 20,
             ),
+            suffixIconConstraints: const BoxConstraints(
+              minWidth: 0,
+              minHeight: 0,
+            ),
+            suffixIcon: fieldCheckIcon(_selectedIrrigation != null),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 12,
@@ -2431,7 +2476,7 @@ class _YieldScreenState extends State<YieldScreen> {
           const SizedBox(height: 8),
           _infoBox(
             _t(sel['desc']!),
-            color: Colors.blue,
+            color: AppTheme.primary,
             icon: Icons.water_drop_outlined,
           ),
         ],
@@ -2440,7 +2485,16 @@ class _YieldScreenState extends State<YieldScreen> {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  //  (ii) Area card — three manual text fields, no slider
+  //  (ii) Area card — one input field, then a unit selector beside it
+  //
+  //  Was three fields (Perches / Acres / Hectares) shown at once, any one
+  //  editable and the other two updating live. Now one field holds the
+  //  number and a dropdown beside it says which unit that number is in;
+  //  switching units reformats the same field rather than revealing another
+  //  one. _areaPerches is still the canonical value the rest of the file
+  //  reads (_predict, the result card, etc.) — only the input UI changed.
+  //  The field comes FIRST in the row, the unit selector after it, by
+  //  request — a farmer types the number, then names its unit.
   // ──────────────────────────────────────────────────────────────────────────
   Widget _areaCard() => _card(
     child: Column(
@@ -2467,45 +2521,19 @@ class _YieldScreenState extends State<YieldScreen> {
         const SizedBox(height: 4),
         Text(
           _ts({
-            'en': 'Enter any one — the others update automatically.',
-            'si':
-                'ඕනෑම එකක් ඇතුළු කරන්න — අනිත් ඒවා ස්වයංක්‍රීයව යාවත්කාලීන වේ.',
-            'ta':
-                'ஏதேனும் ஒன்றை உள்ளிடுங்கள் — மற்றவை தானாக புதுப்பிக்கப்படும்.',
+            'en': 'Enter the area, then choose its unit.',
+            'si': 'ප්‍රදේශය ඇතුළු කර, ඒකකය තෝරන්න.',
+            'ta': 'பரப்பளவை உள்ளிட்டு, அலகைத் தேர்ந்தெடுக்கவும்.',
           }),
           style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
         ),
         const SizedBox(height: 14),
         Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: _areaField(
-                controller: _perchesCtrl,
-                label: _ts({'en': 'Perches', 'si': 'පර්ච', 'ta': 'பர்ச்'}),
-                color: AppTheme.primary,
-                isMain: true,
-              ),
-            ),
+            Expanded(flex: 3, child: _areaField()),
             const SizedBox(width: 10),
-            Expanded(
-              child: _areaField(
-                controller: _acresCtrl,
-                label: _ts({'en': 'Acres', 'si': 'අක්කර', 'ta': 'ஏக்கர்'}),
-                color: const Color(0xFF1565C0),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _areaField(
-                controller: _hectCtrl,
-                label: _ts({
-                  'en': 'Hectares',
-                  'si': 'හෙක්ටෙයාර්',
-                  'ta': 'ஹெக்டேர்',
-                }),
-                color: const Color(0xFF558B2F),
-              ),
-            ),
+            Expanded(flex: 2, child: _areaUnitDropdown()),
           ],
         ),
         const SizedBox(height: 10),
@@ -2522,42 +2550,72 @@ class _YieldScreenState extends State<YieldScreen> {
     ),
   );
 
-  Widget _areaField({
-    required TextEditingController controller,
-    required String label,
-    required Color color,
-    bool isMain = false,
-  }) => TextField(
-    controller: controller,
+  Widget _areaField() => TextField(
+    controller: _areaInputCtrl,
     keyboardType: const TextInputType.numberWithOptions(decimal: true),
     inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.]'))],
-    style: TextStyle(
-      fontSize: isMain ? 20 : 15,
+    style: const TextStyle(
+      fontSize: 20,
       fontWeight: FontWeight.bold,
-      color: color,
+      color: AppTheme.primary,
     ),
     decoration: InputDecoration(
-      labelText: label,
-      labelStyle: TextStyle(
+      labelText: _areaUnitLabel(_areaUnit),
+      labelStyle: const TextStyle(
         fontSize: 11,
-        color: color,
+        color: AppTheme.primary,
         fontWeight: FontWeight.w600,
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
         borderSide: BorderSide(
-          color: color.withValues(alpha: 0.3),
-          width: isMain ? 2 : 1.2,
+          color: AppTheme.primary.withValues(alpha: 0.3),
+          width: 2,
         ),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
-        borderSide: BorderSide(color: color, width: 2),
+        borderSide: const BorderSide(color: AppTheme.primary, width: 2),
       ),
       filled: true,
-      fillColor: color.withValues(alpha: 0.05),
+      fillColor: AppTheme.primary.withValues(alpha: 0.05),
       contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
     ),
+  );
+
+  Widget _areaUnitDropdown() => DropdownButtonFormField<_AreaUnit>(
+    initialValue: _areaUnit,
+    decoration: InputDecoration(
+      labelText: _ts({'en': 'Unit', 'si': 'ඒකකය', 'ta': 'அலகு'}),
+      labelStyle: const TextStyle(
+        fontSize: 11,
+        color: AppTheme.primary,
+        fontWeight: FontWeight.w600,
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: AppTheme.primary.withValues(alpha: 0.3)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: AppTheme.primary, width: 2),
+      ),
+      filled: true,
+      fillColor: AppTheme.primary.withValues(alpha: 0.05),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+    ),
+    items: _AreaUnit.values
+        .map(
+          (u) => DropdownMenuItem(
+            value: u,
+            child: Text(
+              _areaUnitLabel(u),
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+          ),
+        )
+        .toList(),
+    onChanged: _onAreaUnitChanged,
   );
 
   // ── Weather card ───────────────────────────────────────────────────────────
@@ -2748,7 +2806,6 @@ class _YieldScreenState extends State<YieldScreen> {
               0,
               300,
               'mm',
-              Colors.blue,
               (v) => setState(() => _oRainfall = v),
             ),
             _weatherSlider(
@@ -2761,7 +2818,6 @@ class _YieldScreenState extends State<YieldScreen> {
               5,
               35,
               '°C',
-              Colors.lightBlue,
               (v) => setState(() => _oTempMin = v),
             ),
             _weatherSlider(
@@ -2774,7 +2830,6 @@ class _YieldScreenState extends State<YieldScreen> {
               10,
               45,
               '°C',
-              Colors.orange,
               (v) => setState(() => _oTempMax = v),
             ),
             _weatherSlider(
@@ -2783,7 +2838,6 @@ class _YieldScreenState extends State<YieldScreen> {
               20,
               100,
               '%',
-              Colors.teal,
               (v) => setState(() => _oHumidity = v),
             ),
             _weatherSlider(
@@ -2796,7 +2850,6 @@ class _YieldScreenState extends State<YieldScreen> {
               0,
               80,
               'km/h',
-              Colors.blueGrey,
               (v) => setState(() => _oWindSpeed = v),
             ),
             _weatherSlider(
@@ -2809,7 +2862,6 @@ class _YieldScreenState extends State<YieldScreen> {
               5,
               35,
               'MJ',
-              Colors.amber,
               (v) => setState(() => _oSolarRad = v),
             ),
           ],
@@ -2824,80 +2876,97 @@ class _YieldScreenState extends State<YieldScreen> {
         '🌧',
         _ts({'en': 'Rain', 'si': 'වර්ෂාව', 'ta': 'மழை'}),
         '${w.rainfallMm.toStringAsFixed(1)} mm',
-        Colors.blue,
       ),
       _WTile(
         '🌡',
         _ts({'en': 'Min Temp', 'si': 'අවම', 'ta': 'குறை'}),
         '${w.tempMinC.toStringAsFixed(1)}°C',
-        Colors.lightBlue,
       ),
       _WTile(
         '☀️',
         _ts({'en': 'Max Temp', 'si': 'උපරිම', 'ta': 'அதிக'}),
         '${w.tempMaxC.toStringAsFixed(1)}°C',
-        Colors.orange,
       ),
       _WTile(
         '💧',
         _ts({'en': 'Humidity', 'si': 'ආර්ද්‍රතා', 'ta': 'ஈரம்'}),
         '${w.humidityPct.toStringAsFixed(0)}%',
-        Colors.teal,
       ),
       _WTile(
         '🌬',
         _ts({'en': 'Wind', 'si': 'සුළං', 'ta': 'காற்று'}),
         '${w.windSpeedKmh.toStringAsFixed(1)} km/h',
-        Colors.blueGrey,
       ),
       _WTile(
         '⚡',
         _ts({'en': 'Solar', 'si': 'සූර්ය', 'ta': 'சூரிய'}),
         '${w.solarRadMj.toStringAsFixed(1)} MJ',
-        Colors.amber,
       ),
     ];
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        crossAxisSpacing: 8,
-        mainAxisSpacing: 8,
-        childAspectRatio: 1.6,
-      ),
-      itemCount: tiles.length,
-      itemBuilder: (_, i) {
-        final t = tiles[i];
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-          decoration: BoxDecoration(
-            color: t.color.withValues(alpha: 0.07),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: t.color.withValues(alpha: 0.2)),
+    // Tile HEIGHT is fixed (mainAxisExtent), not derived from tile width.
+    //
+    // It used to be `childAspectRatio: 1.6` over 3 columns, which was fine
+    // while this card lived in the ~500px left form column (~100px tall
+    // tiles) but blew up once it moved to the wide right column — 3 columns
+    // of a 1300px pane is a 430px-wide tile, so 1.6 made each one ~270px
+    // tall and the six of them ate a whole screen of mostly empty space.
+    //
+    // Column count is 6 / 3 / 2 — all divisors of the six tiles, so the last
+    // row is never left with an orphan.
+    return LayoutBuilder(
+      builder: (ctx, bc) {
+        final cols = bc.maxWidth >= 560
+            ? 6
+            : bc.maxWidth >= 380
+            ? 3
+            : 2;
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: cols,
+            crossAxisSpacing: 8,
+            mainAxisSpacing: 8,
+            mainAxisExtent: 72,
           ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(t.emoji, style: const TextStyle(fontSize: 16)),
-              const SizedBox(height: 3),
-              Text(
-                t.value,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: t.color,
-                ),
+          itemCount: tiles.length,
+          itemBuilder: (_, i) {
+            final t = tiles[i];
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppTheme.surfaceMuted,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppTheme.border),
               ),
-              Text(
-                t.label,
-                style: TextStyle(
-                  fontSize: 9,
-                  color: t.color.withValues(alpha: 0.8),
-                ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(t.emoji, style: const TextStyle(fontSize: 15)),
+                  const SizedBox(height: 2),
+                  Text(
+                    t.value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.textPrimary,
+                    ),
+                  ),
+                  Text(
+                    t.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 9,
+                      color: AppTheme.textSecondary,
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
@@ -2941,7 +3010,7 @@ class _YieldScreenState extends State<YieldScreen> {
       decoration: BoxDecoration(
         color: AppTheme.surfaceCard,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE0EBE0)),
+        border: Border.all(color: AppTheme.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2954,9 +3023,7 @@ class _YieldScreenState extends State<YieldScreen> {
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(12),
               ),
-              border: const Border(
-                bottom: BorderSide(color: Color(0xFFE0EBE0)),
-              ),
+              border: const Border(bottom: BorderSide(color: AppTheme.border)),
             ),
             child: Row(
               children: [
@@ -3011,7 +3078,7 @@ class _YieldScreenState extends State<YieldScreen> {
                         value: rec.soilPh.toStringAsFixed(1),
                         unit: 'pH',
                         icon: Icons.science,
-                        color: Colors.purple,
+                        color: AppTheme.primary,
                         note: _t(rec.phNote),
                       ),
                     ),
@@ -3026,7 +3093,7 @@ class _YieldScreenState extends State<YieldScreen> {
                         value: rec.soilMoisturePct.toStringAsFixed(0),
                         unit: '%',
                         icon: Icons.water_drop_outlined,
-                        color: Colors.cyan,
+                        color: AppTheme.primary,
                         note: _t(rec.moistureNote),
                       ),
                     ),
@@ -3037,7 +3104,7 @@ class _YieldScreenState extends State<YieldScreen> {
                 const SizedBox(height: 12),
                 _collapsibleSection(
                   icon: Icons.grass,
-                  color: const Color(0xFF2E7D32),
+                  color: AppTheme.success,
                   title: _ts({
                     'en': 'Fertilizer Mixing Guide',
                     'si': 'පොහොර මිශ්‍රණ මාර්ගෝපදේශය',
@@ -3055,7 +3122,7 @@ class _YieldScreenState extends State<YieldScreen> {
                 const SizedBox(height: 10),
                 _collapsibleSection(
                   icon: Icons.bug_report,
-                  color: const Color(0xFFC62828),
+                  color: AppTheme.error,
                   title: _ts({
                     'en': 'Pesticide & Spray Guide',
                     'si': 'පළිබෝධනාශක ස්ප්‍රේ මාර්ගෝපදේශය',
@@ -3368,7 +3435,7 @@ class _YieldScreenState extends State<YieldScreen> {
   Widget _npkBar(_SoilRec rec) => Container(
     padding: const EdgeInsets.all(12),
     decoration: BoxDecoration(
-      color: const Color(0xFFF4F9F4),
+      color: AppTheme.surfaceMuted,
       borderRadius: BorderRadius.circular(10),
       border: Border.all(color: const Color(0xFFCCE3CC)),
     ),
@@ -3396,7 +3463,7 @@ class _YieldScreenState extends State<YieldScreen> {
               child: _npkTile(
                 'N',
                 rec.nIndex,
-                Colors.indigo,
+                AppTheme.primary,
                 _ts({'en': 'Nitrogen', 'si': 'නයිට්‍රජන්', 'ta': 'நைட்ரஜன்'}),
               ),
             ),
@@ -3405,7 +3472,7 @@ class _YieldScreenState extends State<YieldScreen> {
               child: _npkTile(
                 'P',
                 rec.pIndex,
-                Colors.deepOrange,
+                AppTheme.primary,
                 _ts({'en': 'Phosphorus', 'si': 'පොස්පරස්', 'ta': 'பாஸ்பரஸ்'}),
               ),
             ),
@@ -3414,7 +3481,7 @@ class _YieldScreenState extends State<YieldScreen> {
               child: _npkTile(
                 'K',
                 rec.kIndex,
-                Colors.amber,
+                AppTheme.primary,
                 _ts({
                   'en': 'Potassium',
                   'si': 'පොටෑසියම්',
@@ -3463,131 +3530,21 @@ class _YieldScreenState extends State<YieldScreen> {
         ),
       );
 
-  // ── Input checklist ────────────────────────────────────────────────────────
-  Widget _inputChecklist() {
-    final items = [
-      (
-        _selectedCrop != null,
-        _ts({'en': 'Crop selected', 'si': 'භෝගය', 'ta': 'பயிர்'}),
-        _selectedCrop ?? '',
-      ),
-      (
-        _selectedDistrict != null,
-        _ts({
-          'en': 'District selected',
-          'si': 'දිස්ත්‍රික්කය',
-          'ta': 'மாவட்டம்',
-        }),
-        _selectedDistrict ?? '',
-      ),
-      (
-        _selectedSeason != null,
-        _ts({'en': 'Season selected', 'si': 'කන්නය', 'ta': 'பருவம்'}),
-        _selectedSeason ?? '',
-      ),
-      (
-        _selectedIrrigation != null,
-        _ts({'en': 'Irrigation selected', 'si': 'ජලනය', 'ta': 'நீர்ப்பாசனம்'}),
-        _selectedIrrigation ?? '',
-      ),
-    ];
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: _canPredict
-            ? AppTheme.success.withValues(alpha: 0.06)
-            : const Color(0xFFFFF8E1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: _canPredict
-              ? AppTheme.success.withValues(alpha: 0.2)
-              : const Color(0xFFFFE082),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                _canPredict ? Icons.check_circle : Icons.checklist,
-                size: 15,
-                color: _canPredict ? AppTheme.success : AppTheme.warning,
-              ),
-              const SizedBox(width: 7),
-              Text(
-                _canPredict
-                    ? _ts({
-                        'en': 'Ready to predict!',
-                        'si': 'පුරෝකථනයට සූදානම්!',
-                        'ta': 'கணிக்க தயார்!',
-                      })
-                    : _ts({
-                        'en': 'Complete these to predict:',
-                        'si': 'පුරෝකථනය සඳහා සම්පූර්ණ කරන්න:',
-                        'ta': 'கணிக்க இவற்றை நிறைவு செய்யுங்கள்:',
-                      }),
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: _canPredict ? AppTheme.success : AppTheme.warning,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          ...items.map(
-            (item) => Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: Row(
-                children: [
-                  Icon(
-                    item.$1 ? Icons.check_circle : Icons.radio_button_unchecked,
-                    size: 15,
-                    color: item.$1 ? AppTheme.success : const Color(0xFFBDBDBD),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    item.$2,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: item.$1
-                          ? AppTheme.textPrimary
-                          : AppTheme.textMuted,
-                    ),
-                  ),
-                  if (item.$1 && item.$3.isNotEmpty) ...[
-                    const SizedBox(width: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 7,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppTheme.success.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        item.$3,
-                        style: const TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.success,
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Sticky predict button ──────────────────────────────────────────────────
+  // ── Predict button ─────────────────────────────────────────────────────────
+  //
+  // Now an inline element at the end of the inputs column rather than a
+  // sticky bottom overlay: the stacked layout orders it between the inputs
+  // and the Weather / Soil Guide context sections, which a fixed footer
+  // can't express. The button itself — the disabled state driven by
+  // `_canPredict`, the loading spinner, and the three label variants
+  // including the "Complete 4 steps above first" explanation — is unchanged.
+  /// The Predict action, pinned to the bottom of its scroll area rather than
+  /// scrolling away with the form — same treatment as price_screen's
+  /// _stickyPredict, so the two prediction pages behave identically.
+  ///
+  /// Structure, padding, elevation shadow, SafeArea and the 52px button
+  /// height are all matched to that widget deliberately; the callers that
+  /// host it must carry the matching bottom padding (see _buildMobileLayout).
   Widget _stickyPredict() => Positioned(
     bottom: 0,
     left: 0,
@@ -3595,7 +3552,7 @@ class _YieldScreenState extends State<YieldScreen> {
     child: Container(
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.login.background,
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.08),
@@ -3604,53 +3561,51 @@ class _YieldScreenState extends State<YieldScreen> {
           ),
         ],
       ),
-      child: SafeArea(
-        top: false,
-        child: SizedBox(
-          height: 52,
-          child: ElevatedButton.icon(
-            onPressed: (_isLoading || !_canPredict) ? null : _predict,
-            icon: _isLoading
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
-                : const Icon(Icons.analytics),
-            label: Text(
-              _isLoading
-                  ? _ts({
-                      'en': 'Predicting...',
-                      'si': 'පුරෝකථනය...',
-                      'ta': 'கணிக்கிறோம்...',
-                    })
-                  : _canPredict
-                  ? _ts({
-                      'en': 'Predict My Yield',
-                      'si': 'මගේ අස්වැන්න පුරෝකථනය',
-                      'ta': 'எனது விளைச்சலை கணிக்கவும்',
-                    })
-                  : _ts({
-                      'en': 'Complete 4 steps above first',
-                      'si': 'ඉහළ පියවර 4 සම්පූර්ණ කරන්න',
-                      'ta': 'மேலே 4 படிகள் முடிக்கவும்',
-                    }),
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _canPredict
-                  ? AppTheme.primaryDark
-                  : Colors.grey.shade400,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+      child: SafeArea(top: false, child: _predictButton()),
+    ),
+  );
+
+  Widget _predictButton() => SizedBox(
+    width: double.infinity,
+    height: 52,
+    child: ElevatedButton.icon(
+      onPressed: (_isLoading || !_canPredict) ? null : _predict,
+      icon: _isLoading
+          ? const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
               ),
-            ),
-          ),
-        ),
+            )
+          : const Icon(Icons.analytics),
+      label: Text(
+        _isLoading
+            ? _ts({
+                'en': 'Predicting...',
+                'si': 'පුරෝකථනය...',
+                'ta': 'கணிக்கிறோம்...',
+              })
+            : _canPredict
+            ? _ts({
+                'en': 'Predict My Yield',
+                'si': 'මගේ අස්වැන්න පුරෝකථනය',
+                'ta': 'எனது விளைச்சலை கணிக்கவும்',
+              })
+            : _ts({
+                'en': 'Complete 4 steps above first',
+                'si': 'ඉහළ පියවර 4 සම්පූර්ණ කරන්න',
+                'ta': 'மேலே 4 படிகள் முடிக்கவும்',
+              }),
+        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+      ),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: _canPredict
+            ? AppTheme.primaryDark
+            : Colors.grey.shade400,
+        foregroundColor: AppTheme.onPrimary,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     ),
   );
@@ -3875,7 +3830,7 @@ class _YieldScreenState extends State<YieldScreen> {
               ),
               const SizedBox(height: 12),
               Text(
-                '${yieldVal.toStringAsFixed(0)} kg/ha',
+                '${_fmtKg(yieldVal)} kg/ha',
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 42,
@@ -3940,9 +3895,9 @@ class _YieldScreenState extends State<YieldScreen> {
                       ),
                       Text(
                         _ts({
-                          'en': 'Avg: ${avg.toStringAsFixed(0)} kg/ha',
-                          'si': 'සාමාන්‍ය: ${avg.toStringAsFixed(0)} kg/ha',
-                          'ta': 'சராசரி: ${avg.toStringAsFixed(0)} kg/ha',
+                          'en': 'Avg: ${_fmtKg(avg)} kg/ha',
+                          'si': 'සාමාන්‍ය: ${_fmtKg(avg)} kg/ha',
+                          'ta': 'சராசரி: ${_fmtKg(avg)} kg/ha',
                         }),
                         style: const TextStyle(
                           color: Colors.white60,
@@ -3992,7 +3947,7 @@ class _YieldScreenState extends State<YieldScreen> {
                     _vDiv(),
                     _rStat(
                       _ts({'en': 'Total', 'si': 'සම්පූර්ණ', 'ta': 'மொத்தம்'}),
-                      '${totalKg.toStringAsFixed(0)} kg',
+                      '${_fmtKg(totalKg)} kg',
                     ),
                   ],
                 ),
@@ -4009,7 +3964,7 @@ class _YieldScreenState extends State<YieldScreen> {
           decoration: BoxDecoration(
             color: AppTheme.surfaceCard,
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: const Color(0xFFE0EBE0)),
+            border: Border.all(color: AppTheme.border),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -4033,6 +3988,19 @@ class _YieldScreenState extends State<YieldScreen> {
                 ],
               ),
               const SizedBox(height: 8),
+              // Predicted vs district average, both figures spelled out —
+              // the percentage-only line below it says what to DO about the
+              // gap, but not what the two numbers actually are.
+              Text(
+                _comparisonLine(yieldVal),
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w700,
+                  color: resultColor,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 6),
               Text(
                 _interpretation(yieldVal),
                 style: const TextStyle(
@@ -4045,11 +4013,11 @@ class _YieldScreenState extends State<YieldScreen> {
               Text(
                 _ts({
                   'en':
-                      'Total expected harvest: ${totalKg.toStringAsFixed(0)} kg from ${_areaPerches.toStringAsFixed(0)} perches (${_haToAcres(_areaHa).toStringAsFixed(2)} ac)',
+                      'Total expected harvest: ${_fmtKg(totalKg)} kg from ${_areaPerches.toStringAsFixed(0)} perches (${_haToAcres(_areaHa).toStringAsFixed(2)} ac)',
                   'si':
-                      'සම්පූර්ණ අස්වැන්න: ${totalKg.toStringAsFixed(0)} kg — ${_areaPerches.toStringAsFixed(0)} පර්ච (${_haToAcres(_areaHa).toStringAsFixed(2)} ac)',
+                      'සම්පූර්ණ අස්වැන්න: ${_fmtKg(totalKg)} kg — ${_areaPerches.toStringAsFixed(0)} පර්ච (${_haToAcres(_areaHa).toStringAsFixed(2)} ac)',
                   'ta':
-                      'மொத்த அறுவடை: ${totalKg.toStringAsFixed(0)} kg — ${_areaPerches.toStringAsFixed(0)} பர்ச் (${_haToAcres(_areaHa).toStringAsFixed(2)} ஏக்கர்)',
+                      'மொத்த அறுவடை: ${_fmtKg(totalKg)} kg — ${_areaPerches.toStringAsFixed(0)} பர்ச் (${_haToAcres(_areaHa).toStringAsFixed(2)} ஏக்கர்)',
                 }),
                 style: const TextStyle(
                   fontSize: 13,
@@ -4063,15 +4031,46 @@ class _YieldScreenState extends State<YieldScreen> {
 
         const SizedBox(height: 14),
 
-        // ── (v) Ask AI for More Info button ───────────────────────────────────
+        // ── (v) Ask AI about this ─────────────────────────────────────────────
+        // The four quick questions live HERE, on the result, not on an
+        // otherwise-blank chat screen — the farmer picks what they want to
+        // know while still looking at the numbers, and the answer is already
+        // being written by the time the chat tab finishes opening.
+        _sectionTitle(
+          _ts({
+            'en': 'Ask AI about this',
+            'si': 'මේ ගැන AI වෙතින් අසන්න',
+            'ta': 'இதைப் பற்றி AI-இடம் கேளுங்கள்',
+          }),
+          Icons.auto_awesome,
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final q in kPredictionStarters)
+              ElevatedButton(
+                onPressed: () => _askAi(question: q),
+                style: _askAiButtonStyle,
+                child: Text(
+                  q,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+
+        // Free-form entry: same handoff, no pre-chosen question, so the chat
+        // opens on the prediction empty state waiting for the farmer to type.
         SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
-            onPressed: () {
-              final ctx = _buildAiContext();
-              widget.onAiChatContext?.call(ctx);
-              widget.onNavigate?.call(6); // navigate to AI Chat tab
-            },
+            onPressed: _askAi,
             icon: SvgPicture.string(
               _navSvg(6, Colors.white),
               width: 18,
@@ -4079,22 +4078,13 @@ class _YieldScreenState extends State<YieldScreen> {
             ),
             label: Text(
               _ts({
-                'en': 'Ask AI for More Info & Tips',
-                'si': 'AI වෙතින් තව තොරතුරු හා උපදෙස් ලබා ගන්න',
-                'ta':
-                    'AI-இடம் கூடுதல் தகவல் மற்றும் உதவிக்குறிப்புகள் கேளுங்கள்',
+                'en': 'Ask something else about this',
+                'si': 'මේ ගැන වෙනත් දෙයක් අසන්න',
+                'ta': 'இதைப் பற்றி வேறு ஏதாவது கேளுங்கள்',
               }),
               style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
             ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF1B5E20),
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              elevation: 2,
-            ),
+            style: _askAiButtonStyle,
           ),
         ),
       ],
@@ -4104,7 +4094,7 @@ class _YieldScreenState extends State<YieldScreen> {
   Widget _emptyResultPlaceholder() => Container(
     padding: const EdgeInsets.all(24),
     decoration: BoxDecoration(
-      color: const Color(0xFFF1F7F1),
+      color: AppTheme.background,
       borderRadius: BorderRadius.circular(12),
       border: Border.all(color: const Color(0xFFD0E8C8)),
     ),
@@ -4146,18 +4136,18 @@ class _YieldScreenState extends State<YieldScreen> {
   Widget _errorCard() => Container(
     padding: const EdgeInsets.all(12),
     decoration: BoxDecoration(
-      color: Colors.red.withValues(alpha: 0.08),
+      color: AppTheme.error.withValues(alpha: 0.08),
       borderRadius: BorderRadius.circular(10),
-      border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+      border: Border.all(color: AppTheme.error.withValues(alpha: 0.3)),
     ),
     child: Row(
       children: [
-        const Icon(Icons.error_outline, color: Colors.red, size: 20),
+        const Icon(Icons.error_outline, color: AppTheme.error, size: 20),
         const SizedBox(width: 10),
         Expanded(
           child: Text(
             _errorMessage!,
-            style: const TextStyle(color: Colors.red, fontSize: 13),
+            style: const TextStyle(color: AppTheme.error, fontSize: 13),
           ),
         ),
       ],
@@ -4181,7 +4171,7 @@ class _YieldScreenState extends State<YieldScreen> {
     decoration: BoxDecoration(
       color: AppTheme.surfaceCard,
       borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: const Color(0xFFE0EBE0)),
+      border: Border.all(color: AppTheme.border),
     ),
     child: child,
   );
@@ -4233,7 +4223,6 @@ class _YieldScreenState extends State<YieldScreen> {
     double min,
     double max,
     String unit,
-    Color color,
     ValueChanged<double> onChanged,
   ) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 4),
@@ -4255,7 +4244,7 @@ class _YieldScreenState extends State<YieldScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.1),
+                color: AppTheme.primary.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
@@ -4263,7 +4252,7 @@ class _YieldScreenState extends State<YieldScreen> {
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.bold,
-                  color: color,
+                  color: AppTheme.primary,
                 ),
               ),
             ),
@@ -4271,62 +4260,16 @@ class _YieldScreenState extends State<YieldScreen> {
         ),
         SliderTheme(
           data: SliderTheme.of(context).copyWith(
-            activeTrackColor: color,
-            thumbColor: color,
-            overlayColor: color.withValues(alpha: 0.12),
-            inactiveTrackColor: color.withValues(alpha: 0.15),
+            activeTrackColor: AppTheme.primary,
+            thumbColor: AppTheme.primary,
+            overlayColor: AppTheme.primary.withValues(alpha: 0.12),
+            inactiveTrackColor: AppTheme.primary.withValues(alpha: 0.15),
             trackHeight: 2.5,
           ),
           child: Slider(value: value, min: min, max: max, onChanged: onChanged),
         ),
       ],
     ),
-  );
-
-  Widget _nullDropdown({
-    required String label,
-    required String? value,
-    required List<String> items,
-    required IconData icon,
-    required ValueChanged<String?> onChanged,
-    String? hint,
-    bool enabled = true,
-  }) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      DropdownButtonFormField<String>(
-        initialValue: value,
-        hint: Text(label, style: const TextStyle(color: AppTheme.textMuted)),
-        decoration: InputDecoration(
-          labelText: label,
-          prefixIcon: Icon(
-            icon,
-            color: enabled ? AppTheme.primary : AppTheme.textMuted,
-            size: 20,
-          ),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: 10,
-          ),
-          fillColor: enabled ? null : Colors.grey.withValues(alpha: 0.04),
-        ),
-        items: enabled
-            ? items
-                  .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                  .toList()
-            : [],
-        onChanged: enabled ? onChanged : null,
-      ),
-      if (hint != null)
-        Padding(
-          padding: const EdgeInsets.only(top: 4, left: 4),
-          child: Text(
-            hint,
-            style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
-          ),
-        ),
-    ],
   );
 
   Widget _rStat(String l, String v) => Column(
@@ -4348,54 +4291,9 @@ class _YieldScreenState extends State<YieldScreen> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Language pill
-// ─────────────────────────────────────────────────────────────────────────────
-class _LangPill extends StatelessWidget {
-  const _LangPill();
-  @override
-  Widget build(BuildContext context) {
-    final notifier = AppLangProvider.of(context);
-    final current = notifier.lang;
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFFF0F4F0),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      padding: const EdgeInsets.all(3),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: AppLang.values.map((l) {
-          final active = l == current;
-          return GestureDetector(
-            onTap: () => notifier.setLang(l),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-              decoration: BoxDecoration(
-                color: active ? const Color(0xFF1B5E20) : Colors.transparent,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Text(
-                l.label,
-                style: TextStyle(
-                  fontSize: 9.5,
-                  fontWeight: active ? FontWeight.w800 : FontWeight.w500,
-                  color: active ? Colors.white : const Color(0xFF888888),
-                ),
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 //  Weather tile helper
 // ─────────────────────────────────────────────────────────────────────────────
 class _WTile {
   final String emoji, label, value;
-  final Color color;
-  const _WTile(this.emoji, this.label, this.value, this.color);
+  const _WTile(this.emoji, this.label, this.value);
 }

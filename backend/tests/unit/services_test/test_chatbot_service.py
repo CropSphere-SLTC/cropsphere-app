@@ -18,6 +18,7 @@ from app.models.schemas import (
     ConversationTurn,
     CropEnum,
     DistrictEnum,
+    PredictionContext,
 )
 from app.user.services import chatbot_service as cs
 
@@ -459,6 +460,350 @@ def test_build_messages_no_context_chunks():
     context = {"chunks": [], "sources": [], "score": 0.0}
     msgs = cs._build_messages("system", context, req, "hi")
     assert not any("Relevant context" in m["content"] for m in msgs)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# prediction_context injection (ChatRequest.prediction_context)
+# ═══════════════════════════════════════════════════════════════════════════
+
+_EMPTY_CONTEXT = {"chunks": [], "sources": [], "score": 0.0}
+
+# The demand screen's shape. Note what is ABSENT: a district. That page has no
+# district input, so a demand hand-off is the mirror image of a weather one
+# (district set, crop null).
+_DEMAND_PREDICTION = {
+    "crop": "Carrot",
+    "season": "Maha",
+    "retail_price_lkr_kg": 180.0,
+    "holiday_week": True,
+    "festival_week": False,
+    "real_market_data": False,
+    "predicted_demand_index": 82.4,
+    "demand_trend": "rising",
+    "confidence": "high",
+}
+
+
+def test_demand_context_renders_index_trend_and_price():
+    out = cs._format_prediction_context(PredictionContext(**_DEMAND_PREDICTION))
+    assert "- Predicted demand index: 82 (rising)" in out
+    assert "Today's market price the farmer entered: Rs. 180/kg" in out
+    assert "- Crop: Carrot" in out
+    assert "- Season: Maha" in out
+    assert "- This is a holiday week" in out
+
+
+def test_demand_context_states_typical_values_when_not_real():
+    """The load-bearing caveat: an index built from per-crop defaults is a much
+    weaker claim than one built from the farmer's own figures, and an assistant
+    told nothing would present them identically."""
+    out = cs._format_prediction_context(PredictionContext(**_DEMAND_PREDICTION))
+    assert "NOT the farmer's own recent market data" in out
+
+    real = cs._format_prediction_context(
+        PredictionContext(**{**_DEMAND_PREDICTION, "real_market_data": True})
+    )
+    assert "supplied real recent market data" in real
+    assert "NOT the farmer's own" not in real
+
+
+def test_demand_context_omits_the_flag_when_unset():
+    out = cs._format_prediction_context(
+        PredictionContext(crop="Carrot", predicted_demand_index=50.0)
+    )
+    assert "market data" not in out
+
+
+def test_demand_context_does_not_emit_price_side_lines():
+    """demand_level/predicted_price are the PRICE screen's fields. A demand
+    hand-off must not render them — collapsing the index into demand_level
+    would let the assistant describe a farmer's dropdown choice as an ML
+    output."""
+    out = cs._format_prediction_context(PredictionContext(**_DEMAND_PREDICTION))
+    assert "Buyer demand:" not in out
+    assert "Predicted farmgate price:" not in out
+    assert "Average farmgate price" not in out
+
+
+def test_demand_context_never_confirms_a_district():
+    """A demand forecast is not district-scoped: demand_service._build_features
+    feeds the model a constant district_enc = 0 and DemandPredictRequest has no
+    district field at all. So the saved-profile district must never be
+    confirmed against one.
+
+    This was a real bug: two of the demand screen's four starter chips — the
+    two carrying agricultural intent — got "Do you mean Carrot in Jaffna?"
+    instead of an answer, while the other two went straight through, so the
+    same block of chips behaved two different ways.
+    """
+    req = _make_request(prediction_context=_DEMAND_PREDICTION)
+    for chip in (
+        "Explain this demand forecast",
+        "Should I sell now or wait?",
+        "What affects demand for this crop?",
+        "How does this compare to other crops?",
+    ):
+        assert (
+            cs._should_confirm_saved_context(req, chip, "Maize", "Jaffna") is False
+        ), f"{chip!r} was intercepted by the confirmation gate"
+
+
+def test_demand_suppression_is_scoped_to_demand_contexts():
+    """Only the demand shape is exempt. A weather hand-off (district set, crop
+    absent — the mirror image) must still confirm the crop it is missing, and a
+    bare request with no prediction at all must still confirm both."""
+    msg = "What affects demand for this crop?"
+
+    weather = _make_request(
+        prediction_context={"district": "Badulla", "weeks_ahead": 2}
+    )
+    assert cs._should_confirm_saved_context(weather, msg, "Maize", "Jaffna") is True
+
+    bare = _make_request()
+    assert cs._should_confirm_saved_context(bare, msg, "Maize", "Jaffna") is True
+
+
+def test_demand_context_still_wins_the_crop_over_a_stale_saved_one():
+    """Suppressing the district must not weaken crop resolution: the forecast's
+    crop still outranks the saved profile's wherever the crop is resolved."""
+    req = _make_request(prediction_context=_DEMAND_PREDICTION)
+    assert cs._prediction_context_terms(req) == ("Carrot", None)
+
+    reply, _chips = cs._build_context_confirmation(
+        req, "What affects demand for this crop?", "Maize", "Jaffna"
+    )
+    assert "Carrot" in reply
+    assert "Maize" not in reply
+
+
+def test_is_demand_context_only_matches_the_demand_shape():
+    assert cs._is_demand_context(_make_request(prediction_context=_DEMAND_PREDICTION))
+    assert not cs._is_demand_context(_make_request(prediction_context=_FULL_PREDICTION))
+    assert not cs._is_demand_context(_make_request())
+
+
+def test_demand_context_leaves_district_unset():
+    pc = PredictionContext(**_DEMAND_PREDICTION)
+    assert pc.district is None
+    assert "- District:" not in cs._format_prediction_context(pc)
+
+
+_FULL_PREDICTION = {
+    "crop": "Carrot",
+    "district": "Badulla",
+    "season": "Maha",
+    "irrigation": "drip",
+    "area_perches": 160.0,
+    "area_hectares": 0.4047,
+    "predicted_yield_kg_per_ha": 19612.0,
+    "average_yield_kg_per_ha": 19961.0,
+    "confidence": "high",
+    "weather": {
+        "rainfall_mm": 45.0,
+        "temp_min_c": 12.0,
+        "temp_max_c": 22.0,
+        "humidity_pct": 78.0,
+        "wind_speed_kmh": 12.0,
+        "solar_radiation_mj": 16.0,
+    },
+}
+
+
+def _prediction_msgs(**overrides):
+    """_build_messages output for a request carrying a full prediction."""
+    req = _make_request(prediction_context={**_FULL_PREDICTION, **overrides})
+    return cs._build_messages("system", _EMPTY_CONTEXT, req, "Explain this prediction")
+
+
+_FULL_PRICE_PREDICTION = {
+    "crop": "Carrot",
+    "district": "Badulla",
+    "season": "Maha",
+    "predicted_price_lkr_kg": 78.0,
+    "average_price_lkr_kg": 74.0,
+    "average_price_source": "real",
+    "quantity_kg": 100.0,
+    "estimated_earnings_lkr": 7800.0,
+    "supply_level": "normal",
+    "demand_level": "high",
+    "holiday_week": False,
+    "festival_week": True,
+    "confidence": "high",
+}
+
+
+def _price_msgs(**overrides):
+    """_build_messages output for a request carrying a price prediction."""
+    payload = {**_FULL_PRICE_PREDICTION, **overrides}
+    req = _make_request(prediction_context=payload)
+    return cs._build_messages("system", _EMPTY_CONTEXT, req, "Explain this price")
+
+
+def _price_block(**overrides):
+    return next(
+        m["content"]
+        for m in _price_msgs(**overrides)
+        if "CropSphere just" in m["content"]
+    )
+
+
+def test_prediction_context_defaults_to_none():
+    assert _make_request().prediction_context is None
+
+
+def test_build_messages_without_prediction_context_is_unchanged():
+    """The additive field must not perturb existing requests at all."""
+    req = _make_request()
+    baseline = cs._build_messages("system", _EMPTY_CONTEXT, req, "hi")
+    assert not any(
+        "own yield prediction, which CropSphere" in m["content"] for m in baseline
+    )
+
+    # Explicitly-null prediction_context produces the identical message list.
+    req_null = _make_request(prediction_context=None)
+    assert cs._build_messages("system", _EMPTY_CONTEXT, req_null, "hi") == baseline
+
+
+def test_build_messages_injects_prediction_context():
+    msgs = _prediction_msgs()
+    block = [
+        m for m in msgs if "own yield prediction, which CropSphere" in m["content"]
+    ]
+    assert len(block) == 1
+    body = block[0]["content"]
+    assert block[0]["role"] == "system"
+    assert "Carrot" in body and "Badulla" in body and "Maha" in body
+    assert "drip" in body
+    assert "19,612 kg/ha" in body
+    assert "19,961 kg/ha" in body
+    assert "160 perches" in body
+    assert "Model confidence: high" in body
+    assert "rainfall 45 mm" in body and "humidity 78%" in body
+
+
+def test_prediction_context_states_the_gap():
+    """The model is told not to calculate, so the delta is spelled out."""
+    body = next(
+        m["content"] for m in _prediction_msgs() if "Difference:" in m["content"]
+    )
+    assert "2% below the average" in body
+
+
+def test_prediction_context_gap_above_average():
+    body = next(
+        m["content"]
+        for m in _prediction_msgs(predicted_yield_kg_per_ha=25000.0)
+        if "Difference:" in m["content"]
+    )
+    assert "25% above the average" in body
+
+
+def test_build_messages_ordering_preserved_with_prediction_context():
+    """Prediction context slots between RAG chunks and the formatting rules;
+    everything downstream keeps its existing relative order."""
+    history = [ConversationTurn(role="user", content="earlier turn")]
+    req = _make_request(
+        conversation_history=history, prediction_context=_FULL_PREDICTION
+    )
+    context = {
+        "chunks": [{"text": "carrot data", "source": "src", "score": 0.9}],
+        "sources": ["src"],
+        "score": 0.9,
+    }
+    msgs = cs._build_messages("system prompt", context, req, "Explain this prediction")
+
+    def idx(needle):
+        return next(i for i, m in enumerate(msgs) if needle in m["content"])
+
+    system_i = 0
+    rag_i = idx("Relevant context")
+    pred_i = idx("own yield prediction, which CropSphere")
+    fmt_i = idx(cs._FORMATTING_RULES[:40])
+    hist_i = idx("earlier turn")
+
+    assert system_i < rag_i < pred_i < fmt_i < hist_i
+    # Level instruction still sits between the formatting rules and history.
+    level_i = next(
+        i for i, m in enumerate(msgs) if m["content"] in cs._LEVEL_INSTRUCTIONS.values()
+    )
+    assert fmt_i < level_i < hist_i
+    # The user message is still last, and still only the user's own text.
+    assert msgs[-1] == {"role": "user", "content": "Explain this prediction"}
+
+
+def test_prediction_context_never_touches_the_user_message():
+    """chat_analytics.question is `message[:200]` — the injected context must
+    stay out of it, or the gap report fills up with prompt boilerplate."""
+    msgs = _prediction_msgs()
+    user_msgs = [m for m in msgs if m["role"] == "user"]
+    assert user_msgs == [{"role": "user", "content": "Explain this prediction"}]
+    assert "19,612" not in user_msgs[0]["content"]
+    assert "Carrot" not in user_msgs[0]["content"]
+
+
+def test_format_prediction_context_none_and_empty():
+    from app.models.schemas import PredictionContext
+
+    assert cs._format_prediction_context(None) == ""
+    # A context with nothing set has nothing worth injecting.
+    assert cs._format_prediction_context(PredictionContext()) == ""
+
+
+def test_analytics_logs_only_the_short_user_message_with_prediction_context():
+    """END-TO-END on the analytics record itself, not just _build_messages.
+
+    A starter-chip tap sends a 3-word question with the whole prediction
+    riding along in prediction_context. chat_analytics.question must record
+    ONLY those 3 words — if the injected block ever leaked into it, the gap
+    report and conversation miner would fill with prompt boilerplate instead
+    of real farmer phrasing.
+    """
+    req = _make_request(
+        message="Explain this prediction",
+        prediction_context=_FULL_PREDICTION,
+    )
+    with patch.object(cs, "log_chat_interaction") as logged:
+        cs._run_analytics(
+            req,
+            "Explain this prediction",
+            "answer",
+            "High confidence",
+            {"score": 0.7, "sources": ["src"]},
+            None,
+            120,
+        )
+
+    logged.assert_called_once()
+    data = logged.call_args[0][0]
+    assert data["question"] == "Explain this prediction"
+
+    # Nothing from the prediction block may appear ANYWHERE in the record.
+    blob = repr(data)
+    for leak in (
+        "19,612",
+        "19612",
+        "19,961",
+        "District average yield",
+        "own yield prediction, which CropSphere",
+        "Model confidence: high",
+        "rainfall 45 mm",
+    ):
+        assert leak not in blob, f"prediction context leaked into analytics: {leak}"
+
+
+def test_format_prediction_context_partial_fields():
+    """The client sends whatever the prediction produced; missing pieces are
+    simply omitted rather than rendered as blanks."""
+    from app.models.schemas import PredictionContext
+
+    body = cs._format_prediction_context(
+        PredictionContext(crop="Maize", predicted_yield_kg_per_ha=8000.0)
+    )
+    assert "Maize" in body
+    assert "8,000 kg/ha" in body
+    assert "District:" not in body
+    assert "Difference:" not in body
+    assert "Weather used:" not in body
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1051,6 +1396,190 @@ def test_no_confirm_on_non_agricultural_message():
         assert (
             cs._should_confirm_saved_context(req, "hello", "Carrot", "Jaffna") is False
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# prediction_context vs. saved-context confirmation
+#
+# Bug: a farmer who taps "Ask AI about this" on a fresh yield/price
+# prediction was confirmed against their STALE saved profile crop/district
+# instead of the prediction they just made, whenever the starter chip's own
+# wording happened to contain an agricultural-intent keyword ("price",
+# "yield", "earn", ...) — _should_confirm_saved_context had no idea
+# prediction_context existed. Reproduced directly against the real function,
+# no LLM call needed: with saved_crop="Maize", saved_district="Batticaloa"
+# and req.prediction_context naming Carrot/Badulla, the pre-fix function
+# returned True and _build_context_confirmation said "Do you mean Maize in
+# Batticaloa?" — the exact reported symptom.
+# ═══════════════════════════════════════════════════════════════════════════
+
+_PC_PRICE = {
+    "crop": "Carrot",
+    "district": "Badulla",
+    "season": "Maha",
+    "predicted_price_lkr_kg": 78.0,
+    "average_price_lkr_kg": 74.0,
+    "average_price_source": "real",
+}
+_PC_YIELD = {
+    "crop": "Carrot",
+    "district": "Badulla",
+    "season": "Maha",
+    "predicted_yield_kg_per_ha": 19612.0,
+    "average_yield_kg_per_ha": 19961.0,
+}
+
+# All 8 starter chips across both pages (kPredictionStarters + kPriceStarters
+# in followup_chip.dart) — pre-fix, 5 of these 8 falsely triggered the
+# confirmation gate against a saved Maize/Batticaloa profile: "Explain this
+# price", "How can I get a better price?", "How can I improve this yield?",
+# "What price will I get for this?", "Is this a good yield for my area?".
+# Only wording avoided it by accident (no _AGRICULTURAL_INTENT_PHRASES
+# keyword) — this was never a yield-vs-price difference.
+_ALL_STARTER_CHIPS = [
+    "Explain this price",
+    "When should I sell?",
+    "How does this compare to other districts?",
+    "How can I get a better price?",
+    "Explain this prediction",
+    "How can I improve this yield?",
+    "What price will I get for this?",
+    "Is this a good yield for my area?",
+]
+
+
+@pytest.mark.parametrize("message", _ALL_STARTER_CHIPS)
+def test_no_confirm_when_prediction_context_present(message):
+    """The core fix: none of the 8 starter chips may trigger the confirmation
+    gate once prediction_context names a crop and district, no matter what
+    the saved profile says or what agricultural keyword the chip's own
+    wording happens to contain."""
+    req = _make_request(
+        message=message, prediction_context=_PC_PRICE, conversation_history=[]
+    )
+    assert (
+        cs._should_confirm_saved_context(req, message, "Maize", "Batticaloa") is False
+    )
+
+
+def test_confirm_still_fires_for_ordinary_chat_without_prediction_context():
+    """Regression: the saved-profile confirmation is a real, wanted feature
+    for a normal, dropdown-free, prediction-context-free chat message — the
+    fix must not disable it."""
+    req = _make_request(
+        message="What's a good price for my harvest?", conversation_history=[]
+    )
+    assert (
+        cs._should_confirm_saved_context(
+            req, "What's a good price for my harvest?", "Maize", "Batticaloa"
+        )
+        is True
+    )
+    reply, chips = cs._build_context_confirmation(
+        req, "What's a good price for my harvest?", "Maize", "Batticaloa"
+    )
+    assert "Maize in Batticaloa" in reply
+    assert chips[0] == "Maize in Batticaloa"
+
+
+def test_dropdown_still_wins_over_prediction_context():
+    """Priority order is dropdown > message > prediction_context > saved —
+    an explicit dropdown selection must still take precedence, exactly as it
+    already did over saved context."""
+    req = _make_request(
+        message="Explain this price",
+        crop="Maize",
+        district="Jaffna",
+        prediction_context=_PC_PRICE,  # names Carrot/Badulla
+        conversation_history=[],
+    )
+    assert (
+        cs._should_confirm_saved_context(
+            req, "Explain this price", "Maize", "Batticaloa"
+        )
+        is False
+    )
+
+
+def test_message_text_still_wins_over_prediction_context():
+    """A farmer typing a different crop/district mid-conversation must still
+    be able to redirect past the original prediction — prediction_context is
+    a default for the conversation, not a lock."""
+    req = _make_request(
+        message="what about jaffna instead",
+        prediction_context=_PC_PRICE,  # names Carrot/Badulla
+        conversation_history=[],
+    )
+    with patch.object(cs, "_dataset_capabilities", return_value=_CTX_CAPS):
+        reply, chips = cs._build_context_confirmation(
+            req, "what about jaffna instead", "Maize", "Batticaloa"
+        )
+    # Resolved from the message text ("jaffna"), not prediction_context's
+    # Badulla and not the saved Batticaloa.
+    assert "Jaffna" in reply
+    assert "Badulla" not in reply
+    assert "Batticaloa" not in reply
+
+
+def test_prediction_context_terms_none_when_absent():
+    req = _make_request(prediction_context=None)
+    assert cs._prediction_context_terms(req) == (None, None)
+
+
+def test_prediction_context_terms_reads_crop_and_district():
+    req = _make_request(prediction_context=_PC_YIELD)
+    assert cs._prediction_context_terms(req) == ("Carrot", "Badulla")
+
+
+def test_rag_context_falls_back_to_prediction_context_crop_district():
+    """The RAG metadata boost must target the prediction's own crop/district
+    when the dropdown is empty, instead of searching unfiltered — the second
+    half of the fix (retrieval), not just the confirmation gate."""
+    req = _make_request(
+        message="Explain this price",
+        prediction_context=_PC_PRICE,  # names Carrot/Badulla
+        conversation_history=[],
+    )
+    context = {
+        "chunks": [{"text": "carrot data", "source": "src", "score": 0.9}],
+        "sources": ["src"],
+        "score": 0.9,
+    }
+    mock_rag = MagicMock(return_value=context)
+    with patch("app.user.services.chatbot_service._safe_audit"), patch(
+        "app.user.services.chatbot_service._explicit_miss", return_value=None
+    ), patch("app.user.services.chatbot_service._rag_context", mock_rag), patch(
+        "groq.Groq", return_value=_groq_reply("Carrots do well.")
+    ):
+        cs.chat(req, SETTINGS)
+    _, kwargs = mock_rag.call_args
+    assert kwargs["district"] == "Badulla"
+    assert kwargs["crop"] == "Carrot"
+
+
+def test_rag_context_dropdown_still_wins_over_prediction_context():
+    req = _make_request(
+        message="Explain this price",
+        crop="Maize",
+        district="Jaffna",
+        prediction_context=_PC_PRICE,  # names Carrot/Badulla
+        conversation_history=[],
+    )
+    context = {
+        "chunks": [{"text": "maize data", "source": "src", "score": 0.9}],
+        "sources": ["src"],
+        "score": 0.9,
+    }
+    mock_rag = MagicMock(return_value=context)
+    with patch("app.user.services.chatbot_service._safe_audit"), patch(
+        "app.user.services.chatbot_service._explicit_miss", return_value=None
+    ), patch("app.user.services.chatbot_service._rag_context", mock_rag), patch(
+        "groq.Groq", return_value=_groq_reply("Maize does well.")
+    ):
+        cs.chat(req, SETTINGS)
+    _, kwargs = mock_rag.call_args
+    assert kwargs["district"] == "Jaffna"
+    assert kwargs["crop"] == "Maize"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1794,3 +2323,355 @@ def test_validation_fails_open_without_rag(monkeypatch):
 
 def test_validation_of_empty_list_is_empty():
     assert cs._validate_followup_chips([]) == []
+
+
+# ── price-side prediction_context ──────────────────────────────────────────
+
+
+def test_price_context_injects_price_facts():
+    body = _price_block()
+    assert "Rs. 78/kg" in body
+    assert "Rs. 74/kg" in body
+    assert "100 kg" in body
+    assert "Rs. 7,800 total" in body
+    assert "Market supply: normal" in body
+    assert "Buyer demand: high" in body
+
+
+def test_price_context_is_named_a_price_prediction():
+    """The preamble must not call a price question a yield question."""
+    body = _price_block()
+    assert "own price prediction, which CropSphere" in body
+    assert "yield prediction" not in body
+
+
+def test_price_context_states_the_gap():
+    """Same rule as yield: the model is told not to calculate."""
+    body = _price_block()
+    assert "Difference: 5% above the average" in body
+
+
+def test_price_context_gap_below_average():
+    body = _price_block(predicted_price_lkr_kg=70.0, average_price_lkr_kg=74.0)
+    assert "Difference: 5% below the average" in body
+
+
+def test_price_context_attributes_a_real_average():
+    assert "(from real market data)" in _price_block()
+
+
+def test_price_context_attributes_a_synthetic_average():
+    body = _price_block(average_price_source="synthetic")
+    assert "(estimated from modelled data)" in body
+
+
+def test_price_context_omits_provenance_when_source_is_absent():
+    """The null-source contract: no baseline attribution is invented.
+
+    The average may still be stated, but nothing is said about where it came
+    from — no fallback wording, no implied label.
+    """
+    body = _price_block(average_price_source=None)
+    assert "Rs. 74/kg" in body
+    assert "market data" not in body
+    assert "modelled data" not in body
+
+
+def test_price_context_rejects_an_unknown_source_literal():
+    """average_price_source is a Literal, so 'unknown' must not validate."""
+    import pytest as _pytest
+    from pydantic import ValidationError
+
+    with _pytest.raises(ValidationError):
+        _make_request(
+            prediction_context={
+                **_FULL_PRICE_PREDICTION,
+                "average_price_source": "unknown",
+            }
+        )
+
+
+def test_price_context_omits_unset_flags():
+    """holiday/festival lines appear only when the flag is actually true."""
+    body = _price_block(holiday_week=False, festival_week=False)
+    assert "holiday week" not in body
+    assert "festival week" not in body
+
+
+def test_price_context_carries_no_yield_fields():
+    """A price handoff must not leak yield wording into the block."""
+    body = _price_block()
+    assert "kg/ha" not in body
+    assert "Cultivated area" not in body
+
+
+def test_price_context_never_touches_the_user_message():
+    msgs = _price_msgs()
+    user = [m for m in msgs if m["role"] == "user"]
+    assert user[-1]["content"] == "Explain this price"
+    assert "78" not in user[-1]["content"]
+
+
+# ── weather-forecast-side prediction_context ────────────────────────────────
+#
+# REGRESSION: PredictionWeatherWeek.week_number was bounded 1-4 on the wrong
+# assumption that it indexed the requested forecast range. It is actually the
+# ISO calendar week-of-year (weather_service's week_date.isocalendar()[1],
+# the same number weather_screen shows as "Week 35") — so every real
+# forecast tapped from "Ask AI about this" 422'd, which api_service.dart's
+# _dioErrorCode then surfaced to the farmer as a generic "Couldn't reach the
+# server". See PredictionWeatherWeek's own doc comment in schemas.py.
+
+_FULL_WEATHER_FORECAST = {
+    "district": "Nuwara Eliya",
+    "weeks_ahead": 2,
+    "forecast_weeks": [
+        {
+            "week_number": 35,
+            "date": "2026-08-27",
+            "rainfall_mm": 45.0,
+            "temp_min_c": 12.0,
+            "temp_max_c": 22.0,
+            "humidity_pct": 70.0,
+            "condition": "good",
+        },
+        {
+            "week_number": 36,
+            "date": "2026-09-03",
+            "rainfall_mm": 70.0,
+            "temp_min_c": 13.0,
+            "temp_max_c": 21.0,
+            "humidity_pct": 80.0,
+            "condition": "heavy_rain",
+        },
+    ],
+}
+
+
+def _weather_msgs(**overrides):
+    payload = {**_FULL_WEATHER_FORECAST, **overrides}
+    req = _make_request(prediction_context=payload)
+    return cs._build_messages("system", _EMPTY_CONTEXT, req, "Explain this forecast")
+
+
+def _weather_block(**overrides):
+    return next(
+        m["content"]
+        for m in _weather_msgs(**overrides)
+        if "CropSphere just" in m["content"]
+    )
+
+
+def test_weather_context_accepts_iso_week_numbers_past_4():
+    """The exact real-world payload that used to 422 — week 35 and 36 of the
+    YEAR, not the 4-week cap the field was wrongly bounded to."""
+    body = _weather_block()
+    assert "Week 35" in body
+    assert "Week 36" in body
+
+
+def test_weather_context_rejects_out_of_range_week_number():
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        _weather_msgs(
+            forecast_weeks=[
+                {**_FULL_WEATHER_FORECAST["forecast_weeks"][0], "week_number": 54}
+            ]
+        )
+
+
+def test_weather_context_injects_forecast_facts():
+    body = _weather_block()
+    assert "District: Nuwara Eliya" in body
+    assert "Forecast range requested: 2 week(s) ahead" in body
+    assert "rainfall 45 mm" in body
+    assert "temperature 12-22 C" in body
+    assert "humidity 70%" in body
+    assert "good growing conditions" in body
+    assert "heavy rain expected" in body
+
+
+def test_weather_context_is_named_a_weather_forecast():
+    body = _weather_block()
+    assert "own weather forecast, which CropSphere" in body
+
+
+def test_weather_context_never_touches_the_user_message():
+    msgs = _weather_msgs()
+    user = [m for m in msgs if m["role"] == "user"]
+    assert user[-1]["content"] == "Explain this forecast"
+    assert "45" not in user[-1]["content"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Grounding guard vs prediction_context
+#
+# REGRESSION: tapping "Explain this prediction" on a yield result answered
+# with the out-of-scope refusal. The chip text names no crop and no district,
+# so retrieval returns nothing above _MIN_RELEVANCE, the grounding guard
+# fires, and the reply is built WITHOUT ever reaching _build_messages — which
+# is the only place prediction_context was injected. The farmer's own numbers
+# were sitting in the request the whole time.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _pc():
+    from app.models.schemas import PredictionContext
+
+    return PredictionContext(
+        crop="Carrot",
+        district="Badulla",
+        season="Maha",
+        irrigation="drip",
+        predicted_yield_kg_per_ha=19612.0,
+        average_yield_kg_per_ha=19961.0,
+    )
+
+
+def _pred_req(message, prediction_context=None):
+    from app.models.schemas import ChatRequest
+
+    return ChatRequest(
+        message=message,
+        user_id="u1",
+        conversation_history=[],
+        prediction_context=prediction_context,
+    )
+
+
+class _Settings:
+    GROQ_API_KEY = "k"
+    GROQ_MODEL = "m"
+    GROQ_MODEL_FAST = "m"
+
+
+def _fake_groq(reply_text):
+    """Stand-in for groq.Groq that returns a fixed completion."""
+    client = MagicMock()
+    client.chat.completions.create.return_value = MagicMock(
+        choices=[MagicMock(message=MagicMock(content=reply_text))]
+    )
+    return MagicMock(return_value=client), client
+
+
+def _run_chat(req, reply_text="Here is why."):
+    """Drive chat() with retrieval returning NOTHING, so the grounding guard
+    is the thing under test."""
+    empty = {"chunks": [], "sources": [], "top_score": 0.0, "confidence": "Low"}
+    groq_cls, client = _fake_groq(reply_text)
+    with (
+        patch.object(cs, "_rag_context", return_value=empty),
+        patch.dict("sys.modules", {"groq": MagicMock(Groq=groq_cls)}),
+        patch.object(cs, "_emit_analytics"),
+        patch.object(cs, "_resolve_followup_chips", return_value=([], {})),
+        patch.object(cs, "_remember_shown_chips"),
+    ):
+        return cs.chat(req, _Settings()), client
+
+
+def test_prediction_context_survives_the_grounding_guard():
+    """A prediction chip must be answered, not refused as out of scope.
+
+    The chip names no crop and no district, so retrieval is empty — but the
+    farmer's own numbers are right there in the request, which is exactly
+    what the answer should be grounded in.
+    """
+    resp, client = _run_chat(_pred_req("Explain this prediction", _pc()))
+
+    assert resp.confidence != "Out of scope"
+    assert resp.reply == "Here is why."
+    # ...and the model actually received the numbers.
+    sent = client.chat.completions.create.call_args.kwargs["messages"]
+    blob = "\n".join(m["content"] for m in sent)
+    assert "19,612" in blob and "Badulla" in blob
+
+
+def test_grounding_guard_still_refuses_without_prediction_context():
+    """Unchanged for every request that carries no context."""
+    empty = {"chunks": [], "sources": [], "top_score": 0.0, "confidence": "Low"}
+    with (
+        patch.object(cs, "_rag_context", return_value=empty),
+        patch.object(cs, "_emit_analytics"),
+    ):
+        resp = cs.chat(_pred_req("who won the world cup"), _Settings())
+
+    assert resp.confidence == "Out of scope"
+
+
+def test_stream_prediction_context_survives_the_grounding_guard():
+    """The streaming path is the client default — it must behave identically.
+
+    This is the path the reported bug actually came through: the Flutter app
+    posts to /api/chat/stream unless AppConfig.useStreamingChat is off.
+    """
+    empty = {"chunks": [], "sources": [], "score": 0.0, "confidence": "Low"}
+
+    def _fake_stream(*a, **kw):
+        chunk = MagicMock()
+        chunk.choices = [MagicMock(delta=MagicMock(content="Here is why."))]
+        return iter([chunk])
+
+    client = MagicMock()
+    client.chat.completions.create.side_effect = _fake_stream
+
+    with (
+        patch.object(cs, "_rag_context", return_value=empty),
+        patch.dict(
+            "sys.modules", {"groq": MagicMock(Groq=MagicMock(return_value=client))}
+        ),
+        patch.object(cs, "_emit_analytics"),
+        patch.object(cs, "_resolve_followup_chips", return_value=([], {})),
+        patch.object(cs, "_remember_shown_chips"),
+        patch(
+            "app.user.services.chat_history_service.persist_chat_turn",
+            return_value="c1",
+        ),
+    ):
+        events = list(
+            cs.chat_stream(
+                _pred_req("Explain this prediction", _pc()), _Settings(), "uid"
+            )
+        )
+
+    text = "".join(e.get("content", "") for e in events if e.get("type") == "text")
+    meta = [e for e in events if e.get("type") == "metadata"]
+    assert text == "Here is why."
+    assert meta and meta[0].get("confidence") != "Out of scope"
+
+
+def test_chip_tap_logs_only_the_short_message_not_the_numbers():
+    """The analytics guarantee must survive the guard change.
+
+    chat_analytics.question stays the farmer's own chip text — the injected
+    figures must never leak into the gap report.
+    """
+    empty = {"chunks": [], "sources": [], "score": 0.0, "confidence": "Low"}
+    seen = {}
+
+    def _capture(data):
+        seen.update(data)
+
+    groq_cls, _client = _fake_groq("Here is why.")
+    with (
+        patch.object(cs, "_rag_context", return_value=empty),
+        patch.dict("sys.modules", {"groq": MagicMock(Groq=groq_cls)}),
+        patch.object(cs, "log_chat_interaction", _capture),
+        patch.object(cs, "_resolve_followup_chips", return_value=([], {})),
+        patch.object(cs, "_remember_shown_chips"),
+        patch.object(cs, "_recall_shown_chips", return_value=([], {})),
+        patch.object(cs, "_reconstruct_previous_followups", return_value=([], {})),
+    ):
+        cs._run_analytics(
+            _pred_req("Explain this prediction", _pc()),
+            "Explain this prediction",
+            "answer",
+            "Moderate confidence",
+            empty,
+            None,
+            12,
+        )
+
+    assert seen["question"] == "Explain this prediction"
+    for marker in ("19,612", "19,961", "Badulla", "Maha", "drip", "Carrot"):
+        assert marker not in str(seen), f"{marker} leaked into analytics"

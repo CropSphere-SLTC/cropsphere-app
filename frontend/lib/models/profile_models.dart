@@ -67,9 +67,11 @@ class NotificationPreferences {
 class UserPreferences {
   final String language;
   final NotificationPreferences notifications;
-  // Saved chat context — the farmer's area/crop, persisted server-side from
-  // "I'm from Jaffna" statements. Read-only here; toJson intentionally omits
-  // them so a preferences save never clobbers the context the backend owns.
+  // The farmer's home district / main crop. Two writers share these: the
+  // chatbot sets them server-side from conversational context ("I'm from
+  // Jaffna"), and Account Settings now sets them explicitly. toJson only
+  // emits them when non-null, and the backend only writes the keys it
+  // actually receives, so neither writer clears the other's value.
   final String? preferredDistrict;
   final String? preferredCrop;
 
@@ -93,5 +95,22 @@ class UserPreferences {
   Map<String, dynamic> toJson() => {
     'language': language,
     'notifications': notifications.toJson(),
+    // Omitted entirely when null — the backend treats an absent key as
+    // "leave whatever is stored alone", so a save from a screen that
+    // doesn't manage these can't wipe them.
+    if (preferredDistrict != null) 'preferred_district': preferredDistrict,
+    if (preferredCrop != null) 'preferred_crop': preferredCrop,
   };
+
+  UserPreferences copyWith({
+    String? language,
+    NotificationPreferences? notifications,
+    String? preferredDistrict,
+    String? preferredCrop,
+  }) => UserPreferences(
+    language: language ?? this.language,
+    notifications: notifications ?? this.notifications,
+    preferredDistrict: preferredDistrict ?? this.preferredDistrict,
+    preferredCrop: preferredCrop ?? this.preferredCrop,
+  );
 }

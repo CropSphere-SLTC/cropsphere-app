@@ -32,7 +32,13 @@ def _mock_recommend_response():
                 confidence_score=0.85,
                 expected_yield_kg_per_ha=3500.0,
                 expected_price_lkr_kg=90.0,
-                suitability_flags={"yield_modelled": False, "any_mock": True},
+                district_suitable=False,
+                suitability_flags={
+                    "temp_suitable": False,
+                    "rain_suitable": True,
+                    "humidity_suitable": True,
+                    "ph_suitable": True,
+                },
             )
         ]
     )
@@ -84,6 +90,20 @@ def test_mock_response_when_model_not_loaded(
 
     assert resp.status_code == 200
     body = resp.json()
-    # All crops should return mock data when models absent
+    # Mock-ness is a property of the response, not of a crop. It used to ride
+    # along in suitability_flags as `any_mock`, which made that field describe
+    # model health rather than the crop — and, because `any_mock` is exactly
+    # `not (yield_modelled and price_modelled)`, capped the true-flag count at
+    # 2 of 3 so the UI's "Good match" branch could never render. The flags are
+    # now the four agronomic conditions; this signal lives at the top level.
+    assert body["is_mock"] is True
+
+    expected_flags = {
+        "temp_suitable",
+        "rain_suitable",
+        "humidity_suitable",
+        "ph_suitable",
+    }
     for rec in body["recommendations"]:
-        assert rec["suitability_flags"]["any_mock"] is True
+        assert set(rec["suitability_flags"]) == expected_flags
+        assert all(isinstance(v, bool) for v in rec["suitability_flags"].values())

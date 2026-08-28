@@ -3,23 +3,19 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../app_lang.dart'; // AppLang, AppLangProvider — shared across app
 import '../../widgets/app_theme.dart';
 
+// Local persistence key for "remember last email" — Sign In tab only, never
+// the Create New Account tab's email field.
+const _lastSignInEmailPrefsKey = 'login_last_signin_email';
+
 // ── Colour tokens ──────────────────────────────────────────────────────────────
 const _bgOutside = Color(0xFFDFE6CE);
-const _bgCard = Color(0xFF2D6A2F);
-const _bgField = Color(0xFF3D7A40);
-const _borderCard = Color(0xFF4CAF50);
-const _accentLight = Color(0xFF90EE90);
-const _textOnGreen = Color(0xFF1A3A1A);
-const _textMuted = Color(0xFFB8D4A0);
-const _textHint = Color(0xFFD4EAC0);
 const _footerPrimary = Color(0xFF4A5E30);
-const _footerSecondary = Color(0xFF6B7A52);
 const _logoName = Color(0xFF1B4D1B);
 const _taglineMain = Color(0xFF2E4A1E);
-const _taglineSub = Color(0xFF6B7A52);
 
 // ── Strings model ──────────────────────────────────────────────────────────────
 class _L {
@@ -359,6 +355,12 @@ class _LoginScreenState extends State<LoginScreen>
   int _prevTab = 0;
   AppLang _lang = AppLang.en;
 
+  // Set at the top of build() from screenW ≥ 1024 — read by the card's own
+  // builder methods below so the whole sign-in card (not just the header)
+  // scales up a little on desktop/web, without threading an isDesktop
+  // parameter through every one of them individually.
+  bool _isDesktop = false;
+
   // Sign-in controllers
   final _siEmailCtrl = TextEditingController();
   final _siPassCtrl = TextEditingController();
@@ -453,6 +455,25 @@ class _LoginScreenState extends State<LoginScreen>
       duration: const Duration(milliseconds: 260),
     );
     _langFade = CurvedAnimation(parent: _langCtrl, curve: Curves.easeInOut);
+
+    _loadLastSignInEmail();
+  }
+
+  // ── Remember last email (Sign In tab only) ────────────────────────────────
+  Future<void> _loadLastSignInEmail() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(_lastSignInEmailPrefsKey);
+    if (!mounted || saved == null || saved.isEmpty) return;
+    // Only pre-fill if the user hasn't already typed something — avoids
+    // clobbering input if this resolves after the user started typing.
+    if (_siEmailCtrl.text.isEmpty) {
+      setState(() => _siEmailCtrl.text = saved);
+    }
+  }
+
+  Future<void> _saveLastSignInEmail(String email) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_lastSignInEmailPrefsKey, email);
   }
 
   @override
@@ -628,10 +649,12 @@ class _LoginScreenState extends State<LoginScreen>
     _setLoading(true);
     _setError(null);
     try {
+      final email = _siEmailCtrl.text.trim();
       await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: _siEmailCtrl.text.trim(),
+        email: email,
         password: _siPassCtrl.text,
       );
+      await _saveLastSignInEmail(email);
     } on FirebaseAuthException catch (e) {
       _setError(switch (e.code) {
         'user-not-found' => _s.errUserNotFound,
@@ -722,7 +745,8 @@ class _LoginScreenState extends State<LoginScreen>
     // Dynamic max-width: interpolates smoothly between breakpoints.
     //   mobile  (<600)  → full width (no constraint)
     //   tablet  (600–1023) → 400–440 px, centred
-    //   web     (≥1024) → 460 px, centred
+    //   web     (≥1024) → 520 px, centred — bumped from 460 so the whole
+    //     sign-in card reads a little bigger on desktop/web specifically.
     final double cardMaxW;
     if (screenW < 600) {
       cardMaxW = double.infinity;
@@ -731,8 +755,20 @@ class _LoginScreenState extends State<LoginScreen>
       final t = ((screenW - 600) / (1024 - 600)).clamp(0.0, 1.0);
       cardMaxW = 400 + (40 * t);
     } else {
-      cardMaxW = 460;
+      cardMaxW = 520;
     }
+
+    // Desktop/web (≥1024px) gets a slightly larger logo/wordmark/tagline,
+    // and — via _isDesktop — a slightly larger card (inputs, buttons, tab
+    // bar, card text) too. Same step as cardMaxW's own mobile/tablet/desktop
+    // breakpoints above, rather than a continuous scale, since the design
+    // calls out exactly these three discrete tiers.
+    final isDesktop = screenW >= 1024;
+    _isDesktop = isDesktop;
+    final logoSize = isDesktop ? 46.0 : 40.0;
+    final wordmarkSize = isDesktop ? 22.0 : 20.0;
+    final taglineMainSize = isDesktop ? 18.0 : 16.0;
+    final taglineSubSize = isDesktop ? 13.0 : 12.0;
 
     return Scaffold(
       backgroundColor: _bgOutside,
@@ -748,11 +784,16 @@ class _LoginScreenState extends State<LoginScreen>
             child: Stack(
               children: [
                 // ── Leaf watermarks ──────────────────────────────────────────
+                // Dialed further down from 0.10/0.07 — with the card now
+                // light instead of dark-dominant, the page reads airier
+                // overall, and these decorative leaves read more
+                // prominently against that lighter whole even though the
+                // outer page background color itself hasn't changed.
                 Positioned(
                   top: 24,
                   right: 12,
                   child: Opacity(
-                    opacity: 0.10,
+                    opacity: 0.06,
                     child: SvgPicture.string(_leafSvg, width: 100),
                   ),
                 ),
@@ -760,69 +801,113 @@ class _LoginScreenState extends State<LoginScreen>
                   bottom: 60,
                   left: 8,
                   child: Opacity(
-                    opacity: 0.07,
+                    opacity: 0.045,
                     child: SvgPicture.string(_leafSvg, width: 80),
                   ),
                 ),
 
                 // ── Main layout ──────────────────────────────────────────────
-                Column(
-                  children: [
-                    // Top bar — logo pinned top-left
-                    _buildTopBar(),
+                Builder(
+                  builder: (context) {
+                    final isMobile = screenW < 600;
+                    final content = Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: isMobile ? 20 : 24,
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(height: isMobile ? 14 : 20),
+                          _buildTagline(
+                            mainSize: taglineMainSize,
+                            subSize: taglineSubSize,
+                          ),
+                          const SizedBox(height: 14),
+                          _buildLangSelector(),
+                          const SizedBox(height: 14),
+                          _buildCard(),
+                          SizedBox(height: isMobile ? 16 : 20),
+                        ],
+                      ),
+                    );
 
-                    // Scrollable centre content — vertically centred on tablet/web
-                    Expanded(
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          return SingleChildScrollView(
-                            child: ConstrainedBox(
-                              // minHeight fills the available space so the inner
-                              // Column can centre itself vertically on larger screens.
-                              constraints: BoxConstraints(
-                                minHeight: constraints.maxHeight,
-                              ),
-                              child: Center(
+                    if (isMobile) {
+                      // Mobile: footer flows immediately after the card as
+                      // part of one [content, footer] unit, and that whole
+                      // unit is vertically centred in the space below the
+                      // top bar — same mechanism as tablet/desktop, except
+                      // the footer is inside the centred block instead of
+                      // pinned separately outside it. Pinning the footer
+                      // separately (tablet/desktop's approach) put all the
+                      // leftover slack above the tagline on a tall phone;
+                      // top-anchoring the whole thing (an earlier attempt)
+                      // put all of it below the footer instead. Centring the
+                      // combined block splits whatever slack remains evenly
+                      // between "above the tagline" and "below the footer"
+                      // — roughly half the size in either spot compared to
+                      // either single-sided version.
+                      return Column(
+                        children: [
+                          _buildTopBar(
+                            logoSize: logoSize,
+                            wordmarkSize: wordmarkSize,
+                          ),
+                          Expanded(
+                            child: LayoutBuilder(
+                              builder: (context, constraints) {
+                                return SingleChildScrollView(
+                                  child: ConstrainedBox(
+                                    constraints: BoxConstraints(
+                                      minHeight: constraints.maxHeight,
+                                    ),
+                                    child: Center(
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [content, _buildFooter()],
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      );
+                    }
+
+                    // Tablet/desktop: unchanged — top bar and footer pinned,
+                    // content vertically centred in the space between them.
+                    return Column(
+                      children: [
+                        _buildTopBar(
+                          logoSize: logoSize,
+                          wordmarkSize: wordmarkSize,
+                        ),
+                        Expanded(
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              return SingleChildScrollView(
                                 child: ConstrainedBox(
                                   constraints: BoxConstraints(
-                                    maxWidth: cardMaxW == double.infinity
-                                        ? double.infinity
-                                        : cardMaxW,
+                                    minHeight: constraints.maxHeight,
                                   ),
-                                  child: Padding(
-                                    padding: EdgeInsets.symmetric(
-                                      horizontal: screenW < 600 ? 20 : 24,
-                                    ),
-                                    child: Column(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        SizedBox(
-                                          height: screenW < 600 ? 14 : 20,
-                                        ),
-                                        _buildTagline(),
-                                        const SizedBox(height: 14),
-                                        _buildLangSelector(),
-                                        const SizedBox(height: 14),
-                                        _buildCard(),
-                                        SizedBox(
-                                          height: screenW < 600 ? 16 : 20,
-                                        ),
-                                      ],
+                                  child: Center(
+                                    child: ConstrainedBox(
+                                      constraints: BoxConstraints(
+                                        maxWidth: cardMaxW,
+                                      ),
+                                      child: content,
                                     ),
                                   ),
                                 ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-
-                    // Footer pinned bottom-center
-                    _buildFooter(),
-                  ],
+                              );
+                            },
+                          ),
+                        ),
+                        _buildFooter(),
+                      ],
+                    );
+                  },
                 ),
               ],
             ),
@@ -833,31 +918,31 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   // ── Top bar ────────────────────────────────────────────────────────────────
-  Widget _buildTopBar() {
+  Widget _buildTopBar({
+    required double logoSize,
+    required double wordmarkSize,
+  }) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
       child: Row(
         children: [
-          Stack(
-            alignment: Alignment.center,
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: const Color(0xFF4CAF50).withValues(alpha: 0.15),
-                ),
-              ),
-              SvgPicture.string(_cropSvg, width: 34, height: 34),
-            ],
+          // Swapped the screen's hand-inlined static _cropSvg badge for the
+          // real CropSphere brand mark PNG. Uses the _transparent variant
+          // (RGBA, alpha=0 corners) rather than cropsphere_logo.png (flat
+          // RGB, opaque near-white corners) — this screen's page background
+          // isn't white, so the opaque file would show a visible whitish
+          // square behind the circle badge.
+          Image.asset(
+            'assets/images/cropsphere_logo_transparent.png',
+            width: logoSize,
+            height: logoSize,
           ),
           const SizedBox(width: 10),
-          const Text(
+          Text(
             'CropSphere',
             style: TextStyle(
               color: _logoName,
-              fontSize: 20,
+              fontSize: wordmarkSize,
               fontWeight: FontWeight.w800,
               letterSpacing: 0.2,
             ),
@@ -868,15 +953,15 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   // ── Tagline ────────────────────────────────────────────────────────────────
-  Widget _buildTagline() {
+  Widget _buildTagline({required double mainSize, required double subSize}) {
     return Column(
       children: [
         Text(
           _s.taglineMain,
           textAlign: TextAlign.center,
-          style: const TextStyle(
+          style: TextStyle(
             color: _taglineMain,
-            fontSize: 16,
+            fontSize: mainSize,
             fontWeight: FontWeight.w700,
             height: 1.35,
           ),
@@ -885,7 +970,11 @@ class _LoginScreenState extends State<LoginScreen>
         Text(
           _s.taglineSub,
           textAlign: TextAlign.center,
-          style: const TextStyle(color: _taglineSub, fontSize: 12, height: 1.5),
+          style: TextStyle(
+            color: AppTheme.login.outsideMutedText,
+            fontSize: subSize,
+            height: 1.5,
+          ),
         ),
       ],
     );
@@ -921,30 +1010,48 @@ class _LoginScreenState extends State<LoginScreen>
   Widget _buildCard() {
     return Container(
       decoration: BoxDecoration(
-        color: _bgCard,
+        color: AppTheme.login.background,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: _borderCard.withValues(alpha: 0.35),
-          width: 1.5,
-        ),
+        border: Border.all(color: AppTheme.login.borderSubtle, width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.login.textPrimary.withValues(alpha: 0.06),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Column(
         children: [
-          // Tab bar
-          Padding(
-            padding: const EdgeInsets.fromLTRB(15, 13, 15, 0),
+          // Tab bar — underline style, grounded by a full-width baseline so
+          // the active tab's indicator reads as "part of" a track rather
+          // than floating.
+          Container(
+            padding: EdgeInsets.fromLTRB(
+              _isDesktop ? 18 : 15,
+              _isDesktop ? 15 : 13,
+              _isDesktop ? 18 : 15,
+              0,
+            ),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(color: AppTheme.login.borderSubtle),
+              ),
+            ),
             child: Row(
               children: [
                 _TabBtn(
                   label: _s.tabSignIn,
                   selected: _tabIndex == 0,
                   onTap: () => _switchTab(0),
+                  isDesktop: _isDesktop,
                 ),
                 const SizedBox(width: 8),
                 _TabBtn(
                   label: _s.tabRegister,
                   selected: _tabIndex == 1,
                   onTap: () => _switchTab(1),
+                  isDesktop: _isDesktop,
                 ),
               ],
             ),
@@ -994,16 +1101,21 @@ class _LoginScreenState extends State<LoginScreen>
   // ── Form dispatcher ────────────────────────────────────────────────────────
   Widget _formContent(int tab) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+      padding: EdgeInsets.fromLTRB(
+        _isDesktop ? 22 : 18,
+        _isDesktop ? 16 : 14,
+        _isDesktop ? 22 : 18,
+        _isDesktop ? 20 : 18,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // Form title & subtitle
           Text(
             tab == 0 ? _s.siTitle : _s.suTitle,
-            style: const TextStyle(
-              color: Color(0xFFF1FAF1),
-              fontSize: 16,
+            style: TextStyle(
+              color: AppTheme.login.textPrimary,
+              fontSize: _isDesktop ? 18 : 16,
               fontWeight: FontWeight.w800,
             ),
           ),
@@ -1011,8 +1123,8 @@ class _LoginScreenState extends State<LoginScreen>
           Text(
             tab == 0 ? _s.siSub : _s.suSub,
             style: TextStyle(
-              color: _textMuted.withValues(alpha: 0.7),
-              fontSize: 11,
+              color: AppTheme.login.textSecondary,
+              fontSize: _isDesktop ? 12 : 11,
             ),
           ),
           const SizedBox(height: 13),
@@ -1039,6 +1151,7 @@ class _LoginScreenState extends State<LoginScreen>
             label: _s.email,
             icon: Icons.email_outlined,
             keyboard: TextInputType.emailAddress,
+            textInputAction: TextInputAction.next,
             validator: (v) {
               if (v == null || v.trim().isEmpty) return _s.enterEmail;
               if (!v.contains('@')) return _s.invalidEmail;
@@ -1055,22 +1168,16 @@ class _LoginScreenState extends State<LoginScreen>
               _siObscure,
               () => setState(() => _siObscure = !_siObscure),
             ),
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => _isLoading ? null : _signInWithEmail(),
             validator: (v) =>
                 (v == null || v.isEmpty) ? _s.enterPassword : null,
           ),
           Align(
             alignment: Alignment.centerRight,
-            child: TextButton(
-              onPressed: _isLoading ? null : _forgotPassword,
-              style: TextButton.styleFrom(
-                padding: EdgeInsets.zero,
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              child: Text(
-                _s.forgotPassword,
-                style: const TextStyle(color: _accentLight, fontSize: 11),
-              ),
+            child: _ForgotPasswordLink(
+              label: _s.forgotPassword,
+              onTap: _isLoading ? null : _forgotPassword,
             ),
           ),
           const SizedBox(height: 10),
@@ -1096,6 +1203,7 @@ class _LoginScreenState extends State<LoginScreen>
             label: _s.fullName,
             icon: Icons.person_outline,
             maxLength: 100,
+            textInputAction: TextInputAction.next,
             validator: (v) {
               final trimmed = v?.trim() ?? '';
               if (trimmed.isEmpty) return _s.enterName;
@@ -1109,6 +1217,7 @@ class _LoginScreenState extends State<LoginScreen>
             label: _s.email,
             icon: Icons.email_outlined,
             keyboard: TextInputType.emailAddress,
+            textInputAction: TextInputAction.next,
             validator: (v) {
               if (v == null || v.trim().isEmpty) return _s.enterEmail;
               if (!v.contains('@')) return _s.invalidEmail;
@@ -1129,6 +1238,7 @@ class _LoginScreenState extends State<LoginScreen>
                   _suObscurePass,
                   () => setState(() => _suObscurePass = !_suObscurePass),
                 ),
+                textInputAction: TextInputAction.next,
                 onChanged: _onPasswordChanged,
                 validator: (v) {
                   if (v == null || v.isEmpty) return _s.enterPassword;
@@ -1143,7 +1253,7 @@ class _LoginScreenState extends State<LoginScreen>
                   child: LinearProgressIndicator(
                     value: _strength.fraction,
                     minHeight: 4,
-                    backgroundColor: Colors.white.withValues(alpha: 0.12),
+                    backgroundColor: AppTheme.login.borderSubtle,
                     valueColor: AlwaysStoppedAnimation<Color>(_strength.color),
                   ),
                 ),
@@ -1169,6 +1279,8 @@ class _LoginScreenState extends State<LoginScreen>
                   _suObscureConfirm,
                   () => setState(() => _suObscureConfirm = !_suObscureConfirm),
                 ),
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _isLoading ? null : _registerWithEmail(),
                 onChanged: _onConfirmChanged,
                 validator: (v) =>
                     (v != _suPassCtrl.text) ? _s.passwordMismatch : null,
@@ -1204,84 +1316,123 @@ class _LoginScreenState extends State<LoginScreen>
     void Function(String)? onChanged,
     String? Function(String?)? validator,
     int? maxLength,
+    TextInputAction? textInputAction,
+    void Function(String)? onSubmitted,
   }) {
+    // Light Forui-style field: white/near-white fill, subtle border at
+    // rest, focusRing-colored border on focus (200ms — Flutter's
+    // InputDecorator default border transition; matches the ~150ms
+    // convention closely enough that it doesn't feel out of step with the
+    // rest of the app's hand-rolled animations).
     return TextFormField(
       controller: controller,
       obscureText: obscure,
       keyboardType: keyboard,
       onChanged: onChanged,
       maxLength: maxLength,
-      style: const TextStyle(color: Colors.white, fontSize: 13),
+      textInputAction: textInputAction,
+      onFieldSubmitted: onSubmitted,
+      style: TextStyle(
+        color: AppTheme.login.textPrimary,
+        fontSize: _isDesktop ? 14 : 13,
+      ),
       validator: validator,
       decoration: InputDecoration(
         labelText: label,
         labelStyle: TextStyle(
-          color: _textHint.withValues(alpha: 0.6),
-          fontSize: 12,
+          color: AppTheme.login.textSecondary,
+          fontSize: _isDesktop ? 13 : 12,
         ),
         prefixIcon: Icon(
           icon,
-          color: _accentLight.withValues(alpha: 0.6),
-          size: 18,
+          color: AppTheme.login.textSecondary,
+          size: _isDesktop ? 19 : 18,
         ),
         suffixIcon: suffix,
         filled: true,
-        fillColor: _bgField,
+        fillColor: Colors.white,
         isDense: true,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: 12,
+        contentPadding: EdgeInsets.symmetric(
+          horizontal: _isDesktop ? 16 : 14,
+          vertical: _isDesktop ? 14 : 12,
         ),
+        counterText: '', // hide the maxLength counter — not part of this design
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide(color: _accentLight.withValues(alpha: 0.2)),
+          borderSide: BorderSide(color: AppTheme.login.borderSubtle),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: _accentLight, width: 1.5),
+          borderSide: BorderSide(color: AppTheme.login.focusRing, width: 1.5),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: Colors.redAccent, width: 1),
+          borderSide: BorderSide(color: AppTheme.login.errorMuted),
         ),
         focusedErrorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: Colors.redAccent, width: 1.5),
+          borderSide: BorderSide(color: AppTheme.login.errorMuted, width: 1.5),
         ),
-        errorStyle: const TextStyle(color: Colors.redAccent, fontSize: 10),
+        errorStyle: TextStyle(color: AppTheme.login.errorMuted, fontSize: 10),
       ),
     );
   }
 
   Widget _eyeBtn(bool obscure, VoidCallback onTap) {
-    return IconButton(
-      icon: Icon(
-        obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-        color: _accentLight.withValues(alpha: 0.55),
-        size: 18,
+    return Semantics(
+      button: true,
+      label: obscure ? 'Show password' : 'Hide password',
+      child: IconButton(
+        icon: Icon(
+          obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+          color: AppTheme.login.textSecondary,
+          size: _isDesktop ? 19 : 18,
+        ),
+        onPressed: onTap,
       ),
-      onPressed: onTap,
     );
   }
 
   Widget _submitBtn({required String label, required VoidCallback onPressed}) {
+    // Filled primary action. Uses primaryDark (not primaryGreen) as the base
+    // fill — primaryGreen-with-white-text only measures ~3.3:1 contrast,
+    // short of WCAG AA's 4.5:1 floor for normal-weight text; primaryDark
+    // clears it at ~6.1:1 (see Step 3 note). A darker shade on hover gives
+    // the "hover-darken" affordance the design calls for without needing a
+    // separate lighter primaryGreen fill to darken from.
+    final hoverDark = Color.lerp(
+      AppTheme.login.primaryDark,
+      Colors.black,
+      0.18,
+    )!;
     return SizedBox(
-      height: 44,
+      height: _isDesktop ? 50 : 44,
       child: ElevatedButton(
         onPressed: _isLoading ? null : onPressed,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: _accentLight,
-          foregroundColor: _textOnGreen,
-          disabledBackgroundColor: _accentLight.withValues(alpha: 0.4),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(11),
+        style: ButtonStyle(
+          backgroundColor: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.disabled)) {
+              return AppTheme.login.primaryDark.withValues(alpha: 0.4);
+            }
+            if (states.contains(WidgetState.hovered) ||
+                states.contains(WidgetState.pressed)) {
+              return hoverDark;
+            }
+            return AppTheme.login.primaryDark;
+          }),
+          foregroundColor: const WidgetStatePropertyAll(Colors.white),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
-          elevation: 0,
-          textStyle: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 0.2,
+          elevation: const WidgetStatePropertyAll(0),
+          textStyle: WidgetStatePropertyAll(
+            TextStyle(
+              fontSize: _isDesktop ? 15 : 14,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.2,
+            ),
           ),
+          animationDuration: const Duration(milliseconds: 150),
         ),
         child: _isLoading
             ? const SizedBox(
@@ -1289,7 +1440,7 @@ class _LoginScreenState extends State<LoginScreen>
                 height: 20,
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
-                  color: _textOnGreen,
+                  color: Colors.white,
                 ),
               )
             : Text(label),
@@ -1298,29 +1449,36 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   Widget _googleBtn() {
+    // Distinct secondary action — light/white fill with a subtle border, so
+    // it reads clearly apart from the filled primary Sign In button (the
+    // old version shared the card's own dark-green fill and blended in).
     return SizedBox(
-      height: 42,
+      height: _isDesktop ? 50 : 44,
       child: OutlinedButton(
         onPressed: _isLoading ? null : _signInWithGoogle,
         style: OutlinedButton.styleFrom(
-          foregroundColor: const Color(0xFFC8E6C9),
-          side: BorderSide(color: _accentLight.withValues(alpha: 0.28)),
-          backgroundColor: _bgField,
+          foregroundColor: AppTheme.login.textPrimary,
+          side: BorderSide(color: AppTheme.login.borderSubtle),
+          backgroundColor: Colors.white,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(11),
+            borderRadius: BorderRadius.circular(10),
           ),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            SvgPicture.string(_googleSvg, width: 16, height: 16),
+            SvgPicture.string(
+              _googleSvg,
+              width: _isDesktop ? 17 : 16,
+              height: _isDesktop ? 17 : 16,
+            ),
             const SizedBox(width: 10),
             Flexible(
               child: Text(
                 _s.continueGoogle,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 13,
+                style: TextStyle(
+                  fontSize: _isDesktop ? 14 : 13,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -1334,22 +1492,18 @@ class _LoginScreenState extends State<LoginScreen>
   Widget _divider(String label) {
     return Row(
       children: [
-        Expanded(
-          child: Divider(color: _accentLight.withValues(alpha: 0.2), height: 1),
-        ),
+        Expanded(child: Divider(color: AppTheme.login.borderSubtle, height: 1)),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Text(
             label,
             style: TextStyle(
-              color: _textMuted.withValues(alpha: 0.45),
-              fontSize: 10,
+              color: AppTheme.login.dividerText,
+              fontSize: _isDesktop ? 14 : 13,
             ),
           ),
         ),
-        Expanded(
-          child: Divider(color: _accentLight.withValues(alpha: 0.2), height: 1),
-        ),
+        Expanded(child: Divider(color: AppTheme.login.borderSubtle, height: 1)),
       ],
     );
   }
@@ -1361,7 +1515,7 @@ class _LoginScreenState extends State<LoginScreen>
       child: Column(
         children: [
           Divider(
-            color: _taglineSub.withValues(alpha: 0.25),
+            color: AppTheme.login.outsideMutedText.withValues(alpha: 0.25),
             height: 1,
             indent: 24,
             endIndent: 24,
@@ -1380,8 +1534,8 @@ class _LoginScreenState extends State<LoginScreen>
           Text(
             _s.developedBy,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: _footerSecondary,
+            style: TextStyle(
+              color: AppTheme.login.outsideMutedText,
               fontSize: 10,
               height: 1.5,
             ),
@@ -1409,29 +1563,54 @@ class _LangChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOut,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        decoration: BoxDecoration(
-          color: selected
-              ? const Color(0xFF4CAF50).withValues(alpha: 0.18)
-              : const Color(0xFF2D6A2F).withValues(alpha: 0.35),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: selected
-                ? const Color(0xFF4CAF50).withValues(alpha: 0.65)
-                : const Color(0xFF90EE90).withValues(alpha: 0.18),
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-            color: selected ? const Color(0xFF2E7D32) : const Color(0xFF6B7A52),
+    // Lighter Forui-style pill: unselected has no fill, just a subtle
+    // outline; selected gets a soft primaryGreen tint (not the old solid
+    // bright-green fill) plus primaryGreen text. These pills sit on the
+    // page background (not the white card), so the unselected border uses
+    // textSecondary at low alpha rather than borderSubtle — borderSubtle
+    // reads too close in tone to the sage page background to stay visible.
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 44, minWidth: 44),
+          child: Center(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOut,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              decoration: BoxDecoration(
+                color: selected
+                    ? AppTheme.login.primaryGreen.withValues(alpha: 0.12)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: selected
+                      ? AppTheme.login.primaryGreen.withValues(alpha: 0.5)
+                      : AppTheme.login.primaryDark.withValues(alpha: 0.35),
+                ),
+              ),
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  // textSecondary (#6B7A6B) only measures ~3.5:1 against
+                  // this pill's actual backdrop — the page's sage-tinted
+                  // _bgOutside, not the white card — short of AA's 4.5:1
+                  // floor for normal text. primaryDark clears ~5.4:1 here
+                  // while still reading as visually muted next to the
+                  // selected pill's brighter primaryGreen.
+                  color: selected
+                      ? AppTheme.login.primaryGreen
+                      : AppTheme.login.primaryDark,
+                ),
+              ),
+            ),
           ),
         ),
       ),
@@ -1443,41 +1622,95 @@ class _TabBtn extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
+  final bool isDesktop;
   const _TabBtn({
     required this.label,
     required this.selected,
     required this.onTap,
+    this.isDesktop = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    // Underline-style tab (Forui-inspired) — no filled pill, just a
+    // muted/active text weight shift plus a thin bottom indicator on the
+    // active tab. Lighter-weight than the old solid bright-green pill.
     return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOut,
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            color: selected
-                ? _accentLight.withValues(alpha: 0.15)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: selected ? _accentLight : Colors.transparent,
-              width: 2,
+      child: Semantics(
+        button: true,
+        selected: selected,
+        label: label,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            // 44/48px minimum touch target height per HCI requirements.
+            constraints: BoxConstraints(minHeight: isDesktop ? 48 : 44),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(
+                  color: selected
+                      ? AppTheme.login.primaryGreen
+                      : Colors.transparent,
+                  width: 2,
+                ),
+              ),
+            ),
+            child: AnimatedDefaultTextStyle(
+              duration: const Duration(milliseconds: 150),
+              curve: Curves.easeOut,
+              style: TextStyle(
+                color: selected
+                    ? AppTheme.login.textPrimary
+                    : AppTheme.login.textSecondary,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                fontSize: isDesktop ? 14 : 13,
+              ),
+              child: Text(label, textAlign: TextAlign.center),
             ),
           ),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: selected
-                  ? _accentLight
-                  : Colors.white.withValues(alpha: 0.32),
-              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-              fontSize: 13,
-            ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "Forgot password?" link — primaryGreen text, no underline at rest, with
+/// a subtle underline on pointer hover (web/desktop mouse only; touch
+/// devices never fire hover events so this is inert on mobile).
+class _ForgotPasswordLink extends StatefulWidget {
+  final String label;
+  final VoidCallback? onTap;
+  const _ForgotPasswordLink({required this.label, required this.onTap});
+
+  @override
+  State<_ForgotPasswordLink> createState() => _ForgotPasswordLinkState();
+}
+
+class _ForgotPasswordLinkState extends State<_ForgotPasswordLink> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: kIsWeb ? (_) => setState(() => _hovered = true) : null,
+      onExit: kIsWeb ? (_) => setState(() => _hovered = false) : null,
+      child: TextButton(
+        onPressed: widget.onTap,
+        style: TextButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          minimumSize: const Size(0, 44), // 44px touch target, compact visual
+          tapTargetSize: MaterialTapTargetSize.padded,
+        ),
+        child: Text(
+          widget.label,
+          style: TextStyle(
+            color: AppTheme.login.primaryGreen,
+            fontSize: 11,
+            decoration: _hovered
+                ? TextDecoration.underline
+                : TextDecoration.none,
           ),
         ),
       ),
@@ -1517,28 +1750,6 @@ class _ErrorBanner extends StatelessWidget {
 // ═══════════════════════════════════════════════════════════════════════════════
 //  SVG Assets
 // ═══════════════════════════════════════════════════════════════════════════════
-
-const String _cropSvg = '''
-<svg viewBox="0 0 110 110" xmlns="http://www.w3.org/2000/svg">
-  <ellipse cx="55" cy="96" rx="36" ry="7" fill="#1B4D1B" opacity="0.7"/>
-  <path d="M55 95 C55 80 52 65 50 50" stroke="#4CAF50" stroke-width="2.5" stroke-linecap="round" fill="none"/>
-  <path d="M50 65 C35 58 22 42 28 28 C38 40 48 55 50 65Z" fill="#388E3C" opacity="0.9"/>
-  <path d="M50 65 C42 58 35 44 28 28" stroke="#2E7D32" stroke-width="1" fill="none" opacity="0.6"/>
-  <path d="M52 58 C67 50 80 36 74 22 C64 34 55 50 52 58Z" fill="#4CAF50" opacity="0.9"/>
-  <path d="M52 58 C62 50 70 36 74 22" stroke="#388E3C" stroke-width="1" fill="none" opacity="0.6"/>
-  <path d="M50 50 C38 44 30 32 34 20 C42 30 48 42 50 50Z" fill="#66BB6A" opacity="0.8"/>
-  <circle cx="50" cy="28" r="3.5" fill="#FFC107" opacity="0.9"/>
-  <circle cx="44" cy="22" r="3"   fill="#FFB300" opacity="0.85"/>
-  <circle cx="56" cy="20" r="3"   fill="#FFC107" opacity="0.9"/>
-  <circle cx="50" cy="14" r="3.5" fill="#FFD54F" opacity="0.95"/>
-  <circle cx="43" cy="13" r="2.5" fill="#FFB300" opacity="0.8"/>
-  <circle cx="57" cy="12" r="2.5" fill="#FFC107" opacity="0.85"/>
-  <circle cx="50" cy="8"  r="2"   fill="#FFD54F" opacity="0.9"/>
-  <path d="M50 50 C50 42 50 35 50 28" stroke="#558B2F" stroke-width="2" stroke-linecap="round" fill="none"/>
-  <ellipse cx="40" cy="46" rx="2" ry="3" fill="#B3E5FC" opacity="0.6" transform="rotate(-20 40 46)"/>
-  <ellipse cx="63" cy="40" rx="1.5" ry="2.5" fill="#B3E5FC" opacity="0.5" transform="rotate(15 63 40)"/>
-</svg>
-''';
 
 const String _leafSvg = '''
 <svg viewBox="0 0 110 110" xmlns="http://www.w3.org/2000/svg">

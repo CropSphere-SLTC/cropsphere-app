@@ -24,7 +24,7 @@ RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 RUN --mount=type=cache,id=s/2ce5633d-e682-472f-86d7-3393212b702a-/root/.cache/pip,target=/root/.cache/pip \
-    pip install --upgrade pip==26.1.2
+    pip install --upgrade pip==26.2.1
 
 # Force CPU-only torch across ALL pip layers below: the PyTorch CPU wheel
 # index is consulted on every install, and the constraint pins torch to the

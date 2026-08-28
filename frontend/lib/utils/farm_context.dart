@@ -34,11 +34,17 @@ int farmWeekOfYear() {
 }
 
 /// Sri Lanka's two main cultivation seasons, plus the inter-monsoon gap.
-/// Maha runs roughly Oct–Mar (weeks 40–12), Yala roughly Apr–Sep.
+/// Maha Nov–Mar, Yala Apr–Aug, Inter Sep–Oct.
+///
+/// Month-based, and deliberately identical to the backend's
+/// `chatbot_service._season_for_now`. The earlier week-based version put
+/// Sep–Oct in Yala and returned 'Inter' for a single week of the year, so
+/// the app and the server disagreed about the season for two months
+/// annually — and season is stamped on analytics documents by both sides.
 String farmCurrentSeason() {
-  final w = farmWeekOfYear();
-  if (w >= 40 || w <= 12) return 'Maha';
-  if (w >= 14 && w <= 39) return 'Yala';
+  final month = DateTime.now().month;
+  if (month >= 11 || month <= 3) return 'Maha';
+  if (month >= 4 && month <= 8) return 'Yala';
   return 'Inter';
 }
 
@@ -173,28 +179,37 @@ Future<FarmWeather> fetchFarmWeather(String district) async {
     throw Exception('Weather API error ${res.statusCode}');
   }
   final json = jsonDecode(res.body) as Map<String, dynamic>;
-  final daily = json['daily'] as Map<String, dynamic>;
-  List<double> series(String key) => (daily[key] as List? ?? const [])
-      .whereType<num>()
-      .map((e) => e.toDouble())
-      .toList();
+  final daily = json['daily'] as Map<String, dynamic>?;
+  if (daily == null) throw Exception('Weather API returned no daily data');
+
+  /// Throws rather than returning an empty list. An absent or all-null
+  /// series used to collapse to 0, and the clamps below turned that into a
+  /// plausible-looking FarmWeather (0mm rain, 0°C min, 5°C max, 0%
+  /// humidity) that suitability flags were then graded against — wrong
+  /// answers with no error surfaced anywhere. A missing series is a failed
+  /// fetch, and callers already handle a thrown Exception.
+  List<double> series(String key) {
+    final vals = (daily[key] as List? ?? const [])
+        .whereType<num>()
+        .map((e) => e.toDouble())
+        .toList();
+    if (vals.isEmpty) {
+      throw Exception('Weather API returned no $key readings');
+    }
+    return vals;
+  }
 
   /// Mean over the window — for quantities that ARE daily values
   /// (temperature, relative humidity).
   double avg(String key) {
     final vals = series(key);
-    if (vals.isEmpty) return 0;
     return vals.reduce((a, b) => a + b) / vals.length;
   }
 
   /// Total over the window — for quantities that ACCUMULATE (rainfall).
   /// Nulls are dropped rather than read as zero: a missing day should shorten
   /// the window, not silently deflate the total.
-  double total(String key) {
-    final vals = series(key);
-    if (vals.isEmpty) return 0;
-    return vals.reduce((a, b) => a + b);
-  }
+  double total(String key) => series(key).reduce((a, b) => a + b);
 
   return FarmWeather(
     // Ceiling raised 300 -> 500 to match the backend's own bound

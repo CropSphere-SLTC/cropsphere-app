@@ -4,7 +4,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from app.dependencies import get_user_id
+from app.middleware.roles import require_user
 from app.middleware.rate_limit import limiter
 from app.models.schemas import (
     ConversationDetail,
@@ -28,7 +28,7 @@ _NOT_FOUND = HTTPException(status_code=404, detail="Conversation not found")
 @limiter.limit("30/minute")
 async def conversations_list(
     request: Request,
-    user_id: str = Depends(get_user_id),
+    user_id: str = Depends(require_user),
 ) -> List[ConversationSummary]:
     """List the caller's conversations (summaries only), newest first.
 
@@ -45,7 +45,7 @@ async def conversations_list(
 async def conversation_get(
     request: Request,
     conversation_id: str,
-    user_id: str = Depends(get_user_id),
+    user_id: str = Depends(require_user),
 ) -> ConversationDetail:
     """Return a full conversation with messages.
 
@@ -67,7 +67,7 @@ async def conversation_rename(
     request: Request,
     conversation_id: str,
     body: RenameConversationRequest,
-    user_id: str = Depends(get_user_id),
+    user_id: str = Depends(require_user),
 ):
     """Rename a conversation. Same 404 ownership rule as GET.
 
@@ -86,7 +86,7 @@ async def conversation_rename(
 async def conversation_delete(
     request: Request,
     conversation_id: str,
-    user_id: str = Depends(get_user_id),
+    user_id: str = Depends(require_user),
 ):
     """Delete a conversation. Same 404 ownership rule as GET.
 

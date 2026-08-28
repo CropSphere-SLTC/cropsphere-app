@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from app.dependencies import get_user_id
+from app.middleware.roles import require_user
 from app.middleware.rate_limit import limiter
 from app.models.schemas import WeatherForecastRequest, WeatherForecastResponse
 from app.user.services.weather_service import forecast_weather
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api/weather", tags=["weather"])
 async def weather_forecast(
     request: Request,
     body: WeatherForecastRequest,
-    user_id: str = Depends(get_user_id),
+    user_id: str = Depends(require_user),
 ) -> WeatherForecastResponse:
     """Forecast weekly weather for the given district.
 

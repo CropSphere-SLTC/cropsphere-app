@@ -83,6 +83,31 @@ def _no_background_analytics():
         yield
 
 
+@pytest.fixture(autouse=True)
+def _not_banned_by_default(request):
+    """Treat the authenticated test user as not banned.
+
+    The user-facing routers gate on require_user, which calls
+    firestore.is_user_banned. Firestore is a MagicMock in tests, so
+    doc.exists and doc.to_dict().get("is_banned") both come back truthy and
+    every request 403s — an artefact of the mock, not of the code.
+
+    Defaulting to "not banned" keeps each test about its own subject. Tests
+    that care about the ban path patch is_user_banned themselves, and an
+    inner patch takes precedence over this one.
+
+    Skipped for the module that tests is_user_banned itself: patching the
+    module attribute there would not just hide the failing case, it would
+    make the passing ones pass vacuously against this stub rather than the
+    real function.
+    """
+    if request.module.__name__.endswith("utils_test.test_firestore"):
+        yield
+        return
+    with patch("app.utils.firestore.is_user_banned", return_value=False):
+        yield
+
+
 @pytest.fixture
 def valid_auth_header():
     """Authorization header carrying a mock valid token."""

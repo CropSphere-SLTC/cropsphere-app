@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from app.dependencies import get_user_id
+from app.middleware.roles import require_user
 from app.middleware.rate_limit import limiter
 from app.models.schemas import YieldPredictRequest, YieldPredictResponse
 from app.user.services.yield_service import predict_yield
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api/yield", tags=["yield"])
 async def yield_predict(
     request: Request,
     body: YieldPredictRequest,
-    user_id: str = Depends(get_user_id),
+    user_id: str = Depends(require_user),
 ) -> YieldPredictResponse:
     """Predict crop yield for the given agronomic inputs.
 

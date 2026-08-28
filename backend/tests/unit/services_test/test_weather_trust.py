@@ -18,7 +18,6 @@ weather_service._UNTRUSTED_FORECAST_DISTRICTS:
 
 import logging
 
-import numpy as np
 import pytest
 
 from app.models.loader import model_loader

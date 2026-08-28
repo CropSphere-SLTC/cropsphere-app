@@ -2901,7 +2901,10 @@ def _format_prediction_context(pc) -> str:
             f"- Predicted farmgate price: Rs. {pc.predicted_price_lkr_kg:,.0f}/kg"
         )
     if pc.average_price_lkr_kg is not None:
-        line = f"- Average farmgate price for this crop: Rs. {pc.average_price_lkr_kg:,.0f}/kg"
+        line = (
+            "- Average farmgate price for this crop: "
+            f"Rs. {pc.average_price_lkr_kg:,.0f}/kg"
+        )
         # Provenance travels WITH the number. A null source means the client
         # showed no baseline and stated nothing about where one came from;
         # the assistant must not be handed one either.
@@ -3001,7 +3004,8 @@ def _format_prediction_context(pc) -> str:
         for wk in pc.forecast_weeks:
             cond = _CONDITION_TEXT.get(wk.condition, wk.condition)
             facts.append(
-                f"- Week {wk.week_number} ({wk.date}): rainfall {wk.rainfall_mm:.0f} mm, "
+                f"- Week {wk.week_number} ({wk.date}): "
+                f"rainfall {wk.rainfall_mm:.0f} mm, "
                 f"temperature {wk.temp_min_c:.0f}-{wk.temp_max_c:.0f} C, "
                 f"humidity {wk.humidity_pct:.0f}% — {cond}"
             )

@@ -227,6 +227,15 @@ SentenceTransformer('all-MiniLM-L6-v2', cache_folder='/app/hf_cache')"
 ENV HF_HUB_OFFLINE=1 \
     TRANSFORMERS_OFFLINE=1
 
+# load_all() pulls TensorFlow, scikit-learn and XGBoost into one interpreter,
+# and each brings its own OpenMP runtime. On macOS that combination segfaults
+# outright (see backend/tests/conftest.py); on Linux the wheels share libgomp
+# by SONAME so it does not crash, but the three thread pools still oversubscribe
+# a container that runs a single uvicorn worker. Pinning to one thread costs
+# nothing here — inference is on single rows, not batches — and keeps runtime
+# and the test suite on the same setting.
+ENV OMP_NUM_THREADS=1
+
 # Copy application code, ML model files, and build-time scripts
 COPY app/ ./app/
 COPY models/ ./models/

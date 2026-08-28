@@ -23,6 +23,8 @@ os.environ.setdefault("MODEL_DIR", "/tmp/models")
 # left to the caller's shell so the suite is reproducible; the ML tests assert
 # on model accuracy, not throughput, so one thread costs little.
 # setdefault, so a deliberate override from the environment still wins.
+# Production carries the same setting via ENV OMP_NUM_THREADS=1 in
+# backend/Dockerfile, since load_all() imports the same three libraries.
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 
 import pytest  # noqa: E402

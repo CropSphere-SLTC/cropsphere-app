@@ -335,3 +335,166 @@ def test_persist_chat_turn_evicts_oldest_conversation_at_cap():
 
     # Oldest conversation (last in the descending-sorted list) gets evicted
     mock_delete.assert_called_once_with(existing_rows[-1]["id"])
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# build_conversation_title
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# The detectors live in chatbot_service and are dataset-driven, so they are
+# patched here to the six crops / eight districts the app actually covers.
+# These tests pin the TITLE FORMAT, not the gazetteers.
+
+_CROPS = ["Carrot", "Maize", "Green gram", "Cowpea", "Finger millet", "Groundnut"]
+_DISTRICTS = [
+    "Nuwara Eliya",
+    "Badulla",
+    "Anuradhapura",
+    "Monaragala",
+    "Ampara",
+    "Hambantota",
+    "Batticaloa",
+    "Jaffna",
+]
+
+
+def _fake_crop(message):
+    low = message.lower()
+    return next((c for c in _CROPS if c.lower() in low), None)
+
+
+def _fake_district(message):
+    low = message.lower()
+    return next((d for d in _DISTRICTS if d.lower() in low), None)
+
+
+def _fake_qtype(message):
+    low = message.lower()
+    for keywords, topic in (
+        (("yield", "harvest", "grow"), "yield"),
+        (("earn", "money"), "earnings"),
+        (("price", "cost", "sell"), "price"),
+        (("season", "plant", "when"), "season"),
+    ):
+        if any(k in low for k in keywords):
+            return topic
+    return "general"
+
+
+@pytest.fixture
+def detectors():
+    with patch(
+        "app.user.services.chatbot_service._detect_crop_mention", _fake_crop
+    ), patch(
+        "app.user.services.chatbot_service._detect_district_mention", _fake_district
+    ), patch(
+        "app.user.services.chatbot_service._question_type", _fake_qtype
+    ):
+        yield
+
+
+@pytest.mark.parametrize(
+    "message,expected",
+    [
+        ("What is the carrot price in Badulla?", "Carrot price · Badulla"),
+        ("Carrot yield in Badulla", "Carrot yield · Badulla"),
+        (
+            "How much can I earn from groundnut in Jaffna?",
+            "Groundnut earnings · Jaffna",
+        ),
+        (
+            "When should I plant maize in Ampara?",
+            "Maize season · Ampara",
+        ),
+    ],
+)
+def test_title_is_built_from_crop_topic_and_district(detectors, message, expected):
+    assert svc.build_conversation_title(message) == expected
+
+
+def test_title_uses_the_script_the_farmer_typed_in(detectors):
+    # Sinhala. The mention detectors match English only, so the crop and
+    # district come from the request's context selections — which is exactly
+    # why persist_chat_turn forwards them.
+    assert (
+        svc.build_conversation_title("බදුල්ල කැරට් මිල කීයද?", "Carrot", "Badulla")
+        == "කැරට් මිල · බදුල්ල"
+    )
+    # Tamil.
+    assert (
+        svc.build_conversation_title("பதுளையில் கேரட் விலை என்ன?", "Carrot", "Badulla")
+        == "கேரட் விலை · பதுளை"
+    )
+
+
+def test_sinhala_and_tamil_topics_are_classified(detectors):
+    # _question_type is English-only, so without the script keyword layer both
+    # of these would come back "general" and fall through to the raw message.
+    assert (
+        svc.build_conversation_title(
+            "අනුරාධපුරයේ බඩඉරිඟු අස්වැන්න කොපමණද?", "Maize", "Anuradhapura"
+        )
+        == "බඩඉරිඟු අස්වැන්න · අනුරාධපුරය"
+    )
+    assert (
+        svc.build_conversation_title(
+            "யாழ்ப்பாணத்தில் வேர்க்கடலை விளைச்சல்", "Groundnut", "Jaffna"
+        )
+        == "வேர்க்கடலை விளைச்சல் · யாழ்ப்பாணம்"
+    )
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Explain this price",  # no crop, no district
+        "What is the price of carrot?",  # crop but no district
+        "Tell me about Badulla",  # district but no crop
+    ],
+)
+def test_title_falls_back_to_truncated_message(detectors, message):
+    assert svc.build_conversation_title(message) == message[:40]
+
+
+def test_general_questions_fall_back_even_with_crop_and_district(detectors):
+    # "Carrot general · Badulla" would be worse than the question itself.
+    msg = "Is carrot difficult in Badulla for a beginner"
+    assert svc.build_conversation_title(msg) == msg[:40]
+
+
+def test_long_fallback_is_truncated_to_forty_characters(detectors):
+    msg = "x" * 100
+    assert svc.build_conversation_title(msg) == "x" * 40
+
+
+def test_title_failure_never_breaks_persistence():
+    # Any explosion inside the detectors must degrade to the raw message.
+    with patch(
+        "app.user.services.chatbot_service._detect_crop_mention",
+        side_effect=RuntimeError("boom"),
+    ):
+        assert svc.build_conversation_title("Carrot price in Badulla") == (
+            "Carrot price in Badulla"
+        )
+
+
+def test_persist_chat_turn_titles_a_new_conversation_from_context(detectors):
+    with patch(
+        "app.user.services.chat_history_service.list_conversations",
+        return_value=[],
+    ), patch(
+        "app.user.services.chat_history_service.create_conversation",
+        return_value="new-conv-id",
+    ) as mock_create, patch(
+        "app.user.services.chat_history_service.append_messages"
+    ):
+        svc.persist_chat_turn(
+            UID,
+            None,
+            "What is the carrot price in Badulla?",
+            "About Rs. 180/kg.",
+            crop="Carrot",
+            district="Badulla",
+        )
+
+    mock_create.assert_called_once_with(UID, "Carrot price · Badulla")

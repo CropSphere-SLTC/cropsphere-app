@@ -19,17 +19,137 @@ logger = logging.getLogger(__name__)
 # Climatological averages per district:
 # (rainfall_mm, temp_min_c, temp_max_c, humidity_pct,
 #  wind_speed_kmh, solar_radiation_mj)
+#
+# RAINFALL is each district's mean WEEKLY total from M2's own training set
+# (Cropsphere_Real_Test_Dataset.csv). It previously held hand-entered values
+# 2.6-3.7x higher (Nuwara Eliya 120.0, Monaragala 80.0, ...) with no stated
+# source — high enough that the ratio could not be any single unit conversion,
+# and inconsistent enough to rule out a monthly/weekly slip. Correcting them
+# cut mean absolute forecast error across the six trusted districts from
+# 8.32mm to 5.77mm and improved 4 of 6.
+#
+# It made TWO worse, recorded here rather than buried: Hambantota (1.6 -> 7.3mm
+# error) and Jaffna (0.5 -> 8.1mm). Those are also the two districts whose
+# HUMIDITY seed sits just below the scaler's floor, so their previous accuracy
+# was partly an inflated rain seed cancelling an out-of-range humidity one.
+# Correcting one half of a compensating pair exposes the other. The remaining
+# humidity excursion is reported by assert_weather_seeds_in_range.
+#
+# TEMPERATURE and HUMIDITY seeds are deliberately UNCHANGED: they already match
+# the agronomic reference closely (Nuwara Eliya 10.0/22.0/80.0 against 10.9/
+# 18.9/81.6). Nuwara Eliya's 22 C maximum is CORRECT — it is M2's training data
+# that wrongly records the district as lowland-hot. See data/description.md.
 _DISTRICT_CLIMATE: Dict[str, Tuple[float, float, float, float, float, float]] = {
-    "Nuwara Eliya": (120.0, 10.0, 22.0, 80.0, 8.0, 14.0),
-    "Badulla": (100.0, 12.0, 25.0, 75.0, 9.0, 16.0),
-    "Anuradhapura": (60.0, 22.0, 33.0, 65.0, 12.0, 20.0),
-    "Monaragala": (80.0, 18.0, 30.0, 70.0, 11.0, 18.0),
-    "Ampara": (90.0, 20.0, 31.0, 68.0, 12.0, 19.0),
-    "Hambantota": (50.0, 21.0, 32.0, 60.0, 14.0, 21.0),
-    "Batticaloa": (95.0, 21.0, 30.0, 72.0, 11.0, 19.0),
-    "Jaffna": (55.0, 23.0, 34.0, 58.0, 13.0, 22.0),
+    "Nuwara Eliya": (41.8, 10.0, 22.0, 80.0, 8.0, 14.0),
+    "Badulla": (32.6, 12.0, 25.0, 75.0, 9.0, 16.0),
+    "Anuradhapura": (18.5, 22.0, 33.0, 65.0, 12.0, 20.0),
+    "Monaragala": (17.9, 18.0, 30.0, 70.0, 11.0, 18.0),
+    "Ampara": (25.2, 20.0, 31.0, 68.0, 12.0, 19.0),
+    "Hambantota": (14.2, 21.0, 32.0, 60.0, 14.0, 21.0),
+    "Batticaloa": (25.3, 21.0, 30.0, 72.0, 11.0, 19.0),
+    "Jaffna": (17.4, 23.0, 34.0, 58.0, 13.0, 22.0),
 }
 _LSTM_TIMESTEPS = 12  # number of historical timesteps the model expects
+
+# Districts where M2's TRAINING DATA is wrong, so its forecast cannot be
+# trusted however well-formed the request is.
+#
+# Derived, not hand-listed: scripts/check_weather_trust.py compares mean weekly
+# temp_max between M2's training set and the agronomic-band dataset and flags
+# any district disagreeing by more than 3 C. Today that is Nuwara Eliya
+# (34.0 vs 18.9) and Badulla (31.6 vs 26.0); every other district agrees to
+# within 1.1 C. Re-run that script after either dataset changes — it fails if
+# this constant has gone stale.
+#
+# NOT keyed off the scaler-range excursion, deliberately. Four districts breach
+# that range and two of them (Hambantota, Jaffna) produce the most accurate
+# forecasts of the eight; gating on it would badge them low-confidence for no
+# reason. See the script's docstring for the full argument.
+_UNTRUSTED_FORECAST_DISTRICTS = frozenset({"Nuwara Eliya", "Badulla"})
+
+# Feature order of a seed row / the M2 scaler's columns, for diagnostics.
+_SEED_FEATURES = (
+    "rainfall_mm",
+    "temp_min_c",
+    "temp_max_c",
+    "humidity_pct",
+    "wind_speed_kmh",
+    "solar_radiation_mj",
+)
+
+
+def _seed_excursions(seed_row: list, scaler) -> Dict[str, tuple]:
+    """{feature: (raw, normalized)} for any seed component outside [0, 1].
+
+    MinMaxScaler does NOT clip. A seed below the fitted floor becomes a
+    NEGATIVE input the LSTM never saw in training, and the model does not
+    degrade gracefully on those — it collapses. Nuwara Eliya's temp_max seed
+    of 22 C normalizes to -0.441 (the scaler's floor is 27.81) and drives
+    predicted rainfall from ~41mm down to 1.6mm, a 26x under-prediction,
+    with the rainfall seed held constant. Holding everything else fixed and
+    sweeping temp_max alone moves the rainfall output 1.58 -> 68.28.
+
+    Reported, never silently corrected. Clamping 22 C up to 27.81 C would
+    hard-code the claim that Nuwara Eliya is a hot district — the seed is
+    RIGHT and M2's training data is wrong (see the module note in
+    data/description.md), so a clamp would launder a known-bad number into a
+    confident-looking forecast.
+    """
+    if scaler is None:
+        return {}
+    try:
+        norm = scaler.transform(np.array([seed_row], dtype=np.float64))[0]
+    except Exception:
+        return {}
+    return {
+        _SEED_FEATURES[i]: (float(seed_row[i]), float(norm[i]))
+        for i in range(min(len(seed_row), len(_SEED_FEATURES)))
+        if norm[i] < 0.0 or norm[i] > 1.0
+    }
+
+
+def assert_weather_seeds_in_range() -> None:
+    """Log every climatological seed that falls outside the M2 scaler's range.
+
+    Same shift-left spirit as recommend_service.assert_feature_contract, but
+    WARNING rather than RuntimeError: four of the eight districts breach the
+    range today and two of them forecast perfectly well (Hambantota and
+    Jaffna are ~0.05-0.11 below the humidity floor and land within 3% of
+    their training means). Raising here would take the app down for a
+    condition that is only sometimes harmful.
+
+    Severity is what separates them: the two collapsed districts are ~0.2-0.44
+    outside on temp_max. The trust gate that actually routes traffic is
+    _UNTRUSTED_FORECAST_DISTRICTS, which keys off dataset disagreement rather
+    than this excursion — see that constant for why.
+    """
+    scaler = model_loader.get_model("weather_scaler")
+    if scaler is None:
+        logger.warning("weather_scaler absent — cannot check seed ranges")
+        return
+
+    total = 0
+    for district, climate in _DISTRICT_CLIMATE.items():
+        for feature, (raw, norm) in _seed_excursions(list(climate), scaler).items():
+            total += 1
+            logger.warning(
+                "Weather seed OUT OF RANGE: %s %s=%.1f normalizes to %.3f "
+                "(outside [0,1]) — the LSTM never saw this input during "
+                "training and its output there is unreliable",
+                district,
+                feature,
+                raw,
+                norm,
+            )
+    if total:
+        logger.warning(
+            "%d weather seed excursion(s) across %d districts. This is a known "
+            "limitation, not a new fault — see data/description.md.",
+            total,
+            len(_DISTRICT_CLIMATE),
+        )
+    else:
+        logger.info("Weather seeds OK — all within the M2 scaler's fitted range")
 
 
 def forecast_weather(req: WeatherForecastRequest) -> WeatherForecastResponse:
@@ -55,6 +175,31 @@ def forecast_weather(req: WeatherForecastRequest) -> WeatherForecastResponse:
             req.district.value, (75.0, 18.0, 28.0, 70.0, 10.0, 15.0)
         )
         seed_row = list(climate)  # 6 features: rain, tmin, tmax, hum, wind, solar
+
+        if req.district.value in _UNTRUSTED_FORECAST_DISTRICTS:
+            logger.warning(
+                "Serving LOW-CONFIDENCE forecast for %s: M2's training data "
+                "disagrees with the agronomic reference for this district "
+                "(see scripts/check_weather_trust.py). Labelled as such in "
+                "the response.",
+                req.district.value,
+            )
+
+        # Per-request visibility. The boot check reports the same excursions
+        # once for every district; this names the one actually being served,
+        # so a collapsed forecast in the logs can be traced to its cause
+        # instead of looking like a plausible dry-week prediction.
+        excursions = _seed_excursions(seed_row, scaler)
+        if excursions:
+            logger.warning(
+                "Weather seed for %s is outside the M2 scaler's fitted range "
+                "(%s) — forecast magnitude is unreliable for this district",
+                req.district.value,
+                ", ".join(
+                    f"{f}={raw:.1f}->{norm:.3f}"
+                    for f, (raw, norm) in excursions.items()
+                ),
+            )
 
         # Build 12-step seed sequence from climatological averages
         seed_sequence = np.array(
@@ -121,7 +266,18 @@ def forecast_weather(req: WeatherForecastRequest) -> WeatherForecastResponse:
             )
             current_window = np.vstack([current_window[1:], new_scaled])
 
-        return WeatherForecastResponse(district=req.district, forecasts=forecasts)
+        # Provenance travels with the numbers. A district M2 was trained
+        # wrongly on still gets a forecast — nothing else can look four weeks
+        # ahead — but it is labelled, not passed off as reliable.
+        return WeatherForecastResponse(
+            district=req.district,
+            forecasts=forecasts,
+            forecast_source=(
+                "model_low_confidence"
+                if req.district.value in _UNTRUSTED_FORECAST_DISTRICTS
+                else "model"
+            ),
+        )
     except Exception as exc:
         logger.error("Weather forecast error district=%s: %s", req.district, exc)
         raise RuntimeError("Weather forecast unavailable") from exc
@@ -155,5 +311,8 @@ def _mock_forecast(req: WeatherForecastRequest) -> WeatherForecastResponse:
         for i in range(req.weeks_ahead)
     ]
     return WeatherForecastResponse(
-        district=req.district, forecasts=forecasts, is_mock=True
+        district=req.district,
+        forecasts=forecasts,
+        is_mock=True,
+        forecast_source="climatology",
     )

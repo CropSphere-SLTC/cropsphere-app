@@ -155,6 +155,56 @@ _FORMATTING_RULES = (
 # (after _FORMATTING_RULES, so it overrides conflicting style rules) and logged
 # to analytics.
 
+
+# Extra answering rules injected ONLY when prediction_context carries a ranked
+# crop recommendation. A separate, conditional system message rather than a new
+# numbered rule in _system_prompt(): every other conversation — yield, price,
+# weather, ordinary chat — must never see it.
+#
+# WHY IT EXISTS. "Explain these recommendations" produced an explanation of the
+# top crop alone. The payload was never the problem: all six crops, their
+# figures, their failing conditions and the district gate are all rendered by
+# _format_prediction_context. Nothing told the model to cover them. Rule 1
+# permits a one-crop answer, and Rule 5 ("Show ONLY the final result... never
+# show intermediate steps, conversion math, per-hectare breakdowns") reads as a
+# general prohibition on breakdowns even though it was written about earnings
+# arithmetic — so between them the model had every reason to be brief and none
+# to enumerate.
+#
+# SCOPING AGAINST RULE 5. Rule 5 is left untouched: narrowing it would change
+# how yield, price and weather answers are written, which is a much wider blast
+# radius than this bug. Instead this block states the override explicitly and
+# says what Rule 5 is actually for, so the model resolves the conflict the
+# intended way rather than by guessing which instruction wins.
+#
+# NOT A BLANKET "ALWAYS LIST SIX". These rules are attached whenever a
+# recommendation context is present, which is all five starter chips. "Why is
+# Groundnut ranked first?" must stay a one-crop answer, so breadth is tied to
+# the QUESTION, not to the presence of the list.
+_RECOMMENDATION_ANSWER_RULES = (
+    "ANSWERING ABOUT A CROP RECOMMENDATION:\n"
+    "- The farmer is looking at a ranked list of crops on their screen.\n"
+    "- If they ask about the recommendations AS A SET ('explain these "
+    "recommendations', 'what if I want to grow something else', 'what "
+    "should I plant'), cover EVERY crop in the list, in rank order — not "
+    "only the top one. Use one short point per crop.\n"
+    "- This overrides Rule 5 for this case. Rule 5 is about hiding "
+    "calculation steps and arithmetic, not about how many crops you may "
+    "mention. Listing the crops the farmer is looking at is the answer, "
+    "not a breakdown.\n"
+    "- If they ask about ONE crop ('why is Groundnut ranked first?'), "
+    "answer about THAT crop. Do not walk through the whole list unless "
+    "comparing is the point of their question.\n"
+    "- Say in plain words how well each crop fits their land and why. "
+    "Prefer 'the weather and soil here suit it well' over bare counts. If "
+    "you give a confidence figure, say what it means — 'a much stronger "
+    "match than the others' — never a bare number on its own.\n"
+    "- When a crop is marked as NOT normally grown in this district, SAY "
+    "SO, and say that is why it sits low even when its yield or price "
+    "look good. That is the least obvious part of the ranking and the "
+    "farmer cannot work it out from the figures.\n"
+)
+
 # Per-message signals (Step 2). 2+ on a side wins that side; advanced breaks
 # ties (advanced phrasing is far more diagnostic of expertise, and we avoid
 # over-detecting "beginner").
@@ -734,13 +784,28 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
         # RAG retrieval always uses English-normalised query for best results.
         # The UI's optional district/crop filters boost matching chunks in
         # the ranking (never in the relevance floor or confidence label).
+        # Falls back to prediction_context's crop/district when the dropdown
+        # didn't supply one — a prediction handoff's numbers are for a
+        # SPECIFIC crop/district, and retrieval should boost toward that
+        # same one rather than searching unfiltered.
+        pc_crop, pc_district = _prediction_context_terms(req)
         context = _rag_context(
             retrieval_query,
-            district=req.district.value if req.district else "",
-            crop=req.crop.value if req.crop else "",
+            district=(req.district.value if req.district else None)
+            or pc_district
+            or "",
+            crop=(req.crop.value if req.crop else None) or pc_crop or "",
             history=req.conversation_history,
         )
         confidence = _confidence_label(context)
+        # Retrieval found nothing, but the request carries the farmer's own
+        # prediction, so the answer IS grounded — just not in the corpus.
+        # _confidence_label only sees the RAG context and would call that
+        # "Out of scope", which would put an out-of-scope badge on a real
+        # answer. Moderate rather than High: the figures are exact, but no
+        # retrieved agronomy backs the advice around them.
+        if not context["chunks"] and _has_prediction_grounding(req):
+            confidence = "Moderate confidence"
 
         # Saved-context confirmation — a fresh, dropdown-free query that omits a
         # crop or district our saved profile can fill: confirm ("Do you mean
@@ -792,7 +857,7 @@ def chat(req: ChatRequest, settings) -> ChatResponse:
         # with a friendly, dataset-aware message. The query never reaches the
         # LLM, so it cannot answer from its own general knowledge (e.g.
         # "what's the weather on Mars").
-        if not context["chunks"]:
+        if not context["chunks"] and not _has_prediction_grounding(req):
             # ...unless we already refused the turn before and the farmer is
             # still trying. Repeating the same text teaches them nothing, so
             # ask which crop and district they mean instead. Still no Groq
@@ -932,7 +997,12 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
             from app.user.services.chat_history_service import persist_chat_turn
 
             return persist_chat_turn(
-                verified_uid, req.conversation_id, req.message, full_reply
+                verified_uid,
+                req.conversation_id,
+                req.message,
+                full_reply,
+                crop=req.crop.value if req.crop else None,
+                district=req.district.value if req.district else None,
             )
         except Exception as exc:
             logger.warning("Stream persistence failed uid=%s: %s", verified_uid, exc)
@@ -1069,13 +1139,23 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
         # No previous assistant turn to reformulate — fall through to the
         # normal retrieval path below.
 
+    # Same prediction_context fallback as chat() — see the comment there.
+    pc_crop, pc_district = _prediction_context_terms(req)
     context = _rag_context(
         retrieval_query,
-        district=req.district.value if req.district else "",
-        crop=req.crop.value if req.crop else "",
+        district=(req.district.value if req.district else None) or pc_district or "",
+        crop=(req.crop.value if req.crop else None) or pc_crop or "",
         history=req.conversation_history,
     )
     confidence = _confidence_label(context)
+    # Retrieval found nothing, but the request carries the farmer's own
+    # prediction, so the answer IS grounded — just not in the corpus.
+    # _confidence_label only sees the RAG context and would call that
+    # "Out of scope", which would put an out-of-scope badge on a real
+    # answer. Moderate rather than High: the figures are exact, but no
+    # retrieved agronomy backs the advice around them.
+    if not context["chunks"] and _has_prediction_grounding(req):
+        confidence = "Moderate confidence"
     # Template chips as the starting value. The special-path branches below
     # replace `followups` with their own fixed sets (clarification / refusal /
     # …), and the ANSWER path replaces it again after the stream completes —
@@ -1143,7 +1223,7 @@ def chat_stream(req: ChatRequest, settings, verified_uid: str):
     # Grounding guard — same friendly, dataset-aware refusal as chat(), no
     # Groq call. Reassigning followups here is picked up by the _metadata
     # closure below.
-    if not context["chunks"]:
+    if not context["chunks"] and not _has_prediction_grounding(req):
         # Second refusal in a row — ask instead of repeating. See chat().
         if _should_retry_after_refusal(clean, req.conversation_history):
             reply, cq_followups = _build_clarification(
@@ -2400,36 +2480,109 @@ def _safe_get_preferences(user_id: str) -> dict:
         return {}
 
 
+def _prediction_context_terms(req) -> tuple:
+    """(crop, district) named by req.prediction_context, or (None, None) if
+    absent or it names neither. A prediction handoff ("Ask AI about this" on
+    a yield/price result) carries the exact crop/district that prediction was
+    for — that must never be second-guessed against a stale saved-profile
+    preference, which is what _should_confirm_saved_context and the RAG
+    metadata boost both use this for.
+    """
+    pc = req.prediction_context
+    if pc is None:
+        return None, None
+    return (
+        pc.crop.value if pc.crop else None,
+        pc.district.value if pc.district else None,
+    )
+
+
+def _is_demand_context(req) -> bool:
+    """True when prediction_context carries a demand forecast.
+
+    Demand is the ONE prediction that is not district-scoped. demand_service
+    ._build_features feeds the model a constant `district_enc = 0` and its
+    own docstring says so ("not in request schema") — there is no district on
+    DemandPredictRequest at all, and the demand screen collects none.
+
+    That matters to the confirmation gate below: asking "do you mean Carrot in
+    Jaffna?" about a demand forecast tells the farmer the answer depends on a
+    dimension the model never saw, and makes them resolve a question that
+    cannot change the reply.
+    """
+    pc = getattr(req, "prediction_context", None)
+    return pc is not None and pc.predicted_demand_index is not None
+
+
 def _should_confirm_saved_context(req, message, saved_crop, saved_district) -> bool:
     """True when a fresh, dropdown-free query omits a crop OR district that the
     saved profile can supply — so we confirm ("Do you mean … in Jaffna?")
-    instead of silently assuming. Dropdown selections always win, so a
-    dimension the user set in the dropdown is never filled from saved context.
+    instead of silently assuming.
+
+    PRIORITY per dimension: dropdown (req.crop/district) > named in THIS
+    message > prediction_context (the prediction this conversation is
+    actually about) > saved profile (last-resort, account-level guess).
+    Dropdown and message stay ahead of prediction_context deliberately — an
+    explicit "what about Jaffna instead?" mid-conversation should still be
+    able to redirect a farmer past their original prediction's district.
+    Saved profile is consulted only when NONE of the other three name a
+    dimension, which is what "filled" below tracks: a dimension is only
+    ever confirmed with the farmer when the saved profile was the SOLE
+    source for it.
     """
-    eff_saved_crop = None if req.crop else saved_crop
-    eff_saved_district = None if req.district else saved_district
+    pc_crop, pc_district = _prediction_context_terms(req)
+    eff_saved_crop = None if (req.crop or pc_crop) else saved_crop
+    # _is_demand_context suppresses the saved DISTRICT the same way pc_district
+    # would: a demand forecast has no district by construction, so there is
+    # nothing to confirm against. Without this, two of the demand screen's four
+    # starter chips ("What affects demand for this crop?", "How does this
+    # compare to other crops?" — the two that carry agricultural intent) were
+    # answered with a district confirmation instead of an answer, while the
+    # other two went straight through. An explicit req.district dropdown still
+    # wins, as it does everywhere else; this only drops the account-level guess.
+    eff_saved_district = (
+        None
+        if (req.district or pc_district or _is_demand_context(req))
+        else saved_district
+    )
     if not (eff_saved_crop or eff_saved_district):
         return False
     msg_crop, msg_district = _extract_context_terms(message)
-    crop = (req.crop.value if req.crop else None) or msg_crop or eff_saved_crop
+    crop = (
+        (req.crop.value if req.crop else None) or msg_crop or pc_crop or eff_saved_crop
+    )
     district = (
         (req.district.value if req.district else None)
         or msg_district
+        or pc_district
         or eff_saved_district
     )
-    filled = (not (req.crop or msg_crop) and eff_saved_crop) or (
-        not (req.district or msg_district) and eff_saved_district
+    filled = (not (req.crop or msg_crop or pc_crop) and eff_saved_crop) or (
+        not (req.district or msg_district or pc_district) and eff_saved_district
     )
     return bool(crop and district and filled and _has_agricultural_intent(message))
 
 
 def _build_context_confirmation(req, message, saved_crop, saved_district) -> tuple:
     """Confirmation reply + a tappable resolved-topic chip. Deterministic; no
-    Groq. Precedence for each dimension: dropdown, then message, then saved."""
+    Groq. Precedence for each dimension: dropdown, then message, then
+    prediction_context, then saved — same order as
+    _should_confirm_saved_context, so the crop/district named here is
+    always the same one that decided whether to confirm at all. In
+    practice this only ever resolves from `saved` (the caller only invokes
+    this when the gate above returned True, which requires prediction_context
+    and the dropdown/message to all be silent on the confirmed dimension) —
+    the fuller precedence is kept here anyway so this function's own
+    resolution can never diverge from the gate's.
+    """
+    pc_crop, pc_district = _prediction_context_terms(req)
     msg_crop, msg_district = _extract_context_terms(message)
-    crop = (req.crop.value if req.crop else None) or msg_crop or saved_crop
+    crop = (req.crop.value if req.crop else None) or msg_crop or pc_crop or saved_crop
     district = (
-        (req.district.value if req.district else None) or msg_district or saved_district
+        (req.district.value if req.district else None)
+        or msg_district
+        or pc_district
+        or saved_district
     )
     reply = (
         f"Do you mean {crop} in {district}? I've used what you told me "
@@ -2686,6 +2839,280 @@ def _format_prompt_tuning_injection() -> str:
     )
 
 
+def _format_prediction_context(pc) -> str:
+    """Render a PredictionContext as one plain-text context block for the LLM.
+
+    Inputs: pc (schemas.PredictionContext or None) — the yield OR price
+    prediction the farmer tapped "Ask AI about this" on. The two share
+    crop/district/season and are otherwise disjoint; only the fields actually
+    set are rendered, so one block serves both without either screen's
+    numbers leaking into the other's conversation.
+    Outputs: a system-message body, or "" when there is nothing to say (pc is
+    None, or every field was left unset) so the caller can skip the message
+    entirely.
+
+    Security assumption: every field on PredictionContext is an enum, a
+    Literal, a bool, or a bounded float (see schemas.PredictionContext), so
+    nothing
+    client-authored reaches the prompt as free text. No sanitising is needed
+    here and none is done — if a free-text field is ever added to that model,
+    it must be run through _strip_html before being interpolated below.
+    """
+    if pc is None:
+        return ""
+
+    facts = []
+    if pc.crop:
+        facts.append(f"- Crop: {pc.crop.value}")
+    if pc.district:
+        facts.append(f"- District: {pc.district.value}")
+    if pc.season:
+        facts.append(f"- Season: {pc.season.value}")
+    if pc.irrigation:
+        facts.append(f"- Irrigation: {pc.irrigation.value}")
+    if pc.area_perches is not None:
+        area = f"- Cultivated area: {pc.area_perches:,.0f} perches"
+        if pc.area_hectares is not None:
+            area += f" ({pc.area_hectares:.3f} ha)"
+        facts.append(area)
+    elif pc.area_hectares is not None:
+        facts.append(f"- Cultivated area: {pc.area_hectares:.3f} ha")
+    if pc.predicted_yield_kg_per_ha is not None:
+        facts.append(f"- Predicted yield: {pc.predicted_yield_kg_per_ha:,.0f} kg/ha")
+    if pc.average_yield_kg_per_ha is not None:
+        facts.append(
+            f"- District average yield: {pc.average_yield_kg_per_ha:,.0f} kg/ha"
+        )
+    # The gap is the single number most questions about a prediction are
+    # really about ("is this good?", "how do I improve it?"), and the model
+    # is instructed elsewhere not to calculate — so state it outright rather
+    # than leaving it to be derived from the two figures above.
+    if pc.predicted_yield_kg_per_ha is not None and pc.average_yield_kg_per_ha:
+        delta = (
+            (pc.predicted_yield_kg_per_ha - pc.average_yield_kg_per_ha)
+            / pc.average_yield_kg_per_ha
+            * 100
+        )
+        direction = "above" if delta >= 0 else "below"
+        facts.append(f"- Difference: {abs(delta):.0f}% {direction} the average")
+    # ── Price-side facts ─────────────────────────────────────────────────────
+    if pc.predicted_price_lkr_kg is not None:
+        facts.append(
+            f"- Predicted farmgate price: Rs. {pc.predicted_price_lkr_kg:,.0f}/kg"
+        )
+    if pc.average_price_lkr_kg is not None:
+        line = (
+            "- Average farmgate price for this crop: "
+            f"Rs. {pc.average_price_lkr_kg:,.0f}/kg"
+        )
+        # Provenance travels WITH the number. A null source means the client
+        # showed no baseline and stated nothing about where one came from;
+        # the assistant must not be handed one either.
+        if pc.average_price_source == "real":
+            line += " (from real market data)"
+        elif pc.average_price_source == "synthetic":
+            line += " (estimated from modelled data)"
+        facts.append(line)
+    # Same reasoning as the yield gap above: state the comparison outright
+    # rather than leaving the model to derive it from two figures.
+    if pc.predicted_price_lkr_kg is not None and pc.average_price_lkr_kg:
+        delta = (
+            (pc.predicted_price_lkr_kg - pc.average_price_lkr_kg)
+            / pc.average_price_lkr_kg
+            * 100
+        )
+        direction = "above" if delta >= 0 else "below"
+        facts.append(f"- Difference: {abs(delta):.0f}% {direction} the average")
+    if pc.quantity_kg is not None:
+        qty = f"- Quantity the farmer plans to sell: {pc.quantity_kg:,.0f} kg"
+        if pc.estimated_earnings_lkr is not None:
+            qty += f" (estimated Rs. {pc.estimated_earnings_lkr:,.0f} total)"
+        facts.append(qty)
+    if pc.supply_level:
+        facts.append(f"- Market supply: {pc.supply_level}")
+    if pc.demand_level:
+        facts.append(f"- Buyer demand: {pc.demand_level}")
+    if pc.holiday_week:
+        facts.append("- This is a holiday week")
+    if pc.festival_week:
+        facts.append("- This is a festival week")
+
+    # ── Demand-forecast facts ────────────────────────────────────────────────
+    # Rendered before the soil/confidence block so the index sits next to the
+    # crop and season it belongs to. demand_trend is a bounded TrendEnum, not
+    # client prose — same guarantee as every other field here.
+    if pc.predicted_demand_index is not None:
+        line = f"- Predicted demand index: {pc.predicted_demand_index:,.0f}"
+        if pc.demand_trend:
+            line += f" ({pc.demand_trend.value})"
+        facts.append(line)
+    elif pc.demand_trend:
+        facts.append(f"- Demand trend: {pc.demand_trend.value}")
+    if pc.retail_price_lkr_kg is not None:
+        facts.append(
+            "- Today's market price the farmer entered: "
+            f"Rs. {pc.retail_price_lkr_kg:,.0f}/kg"
+        )
+    # Stated in BOTH directions rather than only when true. "Typical values"
+    # is the load-bearing caveat on a demand index — an assistant that is told
+    # nothing would treat a defaulted forecast as though it were grounded in
+    # the farmer's own market observations.
+    if pc.real_market_data is True:
+        facts.append("- The farmer supplied real recent market data for this forecast")
+    elif pc.real_market_data is False:
+        facts.append(
+            "- This forecast used typical market values for the crop, NOT the "
+            "farmer's own recent market data"
+        )
+
+    if pc.soil_ph is not None:
+        facts.append(f"- Soil pH: {pc.soil_ph:.1f}")
+    if pc.soil_moisture_pct is not None:
+        facts.append(f"- Soil moisture: {pc.soil_moisture_pct:.0f}%")
+
+    if pc.confidence:
+        facts.append(f"- Model confidence: {pc.confidence.value}")
+
+    if pc.weather:
+        w = pc.weather
+        bits = []
+        if w.rainfall_mm is not None:
+            bits.append(f"rainfall {w.rainfall_mm:.0f} mm")
+        if w.temp_min_c is not None and w.temp_max_c is not None:
+            bits.append(f"temperature {w.temp_min_c:.0f}-{w.temp_max_c:.0f} C")
+        if w.humidity_pct is not None:
+            bits.append(f"humidity {w.humidity_pct:.0f}%")
+        if w.wind_speed_kmh is not None:
+            bits.append(f"wind {w.wind_speed_kmh:.0f} km/h")
+        if w.solar_radiation_mj is not None:
+            bits.append(f"solar radiation {w.solar_radiation_mj:.0f} MJ")
+        if bits:
+            facts.append(f"- Weather used: {', '.join(bits)}")
+
+    # ── Weather-forecast facts ────────────────────────────────────────────
+    # condition is a bounded Literal (see schemas.PredictionWeatherWeek), not
+    # client-authored prose — mapped to its English phrase HERE, server-side,
+    # same reasoning as average_price_source's real/synthetic mapping above.
+    _CONDITION_TEXT = {
+        "heavy_rain": "heavy rain expected",
+        "dry_hot": "dry and hot",
+        "good": "good growing conditions",
+    }
+    if pc.weeks_ahead is not None:
+        facts.append(f"- Forecast range requested: {pc.weeks_ahead} week(s) ahead")
+    if pc.forecast_weeks:
+        for wk in pc.forecast_weeks:
+            cond = _CONDITION_TEXT.get(wk.condition, wk.condition)
+            facts.append(
+                f"- Week {wk.week_number} ({wk.date}): "
+                f"rainfall {wk.rainfall_mm:.0f} mm, "
+                f"temperature {wk.temp_min_c:.0f}-{wk.temp_max_c:.0f} C, "
+                f"humidity {wk.humidity_pct:.0f}% — {cond}"
+            )
+
+    # ── Crop-recommendation facts ─────────────────────────────────────────
+    # The whole ranking is rendered, not just the winner: the questions this
+    # screen offers ("why is X first?", "what if I want to grow something
+    # else?") are comparative, and a model given only the top crop would have
+    # to invent the alternatives it is being asked about.
+    #
+    # Both gates are stated per crop because they are different objections and
+    # a farmer can act on one of them. A failed agronomic condition is about
+    # this week's weather and this field's soil; district_suitable is about
+    # whether the crop is grown in the district at all, which is why a crop
+    # can rank last on a probability that would otherwise have placed it high.
+    if pc.recommendations:
+        facts.append(
+            f"- Ranked crop recommendations ({len(pc.recommendations)} crops, "
+            "best first):"
+        )
+        _CONDITIONS = (
+            ("temp_suitable", "temperature"),
+            ("rain_suitable", "rainfall"),
+            ("humidity_suitable", "humidity"),
+            ("ph_suitable", "soil pH"),
+        )
+        for r in pc.recommendations:
+            passed = [name for attr, name in _CONDITIONS if getattr(r, attr)]
+            failed = [name for attr, name in _CONDITIONS if not getattr(r, attr)]
+            line = (
+                f"  {r.rank}. {r.crop.value}: {r.confidence * 100:.0f}% model "
+                f"confidence, expected yield {r.expected_yield_kg_per_ha:,.0f} kg/ha, "
+                f"expected farmgate price Rs. {r.expected_price_lkr_kg:,.0f}/kg; "
+                f"{len(passed)} of 4 growing conditions suitable"
+            )
+            # BOTH sides are named, not just the failures. Naming only the
+            # failures left the model to infer which conditions passed, and it
+            # inferred wrongly — asked why Carrot ranked first it answered
+            # "irrigation and soil moisture", two unrelated inputs that happen
+            # to appear elsewhere in this same block, when the real answer was
+            # temperature and rainfall. The four conditions are a closed set,
+            # so spelling out both halves removes the inference entirely.
+            if passed:
+                line += f" (suitable: {', '.join(passed)}"
+                line += f"; unsuitable: {', '.join(failed)})" if failed else ")"
+            elif failed:
+                line += f" (unsuitable: {', '.join(failed)})"
+            if not r.district_suitable:
+                line += (
+                    "; NOT normally grown in this district, which is why it is "
+                    "ranked below crops that are"
+                )
+            facts.append(line)
+
+    if not facts:
+        return ""
+
+    # Name the right kind of prediction. The block used to say "yield"
+    # unconditionally; with price/weather contexts sharing this model,
+    # telling the assistant a farmer is asking about a yield prediction
+    # while handing it a rainfall forecast invites it to answer the wrong
+    # question.
+    if pc.predicted_yield_kg_per_ha is not None:
+        kind = "yield prediction"
+    elif pc.predicted_price_lkr_kg is not None:
+        kind = "price prediction"
+    elif pc.forecast_weeks:
+        kind = "weather forecast"
+    elif pc.recommendations:
+        kind = "crop recommendation"
+    else:
+        kind = "prediction"
+
+    return (
+        # Opens with the exact phrase the system prompt's grounding rules
+        # key on. Rule 1 says answer ONLY from the "Relevant context"
+        # provided and rule 2 says refuse when NO context is provided — so a
+        # block that never calls itself that reads to the model as "no
+        # context", and it refuses even though the farmer's own numbers are
+        # right there. That is not hypothetical: retrieval usually returns
+        # nothing for this turn, because chip text like "Explain this
+        # prediction" names no crop and no district to retrieve on.
+        f"Relevant context — the farmer's own {kind}, which CropSphere just "
+        "produced for them. Ground your answer in THESE figures — they "
+        "override any general dataset averages you were given above:\n"
+        + "\n".join(facts)
+    )
+
+
+def _has_prediction_grounding(req) -> bool:
+    """True when the request carries a prediction for the answer to be about.
+
+    Such a request is ALREADY grounded, so the retrieval-based grounding
+    guard must not refuse it. The figures are structured, enum-validated
+    fields on the request itself (see schemas.PredictionContext) — nothing
+    retrieval has to go and find, and nothing the client can author as free
+    text.
+
+    This exists because the guard equated "grounded" with "retrieval returned
+    chunks". The quick-question chips on a prediction result name no crop and
+    no district ("Explain this prediction"), so retrieval legitimately comes
+    back empty and the farmer was told their own prediction was outside the
+    dataset. Used by chat() and chat_stream() identically.
+    """
+    return getattr(req, "prediction_context", None) is not None
+
+
 def _build_messages(system: str, context: dict, req: ChatRequest, message: str) -> list:
     """Assemble the Groq message list: system prompt, RAG context, history,
     current message.
@@ -2711,6 +3138,31 @@ def _build_messages(system: str, context: dict, req: ChatRequest, message: str) 
         msgs.append(
             {"role": "system", "content": "Relevant context:\n" + "\n".join(parts)}
         )
+    # Yield-prediction context (optional) — set when the farmer arrived here
+    # from "Ask AI about this" on a prediction result, so the answer must be
+    # about THOSE numbers rather than generic dataset averages.
+    #
+    # Position: immediately after the RAG chunks and before _FORMATTING_RULES.
+    # It belongs with the chunks because it is the same KIND of message —
+    # grounding facts, not instructions — and slotting it there leaves every
+    # existing message in its existing relative order: formatting rules,
+    # knowledge level, few-shot, prompt tuning, all-crops, history and the
+    # user message all still follow one another exactly as before.
+    #
+    # It is a SEPARATE system message and is never merged into `message`.
+    # That is what keeps analytics clean: _run_analytics logs `message[:200]`
+    # as chat_analytics.question, and `message` is the caller's sanitised
+    # user text, which this function does not touch.
+    _pc = getattr(req, "prediction_context", None)
+    _prediction = _format_prediction_context(_pc)
+    if _prediction:
+        msgs.append({"role": "system", "content": _prediction})
+    # Answering rules for a ranked crop recommendation — conditional, and
+    # placed immediately after the facts they govern so the model reads the
+    # list and the instruction to cover it together. Absent for every other
+    # kind of context. See _RECOMMENDATION_ANSWER_RULES.
+    if _pc is not None and getattr(_pc, "recommendations", None):
+        msgs.append({"role": "system", "content": _RECOMMENDATION_ANSWER_RULES})
     # Style/formatting rules — separate system message so they stay close to
     # the conversation and don't compete with the safety-critical rules in
     # the core prompt (see _FORMATTING_RULES).
@@ -3518,7 +3970,7 @@ def _reconstruct_previous_followups(req: ChatRequest) -> tuple:
         )
         if _is_vague_agricultural_query(prev_msg, context, prior):
             return _build_clarification(prev_msg, context, prior)[1], {}
-        if not context["chunks"]:
+        if not context["chunks"] and not _has_prediction_grounding(req):
             if _should_retry_after_refusal(prev_msg, prior):
                 return _build_clarification(prev_msg, context, prior)[1], {}
             return _refusal_followups(prev_msg), {}

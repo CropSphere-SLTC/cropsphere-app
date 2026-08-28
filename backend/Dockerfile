@@ -24,7 +24,7 @@ RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 RUN --mount=type=cache,id=s/2ce5633d-e682-472f-86d7-3393212b702a-/root/.cache/pip,target=/root/.cache/pip \
-    pip install --upgrade pip==26.1.2
+    pip install --upgrade pip==26.2.1
 
 # Force CPU-only torch across ALL pip layers below: the PyTorch CPU wheel
 # index is consulted on every install, and the constraint pins torch to the
@@ -142,18 +142,23 @@ RUN dupes=$(ls -d /opt/venv/lib/python3.11/site-packages/*.dist-info \
 # ──────────────────────────────────────────────────────────
 FROM python:3.11-slim
 
-# ── Security: patch base-image util-linux CVEs ────────────────────────────
-# CVE-2026-53612/-53613/-53614/-53615 — all 4 fixed upstream in
+# ── Security: patch base-image OS CVEs ────────────────────────────────────
+# util-linux — CVE-2026-53612/-53613/-53614/-53615, all 4 fixed upstream in
 # 2.41.5-0+deb13u1 (this base image ships 2.41-5). Trivy reports this as 36
 # findings: 4 CVEs × 9 binary packages built from the same util-linux
-# source, not 36 distinct issues. Listed explicitly rather than relying on
-# apt to pull the shared libs in via util-linux's own dependency chain.
+# source, not 36 distinct issues.
+# openssl — CVE-2026-14456 (HIGH, QUIC server memory growth), fixed in
+# 3.5.7-1~deb13u2; the base ships 3.5.6-1~deb13u2. Same shape: 3 binary
+# packages from one source, so all three are upgraded together.
+# Both are listed explicitly rather than relying on apt to pull the shared
+# libs in via the source package's own dependency chain.
 # Must run before USER cropsphere below (apt needs root), and nothing later
 # in this stage touches apt or these files, so nothing can undo it.
 RUN apt-get update && \
     apt-get install -y --only-upgrade \
         util-linux bsdutils mount login \
-        libblkid1 libmount1 libsmartcols1 libuuid1 liblastlog2-2 && \
+        libblkid1 libmount1 libsmartcols1 libuuid1 liblastlog2-2 \
+        openssl libssl3t64 openssl-provider-legacy && \
     rm -rf /var/lib/apt/lists/*
 
 RUN groupadd -r cropsphere && useradd -r -g cropsphere cropsphere
@@ -178,6 +183,32 @@ ENV PATH="/opt/venv/bin:$PATH"
 RUN cd /usr/local/lib/python3.11/site-packages \
     && rm -rf setuptools/_vendor/wheel-0.45.1.dist-info \
               setuptools/_vendor/jaraco.context-5.3.0.dist-info
+
+# ── Security: no pip in the runtime image ────────────────────────────────
+# pip is a BUILD tool. Every dependency is already installed in the venv and
+# nothing at runtime installs packages, so shipping pip only adds attack
+# surface. It also drags its whole vendored tree along: pip 26.2 ships a
+# PEP 770 SBOM of that tree (pip/_vendor/bom.cdx.json), which Trivy reads as
+# a third-party SBOM and reports under a target named "Python" — that is
+# where the vendored msgpack 1.1.2 (GHSA-6v7p-g79w-8964) and setuptools
+# 70.3.0 (CVE-2025-47273) HIGHs came from. Deleting pip removes the
+# vulnerable code, not just the metadata that advertises it. The base
+# image's own pip 24.0 under /usr/local goes for the same reason; the
+# builder stage keeps its pinned pip and is unaffected.
+#
+# Deliberately placed BEFORE the sentence-transformers bake below: that step
+# imports the whole torch/transformers chain, so the build itself proves the
+# runtime stack still works with no pip on disk.
+RUN rm -rf /opt/venv/lib/python3.11/site-packages/pip \
+           /opt/venv/lib/python3.11/site-packages/pip-*.dist-info \
+           /opt/venv/bin/pip /opt/venv/bin/pip3 /opt/venv/bin/pip3.11 \
+           /usr/local/lib/python3.11/site-packages/pip \
+           /usr/local/lib/python3.11/site-packages/pip-*.dist-info \
+           /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.11 \
+    && if python -c "import pip" 2>/dev/null; then \
+         echo "pip is still importable — removal missed a path"; exit 1; \
+       fi; \
+    echo "OK: no pip in the runtime image"
 
 # Bake the RAG sentence-encoder into the image so it NEVER downloads at
 # runtime. The first chat request otherwise fetched all-MiniLM-L6-v2 from

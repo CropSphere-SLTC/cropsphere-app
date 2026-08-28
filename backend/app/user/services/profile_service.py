@@ -69,19 +69,34 @@ def get_preferences(uid: str) -> UserPreferencesResponse:
 
 
 def update_preferences(uid: str, body: UpdatePreferencesRequest) -> dict:
-    """Save the caller's language and notification preferences."""
+    """Save the caller's language, notification and farm preferences.
+
+    preferred_district / preferred_crop are only written when the request
+    actually supplies them — omitting them leaves whatever is already
+    stored (possibly set from chat context) untouched, rather than
+    clearing it.
+    """
     try:
-        update_user_preferences(
-            uid,
-            {
-                "language": body.language,
-                "notifications": body.notifications.model_dump(),
-            },
-        )
+        payload = {
+            "language": body.language,
+            "notifications": body.notifications.model_dump(),
+        }
+        if body.preferred_district is not None:
+            payload["preferred_district"] = body.preferred_district.value
+        if body.preferred_crop is not None:
+            payload["preferred_crop"] = body.preferred_crop.value
+
+        update_user_preferences(uid, payload)
         return {
             "message": "Preferences updated",
             "language": body.language,
             "notifications": body.notifications,
+            "preferred_district": (
+                body.preferred_district.value if body.preferred_district else None
+            ),
+            "preferred_crop": (
+                body.preferred_crop.value if body.preferred_crop else None
+            ),
         }
     except Exception as exc:
         logger.error(f"update_preferences failed uid={uid}: {exc}")

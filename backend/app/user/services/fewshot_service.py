@@ -88,10 +88,21 @@ def _collect_auto() -> dict:
             .where(filter=FieldFilter("feedback", "==", "up"))
             .stream()
         )
-        ups.sort(
-            key=lambda d: d.to_dict().get("timestamp") or datetime.min,
-            reverse=True,
-        )
+        # datetime.min must carry a tzinfo: Firestore returns tz-aware
+        # timestamps, and mixing them with a naive sentinel raises TypeError
+        # inside sort() — swallowed by the except below, silently dropping
+        # the whole auto few-shot set because one doc lacked a timestamp.
+        # Anything that is not a datetime at all sorts oldest for the same
+        # reason.
+        _oldest = datetime.min.replace(tzinfo=timezone.utc)
+
+        def _ts(doc) -> datetime:
+            value = doc.to_dict().get("timestamp")
+            if not isinstance(value, datetime):
+                return _oldest
+            return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+        ups.sort(key=_ts, reverse=True)
 
         buckets: dict = {t: [] for t in _TYPES}
         conv_cache: dict = {}

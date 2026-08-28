@@ -184,6 +184,32 @@ RUN cd /usr/local/lib/python3.11/site-packages \
     && rm -rf setuptools/_vendor/wheel-0.45.1.dist-info \
               setuptools/_vendor/jaraco.context-5.3.0.dist-info
 
+# ── Security: no pip in the runtime image ────────────────────────────────
+# pip is a BUILD tool. Every dependency is already installed in the venv and
+# nothing at runtime installs packages, so shipping pip only adds attack
+# surface. It also drags its whole vendored tree along: pip 26.2 ships a
+# PEP 770 SBOM of that tree (pip/_vendor/bom.cdx.json), which Trivy reads as
+# a third-party SBOM and reports under a target named "Python" — that is
+# where the vendored msgpack 1.1.2 (GHSA-6v7p-g79w-8964) and setuptools
+# 70.3.0 (CVE-2025-47273) HIGHs came from. Deleting pip removes the
+# vulnerable code, not just the metadata that advertises it. The base
+# image's own pip 24.0 under /usr/local goes for the same reason; the
+# builder stage keeps its pinned pip and is unaffected.
+#
+# Deliberately placed BEFORE the sentence-transformers bake below: that step
+# imports the whole torch/transformers chain, so the build itself proves the
+# runtime stack still works with no pip on disk.
+RUN rm -rf /opt/venv/lib/python3.11/site-packages/pip \
+           /opt/venv/lib/python3.11/site-packages/pip-*.dist-info \
+           /opt/venv/bin/pip /opt/venv/bin/pip3 /opt/venv/bin/pip3.11 \
+           /usr/local/lib/python3.11/site-packages/pip \
+           /usr/local/lib/python3.11/site-packages/pip-*.dist-info \
+           /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.11 \
+    && if python -c "import pip" 2>/dev/null; then \
+         echo "pip is still importable — removal missed a path"; exit 1; \
+       fi; \
+    echo "OK: no pip in the runtime image"
+
 # Bake the RAG sentence-encoder into the image so it NEVER downloads at
 # runtime. The first chat request otherwise fetched all-MiniLM-L6-v2 from
 # HuggingFace inside the request path, where the Xet backend (hf_xet) fails

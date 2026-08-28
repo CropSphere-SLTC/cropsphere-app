@@ -356,3 +356,73 @@ def test_get_feedback_returns_votes(client, mock_valid_token, valid_auth_header)
 def test_get_feedback_no_jwt_returns_401(client, mock_expired_token):
     resp = client.get("/api/chat/feedback/conv-1")
     assert resp.status_code == 401
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Security regressions
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_body_user_id_cannot_impersonate_another_account(
+    client, mock_valid_token, valid_auth_header
+):
+    """ChatRequest.user_id arrives in the body, so it is attacker controlled.
+
+    The services use it for audit attribution, for reading saved preferences,
+    and for writing them back through update_user_context — which keys off
+    users/{uid}. Left as sent, one farmer could read another's saved crop and
+    district out of a context-confirmation reply and overwrite them.
+
+    The router must replace it with the JWT-verified uid before the service
+    ever sees it.
+    """
+    body = {**VALID, "user_id": "victim-uid-999"}
+
+    with patch(
+        "app.user.routers.chat_router.chat",
+        return_value=_mock_chat_response(),
+    ) as mock_chat:
+        resp = client.post(URL, json=body, headers=valid_auth_header)
+
+    assert resp.status_code == 200
+    passed_req = mock_chat.call_args[0][0]
+    assert passed_req.user_id == "test-user-123", (
+        "the service received the client-supplied uid — a caller can act as "
+        "any account by putting its uid in the request body"
+    )
+    assert passed_req.user_id != "victim-uid-999"
+
+
+def test_stream_body_user_id_cannot_impersonate_another_account(
+    client, mock_valid_token, valid_auth_header
+):
+    """Same guarantee on the streaming endpoint, which has its own call path."""
+    body = {**VALID, "user_id": "victim-uid-999"}
+
+    with patch(
+        "app.user.routers.chat_router.chat_stream",
+        return_value=iter([]),
+    ) as mock_stream:
+        resp = client.post(f"{URL}/stream", json=body, headers=valid_auth_header)
+
+    assert resp.status_code == 200
+    passed_req = mock_stream.call_args[0][0]
+    assert passed_req.user_id == "test-user-123"
+    assert passed_req.user_id != "victim-uid-999"
+
+
+def test_banned_user_is_refused(client, mock_valid_token, valid_auth_header):
+    """require_user must be wired onto this router.
+
+    A ban is only meaningful if the user-facing endpoints honour it; the
+    admin API alone honouring it leaves a banned account full access to chat
+    and every prediction endpoint.
+    """
+    with patch("app.utils.firestore.is_user_banned", return_value=True), patch(
+        "app.user.routers.chat_router.chat",
+        return_value=_mock_chat_response(),
+    ) as mock_chat:
+        resp = client.post(URL, json=VALID, headers=valid_auth_header)
+
+    assert resp.status_code == 403
+    assert mock_chat.call_count == 0, "the service ran despite the ban"

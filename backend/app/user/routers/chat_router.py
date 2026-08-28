@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from app.config import get_settings
-from app.dependencies import get_user_id
+from app.middleware.roles import require_user
 from app.middleware.rate_limit import limiter
 from app.models.schemas import ChatFeedbackRequest, ChatRequest, ChatResponse
 from app.user.services.chat_history_service import persist_chat_turn
@@ -22,12 +22,37 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 
+def _with_verified_uid(body: ChatRequest, user_id: str) -> ChatRequest:
+    """Replace the client-supplied user_id with the JWT-verified one.
+
+    ChatRequest.user_id arrives in the request BODY, so it is attacker
+    controlled: any authenticated caller could put another account's uid
+    there. The chat services use req.user_id for audit attribution, for
+    reading saved preferences, and for writing preferences back via
+    update_user_context — which keys straight off users/{uid}. Left as sent,
+    that let one farmer read another's saved crop and district back out of a
+    context-confirmation reply, and overwrite them.
+
+    Normalising here rather than at each call site is deliberate: this is the
+    single point every chat request passes through, so no present or future
+    use of req.user_id downstream can miss it. The field stays required so
+    existing clients keep working; its value is simply not trusted.
+    """
+    if body.user_id != user_id:
+        logger.warning(
+            "chat body user_id did not match the verified uid — overriding "
+            "(endpoint=/api/chat, verified=%s)",
+            user_id,
+        )
+    return body.model_copy(update={"user_id": user_id})
+
+
 @router.post("", response_model=ChatResponse)
 @limiter.limit("30/minute")
 async def chat_endpoint(
     request: Request,
     body: ChatRequest,
-    user_id: str = Depends(get_user_id),
+    user_id: str = Depends(require_user),
 ) -> ChatResponse:
     """Process a farmer chat message and return an AI response.
 
@@ -36,6 +61,7 @@ async def chat_endpoint(
     failure is logged but never breaks the chat response.
     Requires valid Firebase JWT.  Rate limited: 30 req/min per IP.
     """
+    body = _with_verified_uid(body, user_id)
     try:
         response = chat(body, get_settings())
     except RuntimeError as exc:
@@ -61,7 +87,7 @@ async def chat_endpoint(
 async def chat_stream_endpoint(
     request: Request,
     body: ChatRequest,
-    user_id: str = Depends(get_user_id),
+    user_id: str = Depends(require_user),
 ) -> StreamingResponse:
     """Stream a chat reply as Server-Sent Events.
 
@@ -72,6 +98,8 @@ async def chat_stream_endpoint(
     POST /api/chat endpoint is unchanged and remains the fallback.
     Requires valid Firebase JWT. Rate limited: 30 req/min per IP.
     """
+
+    body = _with_verified_uid(body, user_id)
 
     def sse():
         try:
@@ -102,7 +130,7 @@ async def chat_stream_endpoint(
 async def chat_feedback_endpoint(
     request: Request,
     body: ChatFeedbackRequest,
-    user_id: str = Depends(get_user_id),
+    user_id: str = Depends(require_user),
 ) -> dict:
     """Record a thumbs up/down on a bot reply for quality analytics.
 
@@ -124,7 +152,7 @@ async def chat_feedback_endpoint(
 async def get_feedback_endpoint(
     request: Request,
     conversation_id: str,
-    user_id: str = Depends(get_user_id),
+    user_id: str = Depends(require_user),
 ) -> dict:
     """Return the caller's thumbs votes for a conversation as
     {message_index: "up"|"down"} so the client can restore feedback state

@@ -4,7 +4,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show ScrollDirection;
+import 'package:flutter/rendering.dart' show ScrollCacheExtent, ScrollDirection;
 import 'package:flutter/services.dart'
     show
         Clipboard,
@@ -1871,7 +1871,7 @@ class _ChatScreenState extends State<ChatScreen> {
       // and rebuild (re-parsing each bubble's markdown) items right at the
       // viewport edge. Bubbles are variable-height (markdown, XAI footer,
       // sources), so a fixed itemExtent isn't an option here.
-      cacheExtent: 800,
+      scrollCacheExtent: const ScrollCacheExtent.pixels(800),
       itemBuilder: (ctx, i) {
         if (i == _displayMessages.length) {
           return _readingColumn(_buildTypingIndicator());

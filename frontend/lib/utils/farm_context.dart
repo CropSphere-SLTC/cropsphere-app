@@ -24,9 +24,14 @@ import 'package:http/http.dart' as http;
 // ── Time helpers ─────────────────────────────────────────────────────────────
 
 /// ISO-ish week number, clamped to the 1–52 range every endpoint validates.
-int farmWeekOfYear() {
-  final now = DateTime.now();
-  final soy = DateTime(now.year, 1, 1);
+///
+/// UTC, to share a clock base with [farmCurrentSeason]. Both values ride on
+/// the same request (week_of_year and season), so computing one locally and
+/// the other in UTC would let them describe different days for a few hours
+/// around a month boundary.
+int farmWeekOfYear([DateTime? now]) {
+  now = (now ?? DateTime.now()).toUtc();
+  final soy = DateTime.utc(now.year, 1, 1);
   return (((now.difference(soy).inDays + soy.weekday - 1) / 7).ceil()).clamp(
     1,
     52,
@@ -46,12 +51,14 @@ int farmWeekOfYear() {
 /// than keeping a private copy; dashboard_screen.dart had one that was
 /// missed when this moved to months, leaving the dashboard showing Yala
 /// tips while a widget on that same dashboard sent 'Inter' to the API.
-String farmCurrentSeason() =>
+/// [now] is injectable so the UTC decision itself can be tested; asserting
+/// against DateTime.now() would only restate the implementation.
+String farmCurrentSeason([DateTime? now]) =>
     // UTC, because _season_for_now reads datetime.now(timezone.utc).month.
     // Local time would still disagree with the server for the first 5h30m of
     // the 1st of Nov, Apr and Sep at UTC+5:30 — a small window, but the whole
     // point of this function is that the two sides never disagree.
-    farmSeasonForMonth(DateTime.now().toUtc().month);
+    farmSeasonForMonth((now ?? DateTime.now()).toUtc().month);
 
 /// The season mapping itself, split from the clock so the boundaries can be
 /// tested directly. [month] is 1-12.
@@ -134,11 +141,19 @@ class FarmWeather {
   final double tempMaxC;
   final double humidityPct;
 
+  /// Only populated when the caller asked for [withYieldExtras]; the yield
+  /// model takes these two, no other screen does. Null means "not requested",
+  /// never "zero".
+  final double? windSpeedKmh;
+  final double? solarRadMj;
+
   const FarmWeather({
     required this.rainfallMm,
     required this.tempMinC,
     required this.tempMaxC,
     required this.humidityPct,
+    this.windSpeedKmh,
+    this.solarRadMj,
   });
 }
 
@@ -175,7 +190,10 @@ class FarmWeather {
 ///
 /// Throws on an unknown district, a non-200 response, or timeout — callers
 /// decide whether to surface an error or fall back to manual entry.
-Future<FarmWeather> fetchFarmWeather(String district) async {
+Future<FarmWeather> fetchFarmWeather(
+  String district, {
+  bool withYieldExtras = false,
+}) async {
   final coords = kDistrictCoords[district];
   if (coords == null) throw Exception('District coordinates not found');
   final lat = coords[0];
@@ -185,6 +203,7 @@ Future<FarmWeather> fetchFarmWeather(String district) async {
     '?latitude=$lat&longitude=$lon'
     '&daily=precipitation_sum,temperature_2m_max,temperature_2m_min,'
     'relative_humidity_2m_mean'
+    '${withYieldExtras ? ',wind_speed_10m_max,shortwave_radiation_sum' : ''}'
     '&past_days=7&forecast_days=0&timezone=Asia%2FColombo',
   );
   final res = await http.get(uri).timeout(const Duration(seconds: 15));
@@ -192,13 +211,16 @@ Future<FarmWeather> fetchFarmWeather(String district) async {
     throw Exception('Weather API error ${res.statusCode}');
   }
   final json = jsonDecode(res.body) as Map<String, dynamic>;
-  return farmWeatherFromJson(json);
+  return farmWeatherFromJson(json, withYieldExtras: withYieldExtras);
 }
 
 /// The Open-Meteo response -> FarmWeather step, split from the HTTP call so
 /// the aggregation and the missing-data behaviour can be tested without a
 /// network stub.
-FarmWeather farmWeatherFromJson(Map<String, dynamic> json) {
+FarmWeather farmWeatherFromJson(
+  Map<String, dynamic> json, {
+  bool withYieldExtras = false,
+}) {
   final daily = json['daily'] as Map<String, dynamic>?;
   if (daily == null) throw Exception('Weather API returned no daily data');
 
@@ -242,5 +264,14 @@ FarmWeather farmWeatherFromJson(Map<String, dynamic> json) {
     tempMinC: avg('temperature_2m_min').clamp(0, 45),
     tempMaxC: avg('temperature_2m_max').clamp(5, 50),
     humidityPct: avg('relative_humidity_2m_mean').clamp(0, 100),
+    // Daily maxima averaged over the window — these two ARE daily values, so
+    // a mean is right where rainfall needed a sum. Bounds match the backend
+    // (wind_speed_kmh le=100, solar_radiation_mj le=35).
+    windSpeedKmh: withYieldExtras
+        ? avg('wind_speed_10m_max').clamp(0, 100)
+        : null,
+    solarRadMj: withYieldExtras
+        ? avg('shortwave_radiation_sum').clamp(0, 35)
+        : null,
   );
 }

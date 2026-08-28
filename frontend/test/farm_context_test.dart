@@ -51,12 +51,20 @@ void main() {
       expect(farmSeasonForMonth(4), 'Yala');
     });
 
-    test('farmCurrentSeason agrees with the mapping for the UTC month', () {
-      expect(
-        farmCurrentSeason(),
-        farmSeasonForMonth(DateTime.now().toUtc().month),
-      );
+    test('the clock is injectable and reads the month it is given', () {
+      expect(farmCurrentSeason(DateTime.utc(2026, 10, 31, 19)), 'Inter');
+      expect(farmCurrentSeason(DateTime.utc(2026, 11, 1, 0, 30)), 'Maha');
+      expect(farmCurrentSeason(DateTime.utc(2026, 4, 1)), 'Yala');
     });
+
+    // NOT TESTED, deliberately: that farmCurrentSeason reads the UTC month
+    // rather than the local one. Any DateTime this test could construct is
+    // either already UTC — in which case .month and .toUtc().month agree and
+    // dropping the conversion would still pass — or it depends on the test
+    // machine's zone, which makes the test pass or fail by where it runs.
+    // The parity that matters (Nov-Mar Maha, Apr-Aug Yala, Sep-Oct Inter,
+    // read in UTC to match chatbot_service._season_for_now) is pinned by the
+    // mapping tests above plus the CI grep guard against private copies.
   });
 
   group('farmWeatherFromJson', () {
@@ -104,6 +112,39 @@ void main() {
 
     test('a missing daily block throws', () {
       expect(() => farmWeatherFromJson(<String, dynamic>{}), throwsException);
+    });
+
+    test('yield extras are null unless requested', () {
+      final w = farmWeatherFromJson(daily());
+      expect(w.windSpeedKmh, isNull);
+      expect(w.solarRadMj, isNull);
+    });
+
+    test('yield extras are averaged and clamped to the backend bounds', () {
+      final json = daily();
+      (json['daily'] as Map<String, dynamic>).addAll({
+        'wind_speed_10m_max': [10, 20, 30],
+        'shortwave_radiation_sum': [15, 25, 35],
+      });
+      final w = farmWeatherFromJson(json, withYieldExtras: true);
+      // Daily maxima averaged — these ARE daily values, unlike rainfall.
+      expect(w.windSpeedKmh, 20);
+      expect(w.solarRadMj, 25);
+      // And rainfall is still a weekly TOTAL, which the yield screen's own
+      // copy of this parser got wrong (it used a daily mean, ~7x too small).
+      expect(w.rainfallMm, 28);
+    });
+
+    test('a missing extras series throws rather than yielding zero', () {
+      final json = daily();
+      (json['daily'] as Map<String, dynamic>).addAll({
+        'wind_speed_10m_max': <num>[],
+        'shortwave_radiation_sum': [15, 25, 35],
+      });
+      expect(
+        () => farmWeatherFromJson(json, withYieldExtras: true),
+        throwsException,
+      );
     });
 
     test('nulls shorten the window rather than counting as zero', () {

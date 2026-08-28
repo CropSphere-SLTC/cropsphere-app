@@ -100,6 +100,56 @@ def test_forecast_weather_without_scaler_uses_raw_model_output():
     assert week.humidity_pct == 70.0
 
 
+def test_forecast_weather_slides_the_window_exactly_one_step_per_week():
+    """Regression: the slide block was duplicated, advancing the LSTM input
+    window two steps per forecast week, so week N was produced from a window
+    that had already run N steps ahead of the week it was labelled with.
+
+    Asserts the shape of the slide rather than the output values: each week's
+    window must be the previous window with its oldest row dropped and one
+    new row appended. Under the double-slide, rows [1:] of window k would
+    appear at [:-2] of window k+1 instead of [:-1].
+    """
+    req = _make_request(weeks_ahead=4)
+    windows = []
+    mock_model = MagicMock()
+
+    def _capture(x, verbose=0):
+        windows.append(np.array(x[0], dtype=np.float64, copy=True))
+        # Vary the prediction per call so each appended row is distinct and a
+        # dropped/duplicated step cannot coincidentally match.
+        n = len(windows)
+        return np.array([[10.0 * n, 15.0 + n, 28.0 + n, 60.0 + n]])
+
+    mock_model.predict.side_effect = _capture
+
+    with patch(
+        "app.user.services.weather_service.model_loader.is_loaded",
+        return_value=True,
+    ), patch(
+        "app.user.services.weather_service.model_loader.get_model",
+        side_effect=lambda key: mock_model if key == "weather_lstm" else None,
+    ):
+        result = weather_service.forecast_weather(req)
+
+    assert len(result.forecasts) == 4
+    assert len(windows) == 4
+    for k in range(len(windows) - 1):
+        np.testing.assert_allclose(
+            windows[k + 1][:-1],
+            windows[k][1:],
+            err_msg=(
+                f"window {k + 1} is not window {k} advanced by exactly one row "
+                "— the forecast loop is sliding more (or less) than once"
+            ),
+        )
+        # And the appended row must be the prediction just emitted, not a
+        # later one.
+        week = result.forecasts[k]
+        assert windows[k + 1][-1][0] == pytest.approx(week.rainfall_mm)
+        assert windows[k + 1][-1][3] == pytest.approx(week.humidity_pct)
+
+
 def test_forecast_weather_negative_rainfall_clamped_to_zero():
     req = _make_request(weeks_ahead=1)
     mock_model = MagicMock()

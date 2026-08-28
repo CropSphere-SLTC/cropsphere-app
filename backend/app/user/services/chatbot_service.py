@@ -3118,8 +3118,9 @@ def _has_prediction_grounding(req) -> bool:
     ctx = getattr(req, "prediction_context", None)
     if ctx is None:
         return False
-    fields = ctx.model_dump(exclude_none=True) if hasattr(ctx, "model_dump") else ctx
-    return bool(fields)
+    # Always a PredictionContext — the field is typed Optional[PredictionContext],
+    # so Pydantic has already coerced any dict the client sent.
+    return bool(ctx.model_dump(exclude_none=True))
 
 
 def _build_messages(system: str, context: dict, req: ChatRequest, message: str) -> list:

@@ -7,7 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:cropsphere_app/screens/auth/login_screen.dart';
 
 void main() {
-  testWidgets('LoginScreen renders app name and sign-in button', (
+  testWidgets('LoginScreen renders app name and Google button', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(const MaterialApp(home: LoginScreen()));

@@ -97,7 +97,7 @@ def _collect_auto() -> dict:
         _oldest = datetime.min.replace(tzinfo=timezone.utc)
 
         def _ts(doc) -> datetime:
-            value = doc.to_dict().get("timestamp")
+            value = (doc.to_dict() or {}).get("timestamp")
             if not isinstance(value, datetime):
                 return _oldest
             return value if value.tzinfo else value.replace(tzinfo=timezone.utc)

@@ -123,6 +123,59 @@ def test_collect_auto_groups_by_question_type():
     ]
 
 
+def test_collect_auto_survives_a_document_with_no_timestamp():
+    """Regression: the sort key fell back to a naive datetime.min, which
+    cannot be compared with Firestore's tz-aware timestamps. One vote missing
+    its timestamp raised TypeError inside sort(), the broad except swallowed
+    it, and _collect_auto returned {} — every prompt silently lost its
+    few-shot examples with nothing in the logs naming the cause.
+
+    The undated vote must still be collected, sorted oldest.
+    """
+    from datetime import datetime, timezone
+
+    def _vote(msg, ts):
+        doc = MagicMock()
+        payload = {
+            "feedback": "up",
+            "conversation_id": "c1",
+            "message_index": 1,
+            "message_text": msg,
+        }
+        if ts is not None:
+            payload["timestamp"] = ts
+        doc.to_dict.return_value = payload
+        return doc
+
+    dated = _vote("newer carrot yield?", datetime(2026, 6, 1, tzinfo=timezone.utc))
+    undated = _vote("undated carrot yield?", None)
+
+    db = MagicMock()
+    db.collection.return_value.where.return_value.stream.return_value = [
+        undated,
+        dated,
+    ]
+    conv = MagicMock()
+    conv.exists = True
+    conv.to_dict.return_value = {
+        "messages": [
+            {"role": "user", "content": "q"},
+            {"role": "assistant", "content": "Reasoning: data.\n\nharvest is high"},
+        ]
+    }
+    db.collection.return_value.document.return_value.get.return_value = conv
+
+    with patch("app.utils.firestore.get_db", return_value=db), patch(
+        "app.user.services.chatbot_service._question_type", return_value="yield"
+    ):
+        buckets = svc._collect_auto()
+
+    questions = [e["question"] for e in buckets["yield"]]
+    assert questions, "one undated vote emptied the entire few-shot set"
+    # Most-recent first, so the undated vote sorts last rather than throwing.
+    assert questions == ["newer carrot yield?", "undated carrot yield?"]
+
+
 def test_collect_auto_skips_unstructured_single_paragraph_answers():
     """Up-votes predating the three-section rule must not merge back in —
     they teach the old merged format (see _is_structured)."""

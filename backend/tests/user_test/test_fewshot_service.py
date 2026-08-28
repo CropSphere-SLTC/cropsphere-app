@@ -149,10 +149,15 @@ def test_collect_auto_survives_a_document_with_no_timestamp():
 
     dated = _vote("newer carrot yield?", datetime(2026, 6, 1, tzinfo=timezone.utc))
     undated = _vote("undated carrot yield?", None)
+    # A document that vanished between the query and the read: to_dict() is
+    # None, which must be skipped rather than raising on .get().
+    vanished = MagicMock()
+    vanished.to_dict.return_value = None
 
     db = MagicMock()
     db.collection.return_value.where.return_value.stream.return_value = [
         undated,
+        vanished,
         dated,
     ]
     conv = MagicMock()

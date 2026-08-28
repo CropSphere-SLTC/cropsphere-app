@@ -3095,7 +3095,7 @@ def _format_prediction_context(pc) -> str:
     )
 
 
-def _has_prediction_grounding(req) -> bool:
+def _has_prediction_grounding(req: ChatRequest) -> bool:
     """True when the request carries a prediction for the answer to be about.
 
     Such a request is ALREADY grounded, so the retrieval-based grounding

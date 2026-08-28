@@ -228,8 +228,12 @@ def test_failed_average_price_load_is_attempted_only_once():
         calls.append(1)
         return {}  # unreadable CSVs yield nothing
 
-    price_service._avg_price_cache.clear()
+    # Snapshot and restore rather than clear: leaving the module "warmed"
+    # with an empty cache would silently hand every later test the frozen
+    # fallback table instead of the CSV figures.
+    original_cache = dict(price_service._avg_price_cache)
     original_warmed = price_service._avg_price_warmed
+    price_service._avg_price_cache.clear()
     price_service._avg_price_warmed = False
     try:
         with patch.object(
@@ -240,6 +244,7 @@ def test_failed_average_price_load_is_attempted_only_once():
     finally:
         price_service._avg_price_warmed = original_warmed
         price_service._avg_price_cache.clear()
+        price_service._avg_price_cache.update(original_cache)
 
     assert len(calls) == 1, (
         f"a failed load was retried {len(calls)} times — the warm-up flag is "
@@ -249,8 +254,9 @@ def test_failed_average_price_load_is_attempted_only_once():
 
 def test_average_price_falls_back_to_frozen_table_when_load_fails():
     """The one-shot warm-up must not cost callers their fallback figure."""
-    price_service._avg_price_cache.clear()
+    original_cache = dict(price_service._avg_price_cache)
     original_warmed = price_service._avg_price_warmed
+    price_service._avg_price_cache.clear()
     price_service._avg_price_warmed = False
     crop, (expected, _src) = next(iter(price_service._AVG_PRICE_FALLBACK.items()))
     try:
@@ -259,6 +265,7 @@ def test_average_price_falls_back_to_frozen_table_when_load_fails():
     finally:
         price_service._avg_price_warmed = original_warmed
         price_service._avg_price_cache.clear()
+        price_service._avg_price_cache.update(original_cache)
 
     assert avg == pytest.approx(expected)
     assert source is not None

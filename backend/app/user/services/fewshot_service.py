@@ -107,7 +107,11 @@ def _collect_auto() -> dict:
         buckets: dict = {t: [] for t in _TYPES}
         conv_cache: dict = {}
         for doc in ups:
-            pair = _extract_pair(db, doc.to_dict(), conv_cache)
+            # Guarded once here rather than at each use: to_dict() is None for
+            # a document that vanished between the query and the read, and
+            # _extract_pair would then fail on .get().
+            payload = doc.to_dict() or {}
+            pair = _extract_pair(db, payload, conv_cache)
             if not pair:
                 continue
             question, answer = pair

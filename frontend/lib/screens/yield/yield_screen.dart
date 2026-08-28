@@ -46,6 +46,7 @@ import '../../widgets/searchable_dropdown.dart';
 import '../../widgets/app_top_bar.dart';
 import '../../widgets/followup_chip.dart';
 import '../../widgets/skeleton_loading.dart';
+import '../../utils/farm_context.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  District → GPS coordinates for Open-Meteo
@@ -1517,15 +1518,6 @@ String _navSvg(int i, Color color) {
   };
 }
 
-int _weekOfYear() {
-  final now = DateTime.now();
-  final soy = DateTime(now.year, 1, 1);
-  return (((now.difference(soy).inDays + soy.weekday - 1) / 7).ceil()).clamp(
-    1,
-    52,
-  );
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 //  YieldScreen
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1756,7 +1748,7 @@ class _YieldScreenState extends State<YieldScreen> {
           crop: _selectedCrop!,
           district: _selectedDistrict!,
           season: _selectedSeason!,
-          weekOfYear: _weekOfYear(),
+          weekOfYear: farmWeekOfYear(),
           rainfallMm: w.rainfallMm,
           tempMinC: w.tempMinC,
           tempMaxC: w.tempMaxC,
@@ -2239,7 +2231,7 @@ class _YieldScreenState extends State<YieldScreen> {
           borderRadius: 20,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           child: Text(
-            'Week ${_weekOfYear()}',
+            'Week ${farmWeekOfYear()}',
             style: const TextStyle(
               color: Colors.white,
               fontSize: 12,

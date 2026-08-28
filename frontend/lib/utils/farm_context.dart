@@ -36,13 +36,26 @@ int farmWeekOfYear() {
 /// Sri Lanka's two main cultivation seasons, plus the inter-monsoon gap.
 /// Maha Nov–Mar, Yala Apr–Aug, Inter Sep–Oct.
 ///
-/// Month-based, and deliberately identical to the backend's
+/// Month-based and UTC, deliberately identical to the backend's
 /// `chatbot_service._season_for_now`. The earlier week-based version put
 /// Sep–Oct in Yala and returned 'Inter' for a single week of the year, so
 /// the app and the server disagreed about the season for two months
 /// annually — and season is stamped on analytics documents by both sides.
-String farmCurrentSeason() {
-  final month = DateTime.now().month;
+///
+/// This is the ONLY season helper in the app. Screens must call it rather
+/// than keeping a private copy; dashboard_screen.dart had one that was
+/// missed when this moved to months, leaving the dashboard showing Yala
+/// tips while a widget on that same dashboard sent 'Inter' to the API.
+String farmCurrentSeason() =>
+    // UTC, because _season_for_now reads datetime.now(timezone.utc).month.
+    // Local time would still disagree with the server for the first 5h30m of
+    // the 1st of Nov, Apr and Sep at UTC+5:30 — a small window, but the whole
+    // point of this function is that the two sides never disagree.
+    farmSeasonForMonth(DateTime.now().toUtc().month);
+
+/// The season mapping itself, split from the clock so the boundaries can be
+/// tested directly. [month] is 1-12.
+String farmSeasonForMonth(int month) {
   if (month >= 11 || month <= 3) return 'Maha';
   if (month >= 4 && month <= 8) return 'Yala';
   return 'Inter';
@@ -179,6 +192,13 @@ Future<FarmWeather> fetchFarmWeather(String district) async {
     throw Exception('Weather API error ${res.statusCode}');
   }
   final json = jsonDecode(res.body) as Map<String, dynamic>;
+  return farmWeatherFromJson(json);
+}
+
+/// The Open-Meteo response -> FarmWeather step, split from the HTTP call so
+/// the aggregation and the missing-data behaviour can be tested without a
+/// network stub.
+FarmWeather farmWeatherFromJson(Map<String, dynamic> json) {
   final daily = json['daily'] as Map<String, dynamic>?;
   if (daily == null) throw Exception('Weather API returned no daily data');
 

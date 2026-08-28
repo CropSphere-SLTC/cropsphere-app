@@ -513,16 +513,13 @@ def _admin_recipients() -> list:
                 continue
             prefs = data.get("preferences")
             opted_in = _email_opt_in(prefs)
-            # TEMP DIAGNOSTIC (remove after debugging the toggle): shows, per
-            # admin, the exact doc id, role, the raw stored preference value,
-            # and the resulting opt-in decision — so a field-name/value/cache
-            # mismatch is visible in the container logs at send time.
-            logger.info(
-                "[EMAIL DEBUG] recipient scan uid=%s role=%s email=%s "
-                "raw_pref=%r opted_in=%s",
+            # Diagnostic without the address: uid and the opt-in decision are
+            # enough to debug a field-name/value/cache mismatch, and the email
+            # itself does not need to sit in container logs to do it.
+            logger.debug(
+                "recipient scan uid=%s role=%s raw_pref=%r opted_in=%s",
                 doc.id,
                 role,
-                data.get("email"),
                 (prefs or {}).get("email_notifications", "<unset>"),
                 opted_in,
             )
@@ -531,11 +528,8 @@ def _admin_recipients() -> list:
             email = (data.get("email") or "").strip()
             if email:
                 recipients.append(email)
-        logger.info(
-            "[EMAIL DEBUG] recipient list built: %d recipient(s) -> %s",
-            len(recipients),
-            recipients,
-        )
+        # Count, not addresses — the list is what made this a PII sink.
+        logger.debug("recipient list built: %d recipient(s)", len(recipients))
     except Exception as exc:
         logger.warning("admin recipient lookup failed: %s", exc)
         return []
@@ -593,12 +587,7 @@ def set_email_preference(uid: str, enabled: bool) -> bool:
     prefs["email_notifications"] = bool(enabled)
     update_user_preferences(uid, prefs)
     invalidate_recipient_cache()
-    # TEMP DIAGNOSTIC (remove after debugging the toggle): confirms the write
-    # target uid and the full preferences map actually persisted.
-    logger.info(
-        "[EMAIL DEBUG] set_email_preference uid=%s enabled=%s persisted_prefs=%r",
-        uid,
-        enabled,
-        prefs,
-    )
+    # The persisted map can carry the address and other profile fields, so log
+    # only the uid and the flag that was set.
+    logger.debug("set_email_preference uid=%s enabled=%s", uid, enabled)
     return bool(enabled)

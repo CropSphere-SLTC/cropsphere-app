@@ -56,7 +56,7 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha || github.ref }}
           # paths-filter (next step) needs history back to the CI run's
           # parent to diff against; a shallow clone can't do that.
-          fetch-depth: 2
+          fetch-depth: 0
 
       - name: Check whether frontend changed
         if: github.event_name != 'workflow_dispatch'

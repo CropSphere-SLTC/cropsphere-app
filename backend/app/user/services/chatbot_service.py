@@ -3095,7 +3095,7 @@ def _format_prediction_context(pc) -> str:
     )
 
 
-def _has_prediction_grounding(req) -> bool:
+def _has_prediction_grounding(req: ChatRequest) -> bool:
     """True when the request carries a prediction for the answer to be about.
 
     Such a request is ALREADY grounded, so the retrieval-based grounding
@@ -3109,8 +3109,18 @@ def _has_prediction_grounding(req) -> bool:
     no district ("Explain this prediction"), so retrieval legitimately comes
     back empty and the farmer was told their own prediction was outside the
     dataset. Used by chat() and chat_stream() identically.
+
+    Truthiness, not `is not None`: every PredictionContext field is optional,
+    so a client can send `{}`. That carries no figures to ground on, and
+    _prediction_facts() would build an empty block — the guard must treat it
+    as ungrounded rather than waving it through to Groq with no context.
     """
-    return getattr(req, "prediction_context", None) is not None
+    ctx = getattr(req, "prediction_context", None)
+    if ctx is None:
+        return False
+    # Always a PredictionContext — the field is typed Optional[PredictionContext],
+    # so Pydantic has already coerced any dict the client sent.
+    return bool(ctx.model_dump(exclude_none=True))
 
 
 def _build_messages(system: str, context: dict, req: ChatRequest, message: str) -> list:
@@ -3627,8 +3637,13 @@ def _extract_bot_question_options(reply: str) -> list | None:
         # Patterns 1 + 2: "Is that X, Y, or Z?" / "Which crop — X, Y, or Z?".
         # Take the text after the last dash/colon when present so the lead-in
         # ("Which crop are you asking about —") doesn't become an option.
+        # Split on exactly the characters the guard searched for. A plain
+        # hyphen was in the split class but not the search class, so an
+        # em-dash question containing a hyphenated word ("Which crop — long-
+        # staple cotton?") was cut at the hyphen and the chip read "staple
+        # cotton".
         body = (
-            re.split(r"[—:–-]", question)[-1]
+            re.split(r"[—:–]", question)[-1]
             if re.search(r"[—:–]", question)
             else question
         )

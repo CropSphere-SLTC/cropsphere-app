@@ -31,11 +31,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:http/http.dart' as http;
 import '../../app_lang.dart';
 import '../../models/api_models.dart';
 import '../../services/prediction_handoff.dart';
@@ -46,20 +44,11 @@ import '../../widgets/searchable_dropdown.dart';
 import '../../widgets/app_top_bar.dart';
 import '../../widgets/followup_chip.dart';
 import '../../widgets/skeleton_loading.dart';
+import '../../utils/farm_context.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  District → GPS coordinates for Open-Meteo
 // ─────────────────────────────────────────────────────────────────────────────
-const Map<String, List<double>> _districtCoords = {
-  'Nuwara Eliya': [6.9497, 80.7891],
-  'Badulla': [6.9934, 81.0550],
-  'Anuradhapura': [8.3114, 80.4037],
-  'Monaragala': [6.8728, 81.3507],
-  'Ampara': [7.2985, 81.6724],
-  'Hambantota': [6.1241, 81.1185],
-  'Batticaloa': [7.7102, 81.6924],
-  'Jaffna': [9.6615, 80.0255],
-};
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Area unit helpers
@@ -108,45 +97,29 @@ class _WeatherData {
 // ─────────────────────────────────────────────────────────────────────────────
 //  Open-Meteo fetch helper
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// Thin adapter over the shared fetcher in utils/farm_context.dart.
+///
+/// This screen used to carry its own copy of the Open-Meteo call, and it kept
+/// every aggregation bug the shared one had already fixed: rainfall as a daily
+/// MEAN where the backend's rainfall_mm (ge=0, le=500) is a weekly TOTAL —
+/// about 7x too small — humidity from relative_humidity_2m_max rather than
+/// _mean, forecast_days=1 mixing a forecast day into an "observed" window, a
+/// 300mm ceiling instead of 500, and an empty series silently becoming 0
+/// rather than throwing. Those numbers went straight into /api/yield/predict.
+///
+/// _WeatherData stays as this screen's model because the manual-override UI
+/// builds one directly; only the fetching and aggregation are now shared.
 Future<_WeatherData> _fetchWeather(String district) async {
-  final coords = _districtCoords[district];
-  if (coords == null) throw Exception('District coordinates not found');
-
-  final lat = coords[0];
-  final lon = coords[1];
-
-  final uri = Uri.parse(
-    'https://api.open-meteo.com/v1/forecast'
-    '?latitude=$lat&longitude=$lon'
-    '&daily=precipitation_sum,temperature_2m_max,temperature_2m_min,'
-    'relative_humidity_2m_max,wind_speed_10m_max,shortwave_radiation_sum'
-    '&past_days=7&forecast_days=1&timezone=Asia%2FColombo',
-  );
-
-  final res = await http.get(uri).timeout(const Duration(seconds: 15));
-  if (res.statusCode != 200) {
-    throw Exception('Weather API error ${res.statusCode}');
-  }
-
-  final json = jsonDecode(res.body) as Map<String, dynamic>;
-  final daily = json['daily'] as Map<String, dynamic>;
-
-  double avg(String key) {
-    final vals = (daily[key] as List)
-        .whereType<num>()
-        .map((e) => e.toDouble())
-        .toList();
-    if (vals.isEmpty) return 0;
-    return vals.reduce((a, b) => a + b) / vals.length;
-  }
-
+  final w = await fetchFarmWeather(district, withYieldExtras: true);
   return _WeatherData(
-    rainfallMm: avg('precipitation_sum').clamp(0, 300),
-    tempMinC: avg('temperature_2m_min').clamp(0, 45),
-    tempMaxC: avg('temperature_2m_max').clamp(5, 50),
-    humidityPct: avg('relative_humidity_2m_max').clamp(0, 100),
-    windSpeedKmh: avg('wind_speed_10m_max').clamp(0, 100),
-    solarRadMj: avg('shortwave_radiation_sum').clamp(0, 35),
+    rainfallMm: w.rainfallMm,
+    tempMinC: w.tempMinC,
+    tempMaxC: w.tempMaxC,
+    humidityPct: w.humidityPct,
+    // Non-null because withYieldExtras was requested.
+    windSpeedKmh: w.windSpeedKmh!,
+    solarRadMj: w.solarRadMj!,
   );
 }
 
@@ -1517,15 +1490,6 @@ String _navSvg(int i, Color color) {
   };
 }
 
-int _weekOfYear() {
-  final now = DateTime.now();
-  final soy = DateTime(now.year, 1, 1);
-  return (((now.difference(soy).inDays + soy.weekday - 1) / 7).ceil()).clamp(
-    1,
-    52,
-  );
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 //  YieldScreen
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1756,7 +1720,7 @@ class _YieldScreenState extends State<YieldScreen> {
           crop: _selectedCrop!,
           district: _selectedDistrict!,
           season: _selectedSeason!,
-          weekOfYear: _weekOfYear(),
+          weekOfYear: farmWeekOfYear(),
           rainfallMm: w.rainfallMm,
           tempMinC: w.tempMinC,
           tempMaxC: w.tempMaxC,
@@ -2239,7 +2203,7 @@ class _YieldScreenState extends State<YieldScreen> {
           borderRadius: 20,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           child: Text(
-            'Week ${_weekOfYear()}',
+            'Week ${farmWeekOfYear()}',
             style: const TextStyle(
               color: Colors.white,
               fontSize: 12,

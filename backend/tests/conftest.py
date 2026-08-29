@@ -11,6 +11,22 @@ os.environ.setdefault("GROQ_API_KEY", "test-groq-key")
 os.environ.setdefault("ALLOWED_ORIGINS", "http://localhost:3000")
 os.environ.setdefault("MODEL_DIR", "/tmp/models")
 
+# Two OpenMP runtimes end up in this process on macOS: the copy scikit-learn
+# bundles in sklearn/.dylibs, and the system one that XGBoost's wheel loads
+# through @rpath (Homebrew's libomp on Apple silicon). Both spin up their own
+# thread pool, and once TensorFlow, XGBoost and scikit-learn have all been
+# imported into one interpreter the next sklearn call segfaults the whole
+# run — reliably, at tests/ml/test_m5_recommendation_golden.py.
+#
+# Pinning OpenMP to a single thread removes the contention (KMP_DUPLICATE_LIB_OK
+# does not — it was tried and the run still segfaulted). Set here rather than
+# left to the caller's shell so the suite is reproducible; the ML tests assert
+# on model accuracy, not throughput, so one thread costs little.
+# setdefault, so a deliberate override from the environment still wins.
+# Production carries the same setting via ENV OMP_NUM_THREADS=1 in
+# backend/Dockerfile, since load_all() imports the same three libraries.
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+
 import pytest  # noqa: E402
 from unittest.mock import MagicMock, patch  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -64,6 +80,31 @@ def _no_background_analytics():
     tests/unit/analytics_test (log_chat_interaction and the helpers).
     """
     with patch("app.user.services.chatbot_service._emit_analytics"):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _not_banned_by_default(request):
+    """Treat the authenticated test user as not banned.
+
+    The user-facing routers gate on require_user, which calls
+    firestore.is_user_banned. Firestore is a MagicMock in tests, so
+    doc.exists and doc.to_dict().get("is_banned") both come back truthy and
+    every request 403s — an artefact of the mock, not of the code.
+
+    Defaulting to "not banned" keeps each test about its own subject. Tests
+    that care about the ban path patch is_user_banned themselves, and an
+    inner patch takes precedence over this one.
+
+    Skipped for the module that tests is_user_banned itself: patching the
+    module attribute there would not just hide the failing case, it would
+    make the passing ones pass vacuously against this stub rather than the
+    real function.
+    """
+    if request.module.__name__.endswith("utils_test.test_firestore"):
+        yield
+        return
+    with patch("app.utils.firestore.is_user_banned", return_value=False):
         yield
 
 

@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from app.dependencies import get_user_id
+from app.middleware.roles import require_user
 from app.middleware.rate_limit import limiter
 from app.models.schemas import (
     UpdatePreferencesRequest,
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/api/user", tags=["profile"])
 @limiter.limit("30/minute")
 async def profile_get(
     request: Request,
-    user_id: str = Depends(get_user_id),
+    user_id: str = Depends(require_user),
 ) -> UserProfileResponse:
     """Return the caller's profile.
 
@@ -41,7 +41,7 @@ async def profile_get(
 async def profile_update(
     request: Request,
     body: UpdateProfileRequest,
-    user_id: str = Depends(get_user_id),
+    user_id: str = Depends(require_user),
 ):
     """Update the caller's display name.
 
@@ -57,7 +57,7 @@ async def profile_update(
 @limiter.limit("30/minute")
 async def preferences_get(
     request: Request,
-    user_id: str = Depends(get_user_id),
+    user_id: str = Depends(require_user),
 ) -> UserPreferencesResponse:
     """Return the caller's language and notification preferences.
 
@@ -74,7 +74,7 @@ async def preferences_get(
 async def preferences_update(
     request: Request,
     body: UpdatePreferencesRequest,
-    user_id: str = Depends(get_user_id),
+    user_id: str = Depends(require_user),
 ):
     """Save the caller's language and notification preferences.
 

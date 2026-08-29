@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from app.dependencies import get_user_id
+from app.middleware.roles import require_user
 from app.middleware.rate_limit import limiter
 from app.models.schemas import PricePredictRequest, PricePredictResponse
 from app.user.services.price_service import predict_price
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api/price", tags=["price"])
 async def price_predict(
     request: Request,
     body: PricePredictRequest,
-    user_id: str = Depends(get_user_id),
+    user_id: str = Depends(require_user),
 ) -> PricePredictResponse:
     """Predict farmgate and retail crop prices.
 

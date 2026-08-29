@@ -36,17 +36,9 @@ import '../../widgets/searchable_dropdown.dart';
 import '../../widgets/app_top_bar.dart';
 import '../../widgets/followup_chip.dart';
 import '../../widgets/skeleton_loading.dart';
+import '../../utils/farm_context.dart';
 
 typedef _L = Map<String, String>;
-
-int _weekOfYear() {
-  final now = DateTime.now();
-  final soy = DateTime(now.year, 1, 1);
-  return (((now.difference(soy).inDays + soy.weekday - 1) / 7).ceil()).clamp(
-    1,
-    52,
-  );
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Crop data — emoji + sensible per-crop defaults for the values a farmer
@@ -379,7 +371,7 @@ class _DemandScreenState extends State<DemandScreen> {
         DemandRequest(
           crop: _selectedCrop!,
           season: _selectedSeason!,
-          weekOfYear: _weekOfYear(),
+          weekOfYear: farmWeekOfYear(),
           demandLag1: _demandLag1,
           demandLag2: _demandLag2,
           demandLag4: _demandLag4,
@@ -788,9 +780,9 @@ class _DemandScreenState extends State<DemandScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           child: Text(
             _t({
-              'en': 'Week ${_weekOfYear()}',
-              'si': 'සති ${_weekOfYear()}',
-              'ta': 'வாரம் ${_weekOfYear()}',
+              'en': 'Week ${farmWeekOfYear()}',
+              'si': 'සති ${farmWeekOfYear()}',
+              'ta': 'வாரம் ${farmWeekOfYear()}',
             }),
             style: TextStyle(
               color: AppTheme.accents.demand.onFill, // 11.96:1 / 8.33:1

@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from app.dependencies import get_user_id
+from app.middleware.roles import require_user
 from app.middleware.rate_limit import limiter
 from app.models.schemas import RecommendRequest, RecommendResponse
 from app.user.services.recommend_service import get_recommendations
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api/recommend", tags=["recommend"])
 async def recommend(
     request: Request,
     body: RecommendRequest,
-    user_id: str = Depends(get_user_id),
+    user_id: str = Depends(require_user),
 ) -> RecommendResponse:
     """Return ranked crop recommendations via auto-chained weather/yield/price analysis.
 

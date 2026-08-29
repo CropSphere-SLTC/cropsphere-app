@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from app.dependencies import get_user_id
+from app.middleware.roles import require_user
 from app.middleware.rate_limit import limiter
 from app.models.schemas import DemandPredictRequest, DemandPredictResponse
 from app.user.services.demand_service import predict_demand
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api/demand", tags=["demand"])
 async def demand_predict(
     request: Request,
     body: DemandPredictRequest,
-    user_id: str = Depends(get_user_id),
+    user_id: str = Depends(require_user),
 ) -> DemandPredictResponse:
     """Predict consumer demand index and trend for the given crop.
 

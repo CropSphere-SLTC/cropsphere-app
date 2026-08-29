@@ -6,6 +6,7 @@ from datetime import date
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.middleware import SlowAPIMiddleware
@@ -353,10 +354,13 @@ def create_app() -> FastAPI:
     # turns out to be noisy in practice.
     @app.exception_handler(RequestValidationError)
     async def _log_validation_error(request: Request, exc: RequestValidationError):
-        logger.warning(
-            "422 on %s %s: %s", request.method, request.url.path, exc.errors()
-        )
-        return JSONResponse(status_code=422, content={"detail": exc.errors()})
+        # jsonable_encoder, not exc.errors() raw: a validator that raises a
+        # ValueError puts the exception object itself in the error's `ctx`,
+        # which JSONResponse cannot serialise — turning the 422 this handler
+        # exists to surface into an opaque 500.
+        errors = jsonable_encoder(exc.errors())
+        logger.warning("422 on %s %s: %s", request.method, request.url.path, errors)
+        return JSONResponse(status_code=422, content={"detail": errors})
 
     # ── Routers ───────────────────────────────────────────────────────────────
     app.include_router(health_router.router)

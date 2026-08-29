@@ -375,9 +375,22 @@ jobs:
       - name: Flutter analyze (lint)
         run: flutter analyze
 
+      # A shared helper only helps if screens actually use it. Five screens
+      # had each grown a private copy of the week/season helpers, and when
+      # the season moved from weeks to months one copy was missed — leaving
+      # the dashboard showing Yala tips while a widget on that same dashboard
+      # sent 'Inter' to the API. Two review rounds found copies by hand; this
+      # finds the next one for free.
+      - name: No private copies of the shared date helpers
+        run: |
+          if grep -rnE '^[[:space:]]*(int _weekOfYear|String _currentSeason)\(' lib; then
+            echo "::error::Use farmWeekOfYear()/farmCurrentSeason() from lib/utils/farm_context.dart instead of a private copy."
+            exit 1
+          fi
+          echo "No private date helpers found."
+
       - name: Run Flutter tests with coverage
         run: flutter test --coverage
-        continue-on-error: true   # No tests written yet — non-blocking
 
       - name: Upload Flutter coverage
         uses: actions/upload-artifact@v4

@@ -214,3 +214,58 @@ def test_build_sequence_uses_scaler_transform_when_present():
     scaler.transform.assert_called_once()
     assert seq.shape == (1, 8, 9)
     assert seq.dtype == np.float32
+
+
+def test_failed_average_price_load_is_attempted_only_once():
+    """Regression: emptiness was the "not warmed yet" signal, so when the
+    CSVs are unreadable the cache never fills and every /api/price/predict
+    re-opened both files across all four candidate encodings — the opposite
+    of the documented read-once-at-boot behaviour.
+    """
+    calls = []
+
+    def _failing_load():
+        calls.append(1)
+        return {}  # unreadable CSVs yield nothing
+
+    # Snapshot and restore rather than clear: leaving the module "warmed"
+    # with an empty cache would silently hand every later test the frozen
+    # fallback table instead of the CSV figures.
+    original_cache = dict(price_service._avg_price_cache)
+    original_warmed = price_service._avg_price_warmed
+    price_service._avg_price_cache.clear()
+    price_service._avg_price_warmed = False
+    try:
+        with patch.object(
+            price_service, "_load_average_farmgate_prices", _failing_load
+        ):
+            for _ in range(5):
+                price_service._get_average_farmgate_price("Carrot")
+    finally:
+        price_service._avg_price_warmed = original_warmed
+        price_service._avg_price_cache.clear()
+        price_service._avg_price_cache.update(original_cache)
+
+    assert len(calls) == 1, (
+        f"a failed load was retried {len(calls)} times — the warm-up flag is "
+        "not separating 'no data' from 'not attempted'"
+    )
+
+
+def test_average_price_falls_back_to_frozen_table_when_load_fails():
+    """The one-shot warm-up must not cost callers their fallback figure."""
+    original_cache = dict(price_service._avg_price_cache)
+    original_warmed = price_service._avg_price_warmed
+    price_service._avg_price_cache.clear()
+    price_service._avg_price_warmed = False
+    crop, (expected, _src) = next(iter(price_service._AVG_PRICE_FALLBACK.items()))
+    try:
+        with patch.object(price_service, "_load_average_farmgate_prices", lambda: {}):
+            avg, source = price_service._get_average_farmgate_price(crop)
+    finally:
+        price_service._avg_price_warmed = original_warmed
+        price_service._avg_price_cache.clear()
+        price_service._avg_price_cache.update(original_cache)
+
+    assert avg == pytest.approx(expected)
+    assert source is not None

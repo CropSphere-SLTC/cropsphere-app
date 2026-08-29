@@ -64,6 +64,11 @@ _REAL_COVERAGE_THRESHOLD = 0.70
 
 # crop -> (average LKR/kg, which dataset it came from)
 _avg_price_cache: Dict[str, Tuple[float, AveragePriceSourceEnum]] = {}
+# Whether the CSV read has been attempted, regardless of whether it yielded
+# anything. Emptiness alone cannot mean "not warmed yet": when the datasets
+# are unreadable the cache stays empty forever, and every /api/price/predict
+# would re-open both CSVs across four candidate encodings.
+_avg_price_warmed = False
 
 # Last-resort values if the CSVs are missing entirely in some environment —
 # the coverage-checked figures above, frozen at the time this was written,
@@ -244,8 +249,11 @@ def warm_average_farmgate_prices() -> None:
     Called once from the app's startup lifespan (see main.py) so the CSV
     read happens at boot, not on the first /api/price/predict request.
     """
-    if not _avg_price_cache:
-        _avg_price_cache.update(_load_average_farmgate_prices())
+    global _avg_price_warmed
+    if _avg_price_warmed:
+        return
+    _avg_price_cache.update(_load_average_farmgate_prices())
+    _avg_price_warmed = True
 
 
 def _get_average_farmgate_price(
@@ -260,7 +268,7 @@ def _get_average_farmgate_price(
     Returns (average, source); source is None only if the crop is absent
     from both the cache and the frozen fallback table.
     """
-    if not _avg_price_cache:
+    if not _avg_price_warmed:
         warm_average_farmgate_prices()
 
     if crop_name in _avg_price_cache:

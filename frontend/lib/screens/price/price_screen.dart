@@ -33,6 +33,7 @@ import '../../widgets/followup_chip.dart';
 import '../../widgets/localized_names.dart';
 import '../../widgets/searchable_dropdown.dart';
 import '../../widgets/skeleton_loading.dart';
+import '../../utils/farm_context.dart';
 
 typedef _L = Map<String, String>;
 
@@ -195,15 +196,6 @@ String _navSvg(int i, Color color) {
           '<path d="M17 5.5L18.5 7L21 4" stroke="white" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>'
           '</svg>',
   };
-}
-
-int _weekOfYear() {
-  final now = DateTime.now();
-  final soy = DateTime(now.year, 1, 1);
-  return (((now.difference(soy).inDays + soy.weekday - 1) / 7).ceil()).clamp(
-    1,
-    52,
-  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -393,7 +385,7 @@ class _PriceScreenState extends State<PriceScreen> {
           crop: _selectedCrop!,
           district: _selectedDistrict!,
           season: _selectedSeason!,
-          weekOfYear: _weekOfYear(),
+          weekOfYear: farmWeekOfYear(),
           inflationIndex: 1.15,
           fuelPriceIndex: 1.10,
           transportCostIndex: 1.10,
@@ -898,7 +890,7 @@ class _PriceScreenState extends State<PriceScreen> {
           borderRadius: 20,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           child: Text(
-            'Week ${_weekOfYear()}',
+            'Week ${farmWeekOfYear()}',
             style: TextStyle(
               color:
                   AppTheme.accents.price.onFill, // 2.79-4.03:1, known/accepted

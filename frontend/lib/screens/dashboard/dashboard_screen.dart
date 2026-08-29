@@ -43,26 +43,11 @@ import '../../widgets/price_comparison_card.dart';
 import '../../widgets/skeleton_loading.dart';
 import '../../widgets/todays_recommendation_hero.dart';
 import '../profile/account_settings_screen.dart';
+import '../../utils/farm_context.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Season helpers
 // ─────────────────────────────────────────────────────────────────────────────
-
-String _currentSeason() {
-  final w = _weekOfYear();
-  if (w >= 40 || w <= 12) return 'Maha';
-  if (w >= 14 && w <= 39) return 'Yala';
-  return 'Inter';
-}
-
-int _weekOfYear() {
-  final now = DateTime.now();
-  final soy = DateTime(now.year, 1, 1);
-  return (((now.difference(soy).inDays + soy.weekday - 1) / 7).ceil()).clamp(
-    1,
-    52,
-  );
-}
 
 String _greeting() {
   final h = DateTime.now().hour;
@@ -894,7 +879,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   // `manual: true` means the user tapped a dot/arrow themselves — stop
   // autoplay for good instead of restarting the timer under them.
   Future<void> _moveTip(int dir, {bool manual = false}) async {
-    final season = _currentSeason();
+    final season = farmCurrentSeason();
     final tips = _tipsForSeason(season);
     final next = ((_tipIndex + dir) % tips.length + tips.length) % tips.length;
     await _tipCtrl.reverse();
@@ -960,7 +945,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     final displayName =
         user?.displayName ?? user?.email?.split('@').first ?? 'Farmer';
     final firstName = displayName.split(' ').first;
-    final season = _currentSeason();
+    final season = farmCurrentSeason();
     final tips = _tipsForSeason(season);
     final tip = tips[_tipIndex % tips.length];
 

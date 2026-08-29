@@ -2252,6 +2252,29 @@ def test_crop_selection_question_drops_the_lead_in():
     assert cs._extract_bot_question_options(reply) == ["Carrot", "Maize", "Cowpea"]
 
 
+def test_hyphenated_option_survives_the_em_dash_split():
+    """Regression: the guard searched for [—:–] but split on [—:–-]. A plain
+    hyphen in the split class meant an em-dash question containing a
+    hyphenated word was cut at the hyphen instead, so the chip rendered the
+    tail of a word ("staple cotton") rather than the option.
+    """
+    reply = (
+        "Happy to help.\n\n"
+        "Which crop are you asking about — long-staple cotton, Maize, or Cowpea?"
+    )
+    assert cs._extract_bot_question_options(reply) == [
+        "long-staple cotton",
+        "Maize",
+        "Cowpea",
+    ]
+
+
+def test_colon_lead_in_still_splits():
+    """The narrowed class must not cost the colon and en-dash lead-ins."""
+    reply = "Sure.\n\nWhich crop: Carrot, Maize, or Cowpea?"
+    assert cs._extract_bot_question_options(reply) == ["Carrot", "Maize", "Cowpea"]
+
+
 def test_bulleted_options_become_chips():
     reply = (
         "I can cover these:\n\n- Carrot\n- Maize\n- Cowpea\n\nWhich one shall I use?"

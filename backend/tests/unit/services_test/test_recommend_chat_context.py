@@ -125,6 +125,35 @@ def test_gate_and_grounding_read_the_recommendation_context(context):
     assert _has_prediction_grounding(req) is True
 
 
+def test_empty_prediction_context_is_not_grounded():
+    """Regression: the guard only checked for None. Every PredictionContext
+    field is optional, so a client sending `{}` was declared grounded and
+    skipped the retrieval-based refusal — reaching Groq with no figures at
+    all, which is precisely the ungrounded answer the guard exists to stop.
+    """
+    req = ChatRequest(
+        message="Explain this prediction",
+        user_id="u1",
+        prediction_context=PredictionContext(),
+    )
+    assert _has_prediction_grounding(req) is False
+
+
+def test_absent_prediction_context_is_not_grounded():
+    req = ChatRequest(message="Hello", user_id="u1")
+    assert _has_prediction_grounding(req) is False
+
+
+def test_partially_filled_prediction_context_is_grounded():
+    """One real figure is enough — the guard must not demand a full context."""
+    req = ChatRequest(
+        message="Explain this prediction",
+        user_id="u1",
+        prediction_context=PredictionContext(crop="Carrot"),
+    )
+    assert _has_prediction_grounding(req) is True
+
+
 def test_other_prediction_kinds_are_unaffected():
     """One model serves four screens; a price context must not grow crop rows."""
     out = _format_prediction_context(
